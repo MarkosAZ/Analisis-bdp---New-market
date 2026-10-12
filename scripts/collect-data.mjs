@@ -1,7 +1,7 @@
 // Recolecta los datos que usa la página sin extensión. Corre en GitHub Actions
 // cada 2 horas y escribe en <salida>/data/fuente/:
 //   indice.json                     cuándo se generó y cuántos partidos hay
-//   AAAA-MM-DD/<deporte>.json       partidos de hoy y mañana con últimos
+//   AAAA-MM-DD/<deporte>.json       partidos de hoy y mañana (fútbol, básquet y béisbol) con últimos
 //                                   resultados, H2H, cuotas de Apuesta Total y xG
 //   noticias.json                   noticias de Flashscore, ESPN y FotMob (para la
 //                                   red neuronal; se acumulan 3 días en caché)
@@ -22,6 +22,8 @@ import { getTeamStrength } from '../extension/sources/understat.js';
 import { basicNorm, bestByName, countryCode, matchEvent } from '../docs/js/analysis/matching.js';
 import { offersFromApuestaTotal } from '../docs/js/analysis/markets.js';
 import { addDays, limaToday } from '../docs/js/util.js';
+import { ACTIVE_SPORTS } from '../docs/js/sports.js';
+import { marketsOf } from '../docs/js/analysis/picks.js';
 import { compactDay, compactResult } from '../docs/js/data-format.js';
 import { parseFsGames, parseFsIncidents, parseFsStats, periodsFromRow, recordFromFlashscore } from '../docs/js/analysis/records.js';
 import { teamStatsFrom } from '../docs/js/analysis/teamstats.js';
@@ -148,7 +150,7 @@ async function main() {
   const today = limaToday();
   await pruneCache(DETAIL_CACHE);
   const started = Date.now();
-  const sports = Object.keys(SPORT_IDS);
+  const sports = Object.keys(SPORT_IDS).filter((s) => ACTIVE_SPORTS.includes(s)); // solo fútbol, básquet y béisbol
   const upcoming = {}; // fecha -> deporte -> partidos
   const results = {}; // fecha -> id -> resultado
   const finished = {}; // fecha -> partidos terminados (para los registros)
@@ -180,6 +182,7 @@ async function main() {
   for (const sport of sports) {
     const events = AHEAD.flatMap((d) => upcoming[addDays(today, d)]?.[sport] || []).filter((e) => e.state === 'pendiente');
     if (!events.length) continue;
+    const allowed = marketsOf(sport);
     try {
       const { items: list } = await getEventList({ sport, from: now - 3 * 3600000, to: now + 54 * 3600000 });
       const pairs = new Map();
@@ -191,7 +194,8 @@ async function main() {
       const { items: markets, errors } = await getMarkets({ eventIds: [...pairs.keys()], sport });
       if (errors.length) log(`Apuesta Total ${sport}: ${errors.length} errores de mercados`);
       for (const [atId, { ev, m }] of pairs) {
-        const list2 = offersFromApuestaTotal(markets[atId] || [], m.item, ev, m.swapped);
+        // Solo los mercados que analiza la página (archivos más livianos).
+        const list2 = offersFromApuestaTotal(markets[atId] || [], m.item, ev, m.swapped).filter((o) => allowed.has(o.market));
         if (!list2.length) continue;
         offers[ev.id] = list2;
         const key = `${sport}|${ev.tournament.id}`;

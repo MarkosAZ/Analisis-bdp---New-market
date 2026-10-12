@@ -1,33 +1,40 @@
 # Análisis BDP
 
-Página web para analizar partidos de todos los deportes, encontrar las mejores
-cuotas de Apuesta Total y Betano por nivel de confianza y llevar el historial de
-resultados. Funciona en el **celular y en la PC**:
+Página web para analizar partidos de fútbol, básquet y béisbol, encontrar las
+mejores cuotas de Apuesta Total y Betano por nivel de confianza y llevar el
+historial de resultados. Funciona en el **celular y en la PC**:
 <https://markosaz.github.io/Analisis-bdp---New-market/>
 
-- **Partidos**: fútbol, básquet, tenis, béisbol, hockey, vóley y más, agrupados
-  por país y liga. Marca ligas completas o partidos sueltos. Dos fuentes:
+- **Partidos**: fútbol, básquet y béisbol, agrupados por país y liga. Marca
+  ligas completas o partidos sueltos. Dos fuentes:
   - **Automático** (celular y PC, sin instalar nada): partidos de hoy y mañana de
-    Flashscore con **todos los mercados** de Apuesta Total, últimos partidos, H2H
-    y estadísticas promedio de cada equipo (córners, tarjetas, tiros, rebotes,
-    aces...) y xG de Understat/Flashscore. GitHub Actions los actualiza **cada 2
+    Flashscore con los mercados analizados de Apuesta Total, últimos partidos, H2H
+    y estadísticas promedio de cada equipo (córners, tarjetas, tiros...) y xG de
+    Understat/Flashscore. GitHub Actions los actualiza **cada 2
     horas**. Los partidos con cuotas llevan la marca *cuotas*.
   - **Sofascore** (PC con la extensión): cualquier día, con forma, bajas y votos
     de Sofascore. Al analizar, la extensión suma las estadísticas de equipo de
     Sofascore **y** de Flashscore, todos los mercados de Betano (abre la página
     de cada partido) y los de Apuesta Total en vivo.
-- **Todos los mercados**: resultado, doble oportunidad, más/menos, hándicap
-  (también asiático), ambos marcan, mitades, cuartos, periodos, sets y entradas,
-  córners, tarjetas, tiros, faltas, rebotes, aces, marcador exacto, margen,
-  primer/último gol, minuto del gol, descanso/final y los combinados de la casa.
-  No se analizan los de jugador ni los de torneo (campeón, podio...).
-- **Análisis estadístico** (datos de Sofascore y Flashscore, sin noticias):
-  forma reciente, goles/puntos a favor y en contra, H2H, xG, estadísticas de
-  cada equipo y la probabilidad que dan las cuotas. Los mercados principales
-  usan su modelo (Poisson en fútbol y hockey, puntos en básquet, ranking en
-  tenis); los demás se estiman **simulando el partido** miles de veces con lo
-  esperado ya calibrado con las cuotas principales, así todas las
-  probabilidades del partido son coherentes entre sí.
+- **Mercados analizados** (solo estos):
+  - Fútbol: goles totales Más/Menos, ambos equipos anotan, Más/Menos córners,
+    total de tarjetas, tiros al arco, remates totales y córners del primer tiempo
+    (siempre el total del partido, no los de cada equipo).
+  - Básquet: total de puntos, hándicap, y hándicap y total de puntos del primer
+    tiempo. Los Más/Menos de jugador quedan para una segunda etapa.
+  - Béisbol: ganador, hándicap (run line) y total de carreras.
+- **Una línea por mercado**: solo líneas .5 (sin enteras ni asiáticas, así solo
+  hay dos resultados posibles y nunca devolución) y, en cada casa por separado,
+  la línea con **menos diferencia entre sus dos cuotas**. Ejemplo: Más 2.5 @1.75 /
+  Menos 2.5 @1.80 (diferencia 0.05) gana a Más 3.5 @1.90 / Menos 3.5 @2.05
+  (0.15). Si las dos casas eligen la misma línea, el pick muestra la mejor cuota.
+- **Análisis estadístico** (datos de Sofascore y Flashscore, sin noticias): la
+  probabilidad sale **solo de la estadística**, las cuotas no la cambian. Goles,
+  ambos marcan y béisbol: modelo de Poisson con la forma reciente, H2H y xG;
+  básquet: modelo de puntos; córners, tarjetas y tiros: promedios de cada equipo
+  (lo que hace y lo que le permite el rival); primer tiempo del básquet: partido
+  simulado miles de veces. Hacen falta al menos 4 partidos con datos de cada
+  equipo. La probabilidad que dan las cuotas se muestra solo como referencia.
 - **Análisis con red neuronal** (Sofascore, Flashscore **y noticias** de
   Flashscore, ESPN y FotMob): corrige las probabilidades del análisis
   estadístico con lo que aprende de los resultados reales; además de los datos
@@ -51,10 +58,9 @@ resultados. Funciona en el **celular y en la PC**:
   y método, cuenta una sola vez; una apuesta cuyo dato no publica ninguna
   fuente queda nula a los 4 días.
 
-Los niveles, la cuota mínima, las cuotas objetivo de las combinadas, **qué tipos
-de mercado pueden salir como pick** (principales, periodos, estadísticas,
-marcador, combinados, otros), si se abre la página de cada partido en Betano y
-el token de GitHub se cambian en **⚙ Ajustes**.
+Los niveles, la cuota mínima, las cuotas objetivo de las combinadas, **cuáles
+de los mercados analizados pueden salir como pick**, si se abre la página de
+cada partido en Betano y el token de GitHub se cambian en **⚙ Ajustes**.
 
 ## Cómo se usa
 
@@ -108,11 +114,11 @@ docs/                 página web (GitHub Pages)
   index.html, css/    interfaz
   js/app.js           une todo
   js/views/           pestañas Partidos, Análisis e Historial
-  js/analysis/        modelos, cuotas, emparejamiento, picks, combinadas, red neuronal
+  js/analysis/        modelos, cuotas y línea más pareja, emparejamiento, picks, combinadas, red neuronal
     catalog.js        traduce los mercados de Betano y Apuesta Total a un formato común
     outcomes.js       liquida cualquier mercado con el registro del partido
-    simulate.js       simula partidos de cada deporte (probabilidad de cualquier mercado)
-    calibrate.js      ajusta goles/puntos esperados a las cuotas principales
+    simulate.js       simula partidos (primer tiempo del básquet)
+    stats.js          córners, tarjetas y tiros con los promedios de cada equipo
     records.js        registro del partido con datos de Flashscore y Sofascore
     teamstats.js      estadísticas promedio de cada equipo
     news.js           señales de las noticias para la red neuronal

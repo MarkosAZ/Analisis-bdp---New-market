@@ -211,21 +211,45 @@ export function marketProbabilities(offers) {
   return new Map([...acc].map(([k, ps]) => [k, mean(ps)]));
 }
 
-// Probabilidad aproximada cuando el grupo de la casa está incompleto (p. ej.
-// solo algunos marcadores exactos): 1/cuota dividida por el margen típico de
-// ese tipo de mercado. Es menos fiable que marketProbabilities.
-const MANY_WAY = new Set(['CS', 'CSANY', 'CNT', 'MRG', 'FGT', 'AND', 'OR', 'PMAX', 'MAXPER', 'GSEQ', 'SEQ', 'OU3', 'HCP3', 'COURSE']);
-export function looseProbabilities(offers) {
-  const acc = new Map();
-  for (const o of offers) {
-    const spec = parseMarketId(o.market);
-    if (!spec || !(o.price > 1)) continue;
-    const overround = MANY_WAY.has(spec.t) ? 1.22 : spec.t === '1X2' ? 1.08 : 1.06;
-    const key = candidateKey(o.market, o.sel, o.line);
-    if (!acc.has(key)) acc.set(key, []);
-    acc.get(key).push(Math.min(0.97, 1 / o.price / overround));
+// ---- Línea más pareja ----
+
+export const BETTABLE = ['apuestatotal', 'betano'];
+// Las dos selecciones de cada mercado (solo pasa una de las dos).
+const PAIRS = { OU: ['over', 'under'], HCP: ['home', 'away'], BTTS: ['yes', 'no'], ML: ['home', 'away'] };
+
+// De cada mercado permitido (Set de identificadores) y en cada casa por
+// separado, la línea .5 con menos diferencia entre sus dos cuotas; las demás
+// líneas se descartan. Ej.: Más 2.5 @1.75 / Menos 2.5 @1.80 (diferencia 0.05)
+// gana a Más 3.5 @1.90 / Menos 3.5 @2.05 (0.15). Sin líneas enteras ni
+// asiáticas: con .5 no hay devolución. Devuelve las ofertas de las líneas elegidas.
+export function balancedLines(offers, allowed) {
+  const out = [];
+  const usable = offers.filter((o) => BETTABLE.includes(o.source) && allowed.has(o.market) && o.price > 1);
+  for (const list of groupBy(usable, (o) => `${o.source}|${o.market}`).values()) {
+    const spec = parseMarketId(list[0].market);
+    const pair = PAIRS[spec?.t];
+    if (!pair) continue;
+    const hasLine = spec.t === 'OU' || spec.t === 'HCP';
+    const byLine = new Map(); // línea -> { selección: mejor oferta }
+    for (const o of list) {
+      if (hasLine ? !isHalfLine(o.line) : o.line != null) continue;
+      if (!pair.includes(o.sel)) continue;
+      const sides = byLine.get(o.line) || byLine.set(o.line, {}).get(o.line);
+      if (!sides[o.sel] || o.price > sides[o.sel].price) sides[o.sel] = o;
+    }
+    let best = null;
+    for (const sides of byLine.values()) {
+      const [a, b] = pair.map((s) => sides[s]);
+      if (!a || !b) continue;
+      // Margen de la casa fuera de lo normal: las dos cuotas no son del mismo mercado.
+      const overround = 1 / a.price + 1 / b.price;
+      if (overround < 0.98 || overround > 1.3) continue;
+      const diff = Math.round(Math.abs(a.price - b.price) * 1000);
+      if (!best || diff < best.diff || (diff === best.diff && overround < best.overround)) best = { diff, overround, a, b };
+    }
+    if (best) for (const o of [best.a, best.b]) out.push({ ...o, group: `${o.source}|${o.market}|${o.line ?? ''}` });
   }
-  return new Map([...acc].map(([k, ps]) => [k, mean(ps)]));
+  return out;
 }
 
 // Mejor cuota por casa para cada selección: Map(clave -> { casa: cuota }).

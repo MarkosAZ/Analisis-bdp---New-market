@@ -130,3 +130,11 @@ test('etiquetas en español para cualquier mercado', () => {
   assert.equal(labelOf('HCP', 'away', 1.5, 'football', names), 'Alianza -1.5 (hándicap)');
   assert.equal(labelOf('OU@i1-5', 'under', 4.5, 'baseball', names), 'Menos de 4.5 carreras (primeras 5 entradas)');
 });
+
+test('ganador con entradas extra, entradas extra Sí/No y puntos de tarjetas', () => {
+  assert.deepEqual(keysOf(parse('Ganador (incl. entradas extra)', [HOME, AWAY], 'baseball')), ['ML|home|', 'ML|away|']);
+  assert.deepEqual(keysOf(parse('Entradas Extra', ['Sí', 'No'], 'baseball')), ['OT|yes|', 'OT|no|']);
+  // Puntos de tarjetas (amarilla 10, roja 25) no es la cantidad de tarjetas.
+  assert.equal(parse('Puntos de Tarjetas', ['Más de 45.5', 'Menos de 45.5']).unsupported, 'special');
+  assert.deepEqual(keysOf(parse('Tarjetas Totales Más/Menos', ['Más de 4.5', 'Menos de 4.5'])), ['OU.cards|over|4.5', 'OU.cards|under|4.5']);
+});

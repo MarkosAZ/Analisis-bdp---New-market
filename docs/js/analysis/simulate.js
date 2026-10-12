@@ -566,7 +566,9 @@ const HOME_RATIO = { corners: 1.25, shots: 1.25, shots_on: 1.25, cards: 0.85, fo
 
 // Promedio esperado de cada estadística para local y visita: datos de los
 // equipos (con la ventaja de local) o, sin datos, el promedio típico.
-export function statPriors(sport, teamStats) {
+// shrink: con pocos partidos, la media del equipo se acerca a la típica como
+// si hubiera `shrink` partidos más con el promedio de una liga.
+export function statPriors(sport, teamStats, { shrink = 0 } = {}) {
   const defs = sport === 'football' ? FOOTBALL_STATS : sport === 'ice-hockey' ? HOCKEY_STATS : null;
   if (!defs) return {};
   const out = {};
@@ -574,10 +576,14 @@ export function statPriors(sport, teamStats) {
     const r = Math.sqrt(HOME_RATIO[name] || 1);
     const fromTeams = Boolean(teamStats?.home?.[name] && teamStats?.away?.[name]);
     const n = Math.min(teamStats?.home?.[name]?.n ?? 0, teamStats?.away?.[name]?.n ?? 0);
+    const mean = (side) => {
+      const m = teamMean(teamStats, name, side, def.mean);
+      return fromTeams && shrink ? (n * m + shrink * def.mean) / (n + shrink) : m;
+    };
     out[name] = {
       k: def.k,
-      h: teamMean(teamStats, name, 0, def.mean) * r,
-      a: teamMean(teamStats, name, 1, def.mean) / r,
+      h: mean(0) * r,
+      a: mean(1) / r,
       n: fromTeams ? n : 0,
     };
   }
@@ -587,11 +593,10 @@ export function statPriors(sport, teamStats) {
 // Parámetros de simulación de un partido. model: salida de models.predict.
 // teamStats: { home: { corners: { for, against }, ... }, away: {...} } (Flashscore/Sofascore).
 // winProb: probabilidad de que gane el local (para deportes de sets).
-// statMeans: promedios de estadísticas ya calibrados con las cuotas (calibrate.fitStatMeans).
-export function simParams(ev, cfg, model, { teamStats = null, winProb = null, format = {}, statMeans = null } = {}) {
+export function simParams(ev, cfg, model, { teamStats = null, winProb = null, format = {} } = {}) {
   const sport = ev.sport;
   const e = model?.expected;
-  const means = statMeans || statPriors(sport, teamStats);
+  const means = statPriors(sport, teamStats);
   if (sport === 'football' || sport === 'futsal') {
     if (!e) return null;
     const stats = {};

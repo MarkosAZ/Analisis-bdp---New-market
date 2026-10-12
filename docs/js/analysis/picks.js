@@ -7,16 +7,30 @@ export const LEVELS = [
   { id: 'moderada', name: 'Moderada' },
 ];
 
-// Grupos de mercados que se pueden activar o desactivar en los ajustes.
+// Mercados que se analizan: solo estos, con líneas .5 (dos resultados posibles,
+// sin devolución) y, en cada casa, la línea con menos diferencia entre sus dos
+// cuotas (markets.balancedLines). market: identificador del catálogo.
+export const MARKETS = [
+  { sport: 'football', market: 'OU', name: 'Goles totales Más/Menos' },
+  { sport: 'football', market: 'BTTS', name: 'Ambos equipos anotan' },
+  { sport: 'football', market: 'OU.corners', name: 'Más/Menos córners' },
+  { sport: 'football', market: 'OU.cards', name: 'Total de tarjetas' },
+  { sport: 'football', market: 'OU.shots_on', name: 'Tiros al arco' },
+  { sport: 'football', market: 'OU.shots', name: 'Remates totales' },
+  { sport: 'football', market: 'OU.corners@h1', name: 'Córners en el primer tiempo Más/Menos' },
+  { sport: 'basketball', market: 'OU', name: 'Total de puntos' },
+  { sport: 'basketball', market: 'HCP', name: 'Hándicap' },
+  { sport: 'basketball', market: 'HCP@h1', name: 'Primer tiempo: hándicap' },
+  { sport: 'basketball', market: 'OU@h1', name: 'Primer tiempo: total de puntos' },
+  { sport: 'baseball', market: 'ML', name: 'Ganador' },
+  { sport: 'baseball', market: 'HCP', name: 'Hándicap (run line)' },
+  { sport: 'baseball', market: 'OU', name: 'Total de carreras' },
+].map((m) => ({ ...m, id: `${m.sport}:${m.market}` }));
+
+export const marketsOf = (sport) => new Set(MARKETS.filter((m) => m.sport === sport).map((m) => m.market));
+
+// Tipo de mercado (para las variables de la red neuronal).
 // family: la de catalog.familyOf (resultado, total, periodo, corners...).
-export const MARKET_GROUPS = [
-  { id: 'principales', name: 'Resultado, total, hándicap y ambos marcan' },
-  { id: 'periodos', name: 'Mitades, cuartos, periodos, sets y entradas' },
-  { id: 'estadisticas', name: 'Córners, tarjetas, tiros, faltas y otras estadísticas' },
-  { id: 'marcador', name: 'Marcador exacto y margen de victoria' },
-  { id: 'combinados', name: 'Combinados de la casa (descanso/final, resultado y total…)' },
-  { id: 'otros', name: 'Otros (primer gol, par/impar, prórroga, carrera a…)' },
-];
 const MAIN = new Set(['resultado', 'total', 'handicap', 'ambos', 'games', 'sets', 'legs', 'maps', 'rounds', 'frames']);
 export function marketGroupOf(family) {
   if (!family || MAIN.has(family)) return 'principales';
@@ -26,7 +40,8 @@ export function marketGroupOf(family) {
   if (family === 'otro') return 'otros';
   return 'estadisticas';
 }
-const allowedGroup = (c, s) => !s.marketGroups || s.marketGroups.includes(marketGroupOf(c.family));
+// Los ajustes eligen cuáles de los mercados analizados pueden salir en picks y combinadas.
+const allowedMarket = (c, s) => !s.markets || s.markets.includes(`${c.sport}:${c.market}`);
 
 export const DEFAULT_SETTINGS = {
   alta: 0.8, // probabilidad mínima para "alta"
@@ -36,7 +51,7 @@ export const DEFAULT_SETTINGS = {
   comboTargets: [5, 10], // cuota mínima de cada combinada
   comboMinProb: 0.7, // probabilidad mínima de cada selección de una combinada
   comboMaxLegs: 8,
-  marketGroups: MARKET_GROUPS.map((g) => g.id), // mercados que pueden salir en picks y combinadas
+  markets: MARKETS.map((m) => m.id), // mercados que pueden salir en picks y combinadas
   betanoAllMarkets: true, // abrir la página de cada partido en Betano (todos los mercados; más lento)
 };
 
@@ -56,7 +71,7 @@ const levelRank = (id) => LEVELS.findIndex((l) => l.id === id);
 export function selectPicks(candidates, s = DEFAULT_SETTINGS) {
   const picks = [];
   for (const list of groupBy(
-    candidates.filter((c) => c.best && c.best.price >= s.minOdds && allowedGroup(c, s)),
+    candidates.filter((c) => c.best && c.best.price >= s.minOdds && allowedMarket(c, s)),
     (c) => c.eventId,
   ).values()) {
     for (const level of LEVELS) {
@@ -129,7 +144,7 @@ export function buildCombos(candidates, s = DEFAULT_SETTINGS, sources = ['apuest
   const seen = new Set();
   for (const source of sources) {
     const options = candidates
-      .filter((c) => c.p >= s.comboMinProb && c.prices?.[source] >= s.minOdds && allowedGroup(c, s))
+      .filter((c) => c.p >= s.comboMinProb && c.prices?.[source] >= s.minOdds && allowedMarket(c, s))
       .map((c) => ({ key: c.key, eventId: c.eventId, p: c.p, price: c.prices[source] }));
     for (const target of s.comboTargets) {
       const used = new Set();

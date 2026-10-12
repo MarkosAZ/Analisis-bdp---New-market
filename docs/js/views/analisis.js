@@ -8,7 +8,7 @@ import { fmtDateTime, fmtTime, h, pct } from '../util.js';
 const SOURCE_NAMES = { sofascore: 'Sofascore', flashscore: 'Flashscore', apuestatotal: 'Apuesta Total', betano: 'Betano', understat: 'Understat', simulacion: 'Simulación', noticias: 'Noticias' };
 const UNITS = { simulacion: 'selecciones', noticias: 'noticias' };
 const TITLES = {
-  simulacion: 'Mercados sin modelo propio (mitades, córners, marcador exacto...) estimados simulando el partido',
+  simulacion: 'Primer tiempo del básquet: estimado simulando el partido con lo esperado del modelo',
   noticias: 'Noticias de Flashscore, ESPN y FotMob: solo las usa la red neuronal',
 };
 const MODE = { 'direct-api': 'directo', direct: 'directo', tab: 'pestaña', navigate: 'navegando' };
@@ -254,7 +254,7 @@ function renderMethod(root, app, a) {
       h(
         'div',
         { class: 'banner' },
-        'No hubo selecciones con suficiente probabilidad y cuota. Prueba con más partidos o revisa en Ajustes los mínimos de probabilidad y cuota.',
+        'No hubo selecciones con suficiente probabilidad y cuota. Solo se analiza la línea .5 más pareja de cada mercado de la lista (⚙ Ajustes) y hacen falta al menos 4 partidos con datos de cada equipo. Prueba con más partidos o revisa en Ajustes los mínimos de probabilidad y cuota.',
       ),
     );
   }
@@ -294,7 +294,7 @@ function renderMethod(root, app, a) {
     h(
       'p',
       { class: 'note' },
-      'Las probabilidades son estimaciones de los modelos, no garantías. Una combinada de cuota 5 tiene, según el propio mercado, alrededor de 20% de probabilidad: la página busca la combinación con la mayor probabilidad estimada para esa cuota. Apuesta solo lo que estés dispuesto a perder.',
+      'Las probabilidades salen de la estadística de los equipos (no de las cuotas) y son estimaciones, no garantías. Una combinada de cuota 5 tiene, según el propio mercado, alrededor de 20% de probabilidad: la página busca la combinación con la mayor probabilidad estimada para esa cuota. Apuesta solo lo que estés dispuesto a perder.',
     ),
   );
 }

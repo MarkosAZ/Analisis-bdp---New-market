@@ -1,10 +1,10 @@
-// Pestaña "Partidos": deportes, ligas y partidos del día con casillas para
+// Pestaña "Partidos": fútbol, básquet y béisbol, con sus ligas y partidos del día y casillas para
 // marcar ligas completas o partidos sueltos. Dos fuentes:
 //  - Automático: partidos de Flashscore y cuotas de Apuesta Total publicados
 //    cada 2 horas (celular y PC, sin extensión). Hoy y mañana.
 //  - Sofascore: con la extensión, cualquier día.
 import * as provider from '../provider.js';
-import { SPORTS } from '../sports.js';
+import { activeSports } from '../sports.js';
 import { addDays, flag, fmtDay, fmtTime, groupBy, h, limaToday } from '../util.js';
 import { basicNorm } from '../analysis/matching.js';
 
@@ -122,7 +122,7 @@ export class PartidosView {
     const selectedBySport = groupBy([...state.selected.values()], (e) => e.sport);
     // Automático: solo los deportes publicados para ese día, con cuántos partidos tienen cuotas.
     const published = state.source === 'auto' ? provider.cachedIndex()?.days?.[state.date] : null;
-    const sports = published ? SPORTS.filter((s) => published[s.slug] || s.slug === state.sport) : SPORTS;
+    const sports = published ? activeSports().filter((s) => published[s.slug] || s.slug === state.sport) : activeSports();
     this.chips.replaceChildren(
       ...sports.map((s) => {
         const data = state.events.get(app.eventsKey(s.slug));
