@@ -230,8 +230,10 @@ test('del análisis al historial: picks, combinadas, filas de entrenamiento y re
   assert.ok(rows.length > 0);
   assert.ok(rows.every((r) => r.y === null && r.x.length === FEATURES.length));
   const s = daySummary({ analyses: [stored] });
-  assert.equal(s.n, stored.picks.length);
-  assert.equal(s.pending, stored.picks.length);
+  const main = stored.picks.filter((p) => p.level !== 'baja').length;
+  assert.equal(s.n, main, 'el total no cuenta el nivel Baja');
+  assert.equal(s.pending, main);
+  assert.equal(s.byLevel.baja?.n || 0, stored.picks.length - main);
 });
 
 test('el mismo partido da siempre las mismas probabilidades simuladas', () => {

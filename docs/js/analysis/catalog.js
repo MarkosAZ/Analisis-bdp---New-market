@@ -322,7 +322,9 @@ function teamOf(name) {
 // ---- Más/Menos de jugador (básquet) ----
 // Spec: { t: 'OU', stat: 'pl_pts', scope: 'ft', team: null, n: 'LeBron James' } → "OU.pl_pts#LeBron James".
 
-export const PLAYER_STAT_CODES = ['pl_pts', 'pl_reb', 'pl_ast', 'pl_3pm', 'pl_stl', 'pl_blk', 'pl_tov', 'pl_oreb', 'pl_dreb', 'pl_ftm', 'pl_2pm', 'pl_pra', 'pl_pr', 'pl_pa', 'pl_ra', 'pl_sb'];
+export const PLAYER_STAT_CODES = [
+  'pl_pts', 'pl_reb', 'pl_ast', 'pl_3pm', 'pl_stl', 'pl_blk', 'pl_tov', 'pl_oreb', 'pl_dreb', 'pl_ftm', 'pl_2pm', 'pl_pra', 'pl_pr', 'pl_pa', 'pl_ra', 'pl_sb',
+];
 export const isPlayerStat = (stat) => typeof stat === 'string' && stat.startsWith('pl_');
 
 // Frase de la estadística (sin tildes, minúsculas) con su "Total de" / "totales". Lo combinado y lo específico primero.
@@ -344,13 +346,23 @@ const PLAYER_STATS = [
   ['tapones|bloqueos|tapas', 'pl_blk'],
   ['perdidas(?: de balon)?|turnovers', 'pl_tov'],
   ['puntos', 'pl_pts'],
-].map(([re, code]) => [new RegExp(`(?<![a-z0-9])(?:(?:total(?:es)?|cantidad|numero) de\\s+|total\\s+)?(?:${re})(?:\\s+(?:totales|total|anotados|del jugador|de jugador))*(?![a-z0-9])`), code]);
+].map(([re, code]) => [
+  new RegExp(`(?<![a-z0-9])(?:(?:total(?:es)?|cantidad|numero) de\\s+|total\\s+)?(?:${re})(?:\\s+(?:totales|total|anotados|del jugador|de jugador))*(?![a-z0-9])`),
+  code,
+]);
 
 // Relleno que no es parte del nombre: "(incl. prórroga)", "Más/Menos", "del jugador".
 const PLAYER_FILLER = /\((?=[^)]*\b(?:incl|prorroga|extra|suplementario|ot)\b)[^)]*\)|\bincl(?:uye|uida|uido)?\.?\s+(?:la\s+)?(?:prorroga|tiempo extra|tiempo suplementario)\b|\bmas\s*\/\s*menos\b|\bmas\s+o\s+menos\b|\bover\s*\/\s*under\b|\bo\/u\b|\b(?:del|de)\s+jugador\b|\bjugador\b/g;
 const PLAYER_LINE = /\(?(?<![\w.])\d+[.,]\d+(?![\w.])\)?/g;
 // Lo que no puede estar en el nombre de un jugador (periodos, equipos, otros mercados, cifras).
-const NOT_NAME = /\d|[[\]{}|~/&+=<>?!%#*@]|\b(local|visitante|equipos?|partidos?|periodos?|cuartos?|tiempos?|mitad|medio|primer[oa]?|segund[oa]|tercer[oa]?|total(es)?|mas|menos|over|under|ganador|gana|resultado|handicap|margen|rango|carrera|impar|par|way|prorroga|extra|suplementario|incl|h2h|double|triple|mejor|mayor|anotador|empate|cada|ambos|todos|exact[oa]s?|juegos?|puntos?|rebotes|asistencias|tiros|triples|robos|tapones|perdidas|balon|libres|anotad[oa]s|jugador(es)?|bocina|forma|ultimo|oportunidad|apuesta|sets?|innings?|entradas?|carreras|goles?|corners?|tarjetas|minutos?|asiatico|alternativ[oa]s?|lineas?|especial(es)?|combinad[oa]s?|cuotas?)\b/;
+const NOT_NAME_WORDS = [
+  'local visitante equipos? partidos? periodos? cuartos? tiempos? mitad medio primer[oa]? segund[oa] tercer[oa]? total(?:es)? mas menos over under',
+  'ganador gana resultado handicap margen rango carrera impar par way prorroga extra suplementario incl h2h double triple mejor mayor anotador',
+  'empate cada ambos todos exact[oa]s? juegos? puntos? rebotes asistencias tiros triples robos tapones perdidas balon libres anotad[oa]s jugador(?:es)?',
+  'bocina forma ultimo oportunidad apuesta sets? innings? entradas? carreras goles? corners? tarjetas minutos? asiatico alternativ[oa]s? lineas?',
+  'especial(?:es)? combinad[oa]s? cuotas?',
+].join(' ');
+const NOT_NAME = new RegExp(`\\d|[[\\]{}|~/&+=<>?!%#*@]|\\b(?:${NOT_NAME_WORDS.split(' ').join('|')})\\b`);
 
 // Texto como pares [carácter original, carácter sin tildes y en minúsculas] (para recortar el original).
 const pairsOf = (s) =>
@@ -398,8 +410,10 @@ function hasPlayerAmong(text, ctx) {
 function playerOfRest(rest, ctx) {
   const parts = rest.split(/\s+[-–—]+\s+|[:|()·;]/).map(trimName).filter(Boolean);
   if (!parts.length) return { kind: 'empty' };
-  const named = parts.filter((p) => !isTeamName(p, ctx.home, ctx.away));
+  let named = parts.filter((p) => !isTeamName(p, ctx.home, ctx.away));
   if (!named.length) return { kind: 'other' };
+  // Siglas aparte junto al nombre ("LeBron James (LAL)"): son del equipo, no del jugador.
+  if (named.length > 1 && named.some((p) => !/^\p{Lu}{2,4}$/u.test(p))) named = named.filter((p) => !/^\p{Lu}{2,4}$/u.test(p));
   const whole = validName(named.join(' '), ctx);
   if (whole) return { kind: 'name', name: whole };
   return hasPlayerAmong(named.join(' '), ctx) ? { kind: 'other-player' } : { kind: 'other' };
@@ -422,7 +436,7 @@ function playerSelection(raw, fallbackLine) {
 // Asistencias", o "Puntos del jugador" con selecciones "LeBron James Más de 24.5". El nombre sale del
 // texto original (con mayúsculas y tildes). Devuelve lo mismo que parseMarket, o null si no es de jugador.
 function parsePlayerMarket(rawName, selections, ctx) {
-  const raw = String(rawName ?? '');
+  const raw = String(rawName ?? '').replace(/\s+/g, ' ').trim();
   if (/[[\]]/.test(raw)) return null; // nombres de prueba con "[Jugador]"
   let chars = pairsOf(raw);
   const fold = foldOf(chars);

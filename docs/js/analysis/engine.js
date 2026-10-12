@@ -245,7 +245,7 @@ async function addPlayerLogs(events, details, sources, progress) {
     } else if (!provider.isAuto(ev.id) && details[ev.id]?.lastHome) sofa.push(ev);
   }
   if (sofa.length) {
-    const last = (list) => (list || []).filter((m) => m.id).slice(0, PLAYER_GAMES).map((m) => ({ id: m.id, home: m.home }));
+    const last = (list) => (list || []).filter((m) => m.id).slice(0, PLAYER_GAMES).map((m) => ({ id: m.id, home: m.home, start: m.start }));
     try {
       const r = await ext.call(
         'sofascore',

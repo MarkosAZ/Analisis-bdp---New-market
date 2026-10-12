@@ -17,12 +17,14 @@ import {
 const HOME = 'Los Angeles Lakers';
 const AWAY = 'Boston Celtics';
 const keysOf = (r) => (r?.outcomes || []).map((o) => `${o.market}|${o.sel}|${o.line ?? ''}`);
-const sels = (list) => list.map((s, i) => (typeof s === 'string' ? { name: s, price: 1.8 + i / 10 } : s));
+const sels = (list) => list.map((s, i) => (typeof s === 'string' ? { name: s, price: Math.round((1.8 + i / 10) * 100) / 100 } : s));
 const parse = (name, list = ['Más de 24.5', 'Menos de 24.5'], ctx = {}) => parseMarket(name, sels(list), { sport: 'basketball', home: HOME, away: AWAY, ...ctx });
 const hasPlayer = (r) => (r?.outcomes || []).some((o) => isPlayerStat(o.spec.stat));
 
 test('códigos de estadística de jugador y sus textos', () => {
-  assert.deepEqual(PLAYER_STAT_CODES, ['pl_pts', 'pl_reb', 'pl_ast', 'pl_3pm', 'pl_stl', 'pl_blk', 'pl_tov', 'pl_oreb', 'pl_dreb', 'pl_ftm', 'pl_2pm', 'pl_pra', 'pl_pr', 'pl_pa', 'pl_ra', 'pl_sb']);
+  assert.deepEqual(PLAYER_STAT_CODES, [
+    'pl_pts', 'pl_reb', 'pl_ast', 'pl_3pm', 'pl_stl', 'pl_blk', 'pl_tov', 'pl_oreb', 'pl_dreb', 'pl_ftm', 'pl_2pm', 'pl_pra', 'pl_pr', 'pl_pa', 'pl_ra', 'pl_sb',
+  ]);
   const texts = {
     pl_pts: 'puntos', pl_reb: 'rebotes', pl_ast: 'asistencias', pl_3pm: 'triples anotados', pl_stl: 'robos', pl_blk: 'tapones', pl_tov: 'pérdidas',
     pl_oreb: 'rebotes ofensivos', pl_dreb: 'rebotes defensivos', pl_ftm: 'tiros libres anotados', pl_2pm: 'tiros de 2 anotados',
@@ -98,6 +100,8 @@ test('separadores y relleno alrededor del nombre', () => {
     'Puntos totales del jugador - LeBron James',
     'Total de Puntos LeBron James (Los Angeles Lakers)',
     'Total de Puntos LeBron James (Lakers)',
+    'Total de Puntos LeBron James (LAL)',
+    'LeBron James (LAL) - Total de Puntos',
     '  Total   de Puntos   LeBron   James  ',
   ]) assert.deepEqual(keysOf(parse(name)), expected, name);
 });

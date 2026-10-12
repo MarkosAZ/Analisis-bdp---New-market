@@ -30,24 +30,25 @@ test('reconoce a cada equipo en las noticias', () => {
   assert.equal(back.published, Date.parse(ARTICLES[1].published));
 });
 
-test('variables de la red: noticias, tipo de mercado y filas antiguas', () => {
+test('variables de la red: noticias, 1.er tiempo, simulación y filas antiguas', () => {
   const news = newsFeatures(ev, ARTICLES);
   const cfg = sportOf('football');
-  const f = (c, details) => Object.fromEntries(FEATURES.map((k, i) => [k, buildFeatures({ pModel: 0.6, pMarket: 0.55, pBase: 0.57, price: 1.8, line: null, ...c }, { sport: 'football', cfg, model: null, details, quality: 0.4 })[i]]));
-  const home = f({ market: '1X2', sel: 'home', family: 'resultado' }, { news });
-  const away = f({ market: '1X2', sel: 'away', family: 'resultado' }, { news });
+  const f = (c, details, spec = null) => Object.fromEntries(FEATURES.map((k, i) => [k, buildFeatures({ pModel: 0.6, pMarket: 0.55, pBase: 0.57, price: 1.8, line: null, ...c }, { sport: 'football', cfg, model: null, details, spec, quality: 0.4 })[i]]));
+  const home = f({ market: 'HCP', sel: 'home', line: -0.5 }, { news });
+  const away = f({ market: 'HCP', sel: 'away', line: -0.5 }, { news });
   assert.equal(home.newsAvail, 1);
   assert.ok(home.sideNewsInjuries > 0 && away.sideNewsInjuries < 0, 'las bajas del rival favorecen');
   assert.ok(home.sideNewsSentiment > 0);
-  const corners = f({ market: 'OU.corners@h1', sel: 'over', line: 4.5, family: 'periodo', via: 'simulación' }, {});
+  assert.equal(home.side, 1);
+  assert.equal(away.side, -1);
+  const corners = f({ market: 'OU.corners@h1', sel: 'over', line: 4.5, via: 'simulación', z: 0.8 }, {}, { t: 'OU', stat: 'corners', scope: 'h1', team: null, n: null });
   assert.equal(corners.newsAvail, 0);
-  assert.equal(corners.fPeriod, 1);
+  assert.equal(corners.isH1, 1);
   assert.equal(corners.viaSim, 1);
-  assert.equal(corners.qualityMarket, 0.4);
-  // Filas de la versión 1 (27 variables): se completan con ceros.
-  const v1 = Array.from({ length: 27 }, (_, i) => i / 100);
-  const up = upgradeFeatures(v1, 1);
-  assert.equal(up.length, FEATURES.length);
-  assert.equal(up.at(-1), v1[6]);
-  assert.equal(upgradeFeatures([1, 2], 1), null);
+  assert.equal(corners.quality, 0.4);
+  assert.equal(corners.zLine, 0.8);
+  assert.ok(corners.lnLine > 0);
+  // Filas de versiones anteriores (mezcladas con las cuotas): no se usan.
+  assert.equal(upgradeFeatures(Array.from({ length: 27 }, (_, i) => i / 100), 1), null);
+  assert.equal(upgradeFeatures([1, 2], 3), null);
 });

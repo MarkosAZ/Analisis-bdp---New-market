@@ -1,6 +1,7 @@
 // Sofascore: partidos de todos los deportes, estadísticas previas de cada
-// partido (forma, últimos resultados, H2H, bajas, votos, cuotas de referencia)
-// y resultados finales para liquidar apuestas.
+// partido (forma, últimos resultados, H2H, bajas, votos, cuotas de referencia),
+// estadísticas de los jugadores de básquet (alineaciones) y resultados finales
+// para liquidar apuestas.
 //
 // Primero se intenta el API (rápido). Si no responde, la extensión abre la web
 // de Sofascore en una pestaña y lee los datos que la propia web descarga
@@ -388,6 +389,207 @@ export async function getEventDetails({ events = [] } = {}) {
   return { mode: 'scan', items, failed, notes, apiPaths: [...paths] };
 }
 
+// ---- Jugadores (básquet) ----
+
+const num = (x) => (x == null || x === '' || !Number.isFinite(Number(x)) ? null : Number(x));
+const firstNum = (s, keys) => keys.map((k) => num(s[k])).find((v) => v != null) ?? null;
+const addOrNull = (a, b) => (a == null || b == null ? null : a + b);
+// Nombre comparable: sin tildes ni mayúsculas.
+const nameKey = (s) =>
+  String(s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+// Minutos jugados: secondsPlayed (segundos) o minutesPlayed (número o "MM:SS").
+function minutesOf(s) {
+  const secs = num(s.secondsPlayed);
+  if (secs != null) return secs / 60;
+  const m = s.minutesPlayed;
+  if (typeof m === 'string' && m.includes(':')) {
+    const [a, b] = m.split(':').map(num);
+    return a == null || b == null ? null : a + b / 60;
+  }
+  return num(m);
+}
+
+// Estadísticas de un jugador en un partido (alineación de Sofascore) en el formato
+// común { min, pts, reb, ast, tpm, stl, blk, tov, oreb, dreb, ftm, fgm } (null si
+// falta el dato) o { min: 0, dnp: true } si no jugó: sin estadísticas, 0 segundos o,
+// sin minutos, todo en cero (las ligas sin minutos marcan así a los que no jugaron).
+export function playerRow(statistics) {
+  const s = statistics && typeof statistics === 'object' ? statistics : {};
+  const raw = minutesOf(s);
+  const min = raw == null ? null : Math.round(raw * 100) / 100;
+  const oreb = num(s.offensiveRebounds);
+  const dreb = num(s.defensiveRebounds);
+  const tpm = firstNum(s, ['threePointsMade', 'threePointersMade', 'threePointFieldGoalsMade']);
+  const row = {
+    min,
+    pts: num(s.points),
+    reb: firstNum(s, ['rebounds', 'totalRebounds']) ?? addOrNull(oreb, dreb),
+    ast: num(s.assists),
+    tpm,
+    stl: num(s.steals),
+    blk: firstNum(s, ['blocks', 'blockedShots']),
+    tov: num(s.turnovers),
+    oreb,
+    dreb,
+    ftm: num(s.freeThrowsMade),
+    fgm: num(s.fieldGoalsMade) ?? addOrNull(num(s.twoPointsMade), tpm),
+  };
+  if (min != null ? min <= 0 : Object.values(row).every((v) => !v)) return { min: 0, dnp: true };
+  return row;
+}
+
+// Jugadores de un lado ('home' | 'away') de la respuesta de /event/{id}/lineups:
+// [{ id, name, short, row }] con row en el formato común.
+export function playersFromLineups(lineups, side) {
+  const out = [];
+  const seen = new Set();
+  for (const p of lineups?.[side]?.players || []) {
+    const name = p?.player?.name || p?.player?.shortName || '';
+    const key = p?.player?.id ?? nameKey(name);
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    const short = p.player.shortName && p.player.shortName !== name ? p.player.shortName : null;
+    out.push({ id: p.player.id ?? null, name, short, row: playerRow(p.statistics) });
+  }
+  return out;
+}
+
+// Un lado sin nadie con estadísticas (liga sin box score) no sirve: no son bajas.
+function sideWithStats(lineups, side) {
+  const list = playersFromLineups(lineups, side);
+  return list.some((p) => !p.row.dnp) ? list : [];
+}
+
+// Alineación reducida de un partido terminado (lo que se guarda en caché).
+const teamIdOf = (side) => (side?.players || []).find((p) => p?.teamId != null)?.teamId ?? null;
+export function reduceLineups(lineups) {
+  return { home: sideWithStats(lineups, 'home'), away: sideWithStats(lineups, 'away'), homeTeam: teamIdOf(lineups?.home), awayTeam: teamIdOf(lineups?.away) };
+}
+
+// Box score para liquidar: { [nombre]: fila } de ambos equipos. Las bajas del partido
+// que no están en la lista van como no jugados (la casa anula esas apuestas).
+export function boxScoreFromLineups(lineups) {
+  const out = {};
+  for (const side of ['home', 'away']) {
+    const list = sideWithStats(lineups, side);
+    if (!list.length) continue;
+    for (const p of list) if (!out[p.name] || out[p.name].dnp) out[p.name] = p.row;
+    for (const m of lineups[side].missingPlayers || []) if (m?.player?.name && !out[m.player.name]) out[m.player.name] = { min: 0, dnp: true };
+  }
+  return out;
+}
+
+// Del más reciente al más antiguo (los que no traen fecha quedan en su orden, al final).
+const recentFirst = (list) => (list || []).filter((m) => m?.id != null).sort((a, b) => (b.start ?? -Infinity) - (a.start ?? -Infinity));
+
+// Últimos partidos de los jugadores de un equipo.
+//   games: [{ id, home, start? }] últimos partidos del equipo (home: si fue local);
+//   lineupsOf(id): alineación reducida (reduceLineups) o null;
+//   teamId: para saber el lado si falta `home`; missing: missingPlayers del partido a analizar.
+// → { teamGames, players: [{ name, short, games: [{ start, min, pts, ... }], out, doubtful }] }
+//   teamGames: partidos revisados (con estadísticas del equipo); games: solo los que jugó,
+//   del más reciente al más antiguo; players por minutos promedio (en teamGames), desc.
+//   out: baja segura; doubtful: en duda (no cuenta como baja).
+export function teamPlayerLogs(games, lineupsOf, { teamId = null, missing = [], n = 10 } = {}) {
+  const byKey = new Map();
+  let teamGames = 0;
+  for (const g of recentFirst(games).slice(0, n)) {
+    const lu = lineupsOf(g.id);
+    if (!lu) continue;
+    let side = null;
+    if (typeof g.home === 'boolean') side = g.home ? 'home' : 'away';
+    else if (teamId != null) side = lu.homeTeam === teamId ? 'home' : lu.awayTeam === teamId ? 'away' : null;
+    const list = (side && lu[side]) || [];
+    if (!list.length) continue;
+    teamGames++;
+    for (const p of list) {
+      const key = p.id ?? nameKey(p.name);
+      if (!byKey.has(key)) byKey.set(key, { id: p.id, name: p.name, short: p.short, games: [] });
+      if (!p.row.dnp) byKey.get(key).games.push({ start: g.start ?? null, ...p.row });
+    }
+  }
+  const flagged = (type) => {
+    const list = (missing || []).filter((m) => m?.player && (type === 'doubtful') === (m.type === 'doubtful'));
+    return { ids: new Set(list.map((m) => m.player.id).filter((x) => x != null)), names: new Set(list.map((m) => nameKey(m.player.name)).filter(Boolean)) };
+  };
+  const out = flagged('missing');
+  const doubt = flagged('doubtful');
+  const is = (set, p) => (p.id != null && set.ids.has(p.id)) || set.names.has(nameKey(p.name));
+  const avgMin = (p) => p.games.reduce((a, g) => a + (g.min || 0), 0) / Math.max(1, teamGames);
+  const players = [...byKey.values()]
+    .filter((p) => p.games.length)
+    .sort((a, b) => avgMin(b) - avgMin(a) || b.games.length - a.games.length)
+    .map((p) => ({ name: p.name, short: p.short, games: p.games, out: is(out, p), doubtful: !is(out, p) && is(doubt, p) }));
+  return { teamGames, players };
+}
+
+const LINEUPS_CACHE_MAX = 1500;
+const lineupsCache = new Map(); // id de partido terminado -> alineación reducida o null (no cambia)
+function cacheLineups(id, value) {
+  lineupsCache.delete(id);
+  lineupsCache.set(id, value);
+  if (lineupsCache.size > LINEUPS_CACHE_MAX) lineupsCache.delete(lineupsCache.keys().next().value);
+}
+
+// Últimos partidos de los jugadores de ambos equipos (ligas que ESPN no tiene).
+// events: [{ id, homeId, awayId, start, lastHome: [{ id, home, start? }], lastAway }] (de getEventDetails).
+// → { mode, items: { [id]: { home: { teamGames, players }, away: {...} } }, notes }
+// Pide /event/{id}/lineups de los últimos `n` partidos de cada equipo (en caché) y del
+// partido a analizar (sus bajas).
+export async function getPlayerLogs({ events = [], n = 10 } = {}) {
+  const k = Number.isFinite(n) && n > 0 ? Math.floor(n) : 10;
+  const notes = [];
+  const known = new Map();
+  const past = new Set();
+  for (const ev of events) {
+    for (const m of [...recentFirst(ev.lastHome).slice(0, k), ...recentFirst(ev.lastAway).slice(0, k)]) {
+      const id = String(m.id);
+      if (lineupsCache.has(id)) known.set(id, lineupsCache.get(id));
+      else past.add(id);
+    }
+  }
+  const current = [...new Set(events.map((ev) => String(ev.id)))].filter((id) => !past.has(id));
+  const ids = [...past, ...current];
+  const now = {};
+  let mode = null;
+  let failed = false;
+  if (ids.length) {
+    // Los partidos terminados deben tener alineación: si ninguna llega, se prueba otra vía.
+    const r = await apiMany(
+      ids.map((id) => `/event/${id}/lineups`),
+      (p) => past.has(p.split('/')[2]),
+    );
+    notes.push(...r.notes);
+    mode = r.mode ?? null;
+    failed = !r.results;
+    (r.results || []).forEach((x, i) => {
+      const id = ids[i];
+      if (past.has(id) && (x.ok || x.status === 404)) {
+        const lu = x.ok ? reduceLineups(x.data) : null; // 404: el partido no tiene alineación
+        known.set(id, lu);
+        cacheLineups(id, lu);
+      } else if (x.ok) now[id] = x.data;
+    });
+  }
+  const lineupsOf = (id) => known.get(String(id)) || null;
+  const items = {};
+  for (const ev of events) {
+    const lu = now[String(ev.id)];
+    const team = (side, teamId, games) => teamPlayerLogs(games, lineupsOf, { teamId, missing: lu?.[side]?.missingPlayers || [], n: k });
+    items[ev.id] = { home: team('home', ev.homeId, ev.lastHome), away: team('away', ev.awayId, ev.lastAway) };
+  }
+  if (failed && !Object.values(items).some((x) => x.home.players.length || x.away.players.length)) {
+    throw new FetchError(`Sofascore no devolvió alineaciones. Intentos: ${notes.join(' | ') || 'ninguno'}`, { mode });
+  }
+  return { mode, items, notes };
+}
+
 // ---- Resultados ----
 
 function resultOf(e) {
@@ -400,7 +602,10 @@ function resultOf(e) {
 // detail: ids de los que además se quieren estadísticas e incidencias (para
 // mercados de córners, tarjetas, minuto del gol...). Se devuelven sin procesar
 // en items[id].raw = { event, statistics, incidents } (la página arma el registro).
-export async function getEventResults({ ids = [], urls = {}, detail = [] } = {}) {
+// players: ids (básquet) de los que además se quiere el box score de los jugadores:
+// items[id].players = { [nombre]: fila } de ambos equipos (ver boxScoreFromLineups).
+export async function getEventResults({ ids = [], urls = {}, detail = [], players = [] } = {}) {
+  const box = new Set((players || []).map(String));
   const items = {};
   if ((await apiWorks()) !== false) {
     const r = await apiMany(
@@ -419,6 +624,16 @@ export async function getEventResults({ ids = [], urls = {}, detail = [] } = {})
           items[id].raw = { event, statistics: st?.ok ? st.data : null, incidents: inc?.ok ? inc.data : null };
         });
       }
+      const boxIds = [...box].filter((id) => items[id]?.state === 'finalizado');
+      if (boxIds.length) {
+        // Sin `required` (como las estadísticas): un 404 no abre una pestaña del sitio.
+        const lu = await apiMany(boxIds.map((id) => `/event/${id}/lineups`));
+        boxIds.forEach((id, i) => {
+          const x = lu.results?.[i];
+          const rows = x?.ok ? boxScoreFromLineups(x.data) : {};
+          if (Object.keys(rows).length) items[id].players = rows;
+        });
+      }
       return { mode: r.mode, items };
     }
   }
@@ -428,6 +643,10 @@ export async function getEventResults({ ids = [], urls = {}, detail = [] } = {})
       const scan = await scanPage(urls[id], { waitMs: 12000 });
       const e = eventsIn(scan.responses).find((x) => x.id === Number(id));
       if (e) items[id] = resultOf(e);
+      // Box score si la página descargó la alineación.
+      const lu = scan.responses.find((x) => x.url.includes(`/event/${id}/lineups`) && (x.data?.home || x.data?.away))?.data;
+      const rows = e && box.has(String(id)) && items[id].state === 'finalizado' && lu ? boxScoreFromLineups(lu) : {};
+      if (Object.keys(rows).length) items[id].players = rows;
     } catch {
       // se reintentará en la próxima actualización
     }
