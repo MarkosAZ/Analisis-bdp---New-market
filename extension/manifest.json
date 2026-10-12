@@ -28,7 +28,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://luisp11127.github.io/*",
+        "https://markosaz.github.io/*",
         "http://localhost/*",
         "http://127.0.0.1/*"
       ],

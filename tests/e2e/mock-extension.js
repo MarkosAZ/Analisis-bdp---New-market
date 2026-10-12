@@ -214,7 +214,7 @@
   window.__BDP_MOCK_LOG__ = [];
 
   const handlers = {
-    'github.status': () => ({ configured: false, repo: 'LuisP11127/Analisis-BDP', branch: 'x' }),
+    'github.status': () => ({ configured: false, repo: 'MarkosAZ/Analisis-bdp---New-market', branch: 'x' }),
     'github.getFile': ({ path }) => (files.has(path) ? { text: files.get(path), sha: 'x' } : null),
     'sofascore.getSportEvents': ({ sport, date }) => ({
       mode: 'direct',

@@ -3,7 +3,7 @@
 // únicamente para leer y escribir archivos JSON dentro de docs/data/.
 const API = 'https://api.github.com';
 const KEY = 'bdp:github';
-const DEFAULTS = { repo: 'LuisP11127/Analisis-BDP', branch: 'main', token: '' };
+const DEFAULTS = { repo: 'MarkosAZ/Analisis-bdp---New-market', branch: 'main', token: '' };
 const WRITABLE = /^docs\/data\/[\w\-./]+\.json$/;
 
 export function getConfig() {

@@ -3,7 +3,7 @@
 // y recibe window.postMessage({ bdp: 'response', id, ok, data | error }).
 (() => {
   // En github.io solo se conecta con la página de este proyecto.
-  if (location.hostname.endsWith('github.io') && !location.pathname.toLowerCase().startsWith('/analisis-bdp')) return;
+  if (location.hostname.endsWith('github.io') && !location.pathname.toLowerCase().startsWith('/analisis-bdp---new-market')) return;
 
   const announce = () =>
     window.postMessage({ bdp: 'ready', version: chrome.runtime.getManifest().version }, window.location.origin);

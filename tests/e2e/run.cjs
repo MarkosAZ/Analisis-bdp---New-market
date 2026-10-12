@@ -97,13 +97,13 @@ function githubMock(context) {
     const json = (status, body) => route.fulfill({ status, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
     if (req.headers().authorization !== 'Bearer github_pat_prueba') return json(401, { message: 'Bad credentials' });
-    if (url.pathname === '/repos/LuisP11127/Analisis-BDP') return json(200, { permissions: { push: true } });
-    const blob = url.pathname.match(/^\/repos\/LuisP11127\/Analisis-BDP\/git\/blobs\/(.+)$/);
+    if (url.pathname === '/repos/MarkosAZ/Analisis-bdp---New-market') return json(200, { permissions: { push: true } });
+    const blob = url.pathname.match(/^\/repos\/MarkosAZ\/Analisis-bdp---New-market\/git\/blobs\/(.+)$/);
     if (blob) {
       const f = [...files.values()].find((x) => x.sha === blob[1]);
       return f ? json(200, { content: Buffer.from(f.text).toString('base64'), encoding: 'base64', sha: f.sha }) : json(404, { message: 'Not Found' });
     }
-    const m = url.pathname.match(/^\/repos\/LuisP11127\/Analisis-BDP\/contents\/(.+)$/);
+    const m = url.pathname.match(/^\/repos\/MarkosAZ\/Analisis-bdp---New-market\/contents\/(.+)$/);
     if (!m) return json(404, {});
     const file = decodeURIComponent(m[1]);
     if (req.method() === 'PUT') {
