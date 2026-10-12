@@ -5,66 +5,41 @@
 import { clamp, logit } from '../util.js';
 import { sideOf } from './markets.js';
 import { sentiment } from './news.js';
-import { marketGroupOf } from './picks.js';
 
-// 2: noticias, tipo de mercado y simulación (las filas de la versión 1 se
-// completan con ceros al entrenar: ver upgradeFeatures).
-export const FEATURE_VERSION = 2;
+// 3: una red por mercado (networks.js) y probabilidad solo con la estadística.
+// Las filas anteriores se calcularon mezclando el modelo con las cuotas: no se
+// usan para entrenar (upgradeFeatures devuelve null).
+export const FEATURE_VERSION = 3;
 
 export const FEATURES = [
   'logitBase', // probabilidad del análisis estadístico (escala logit)
-  'dModel', // diferencia del modelo propio respecto de la base
-  'dMarket', // diferencia del mercado (cuotas) respecto de la base
-  'hasModel',
+  'dMarket', // lo que dicen las cuotas respecto de la base (solo referencia)
   'hasMarket',
   'lnOdds', // log de la cuota
-  'quality', // cantidad de partidos con datos
-  'sideStrength', // fuerza relativa del lado elegido
+  'quality', // cantidad de partidos con datos (0 a 1)
+  'zLine', // distancia de la línea a lo esperado, en desvíos, a favor de la selección
+  'lnLine', // tamaño de la línea (log), p. ej. 9.5 córners o 24.5 puntos
+  'side', // +1 Más / Sí / local, −1 Menos / No / visitante
+  'isH1', // mercado del 1.er tiempo
+  'isPlayer', // mercado de jugador
+  'sideStrength', // fuerza relativa del lado elegido (hándicap y ganador)
   'sideForm', // forma reciente del lado elegido
   'sideH2H',
   'sideMissing', // bajas del rival menos bajas propias
   'sideVotes', // votos de los usuarios de Sofascore
-  'zLine', // distancia de la línea al total/margen esperado
-  'mWinner',
-  'mDraw',
-  'mDC',
-  'mOver',
-  'mUnder',
-  'mBttsYes',
-  'mBttsNo',
-  'mHcp',
-  'sFootball',
-  'sBasketball',
-  'sTennis',
-  'sGoals',
-  'sPoints',
-  'sOther',
-  // Versión 2
+  'trend', // últimos partidos frente al promedio (a favor de la selección)
+  'minutes', // minutos por partido del jugador / 36
   'newsAvail', // hay noticias cargadas (Flashscore, ESPN, FotMob)
   'sideNewsMentions', // menciones del lado elegido frente al rival
   'sideNewsInjuries', // noticias de lesiones/sanciones del rival menos las propias
   'sideNewsSentiment', // tono de las noticias (positivo − negativo)
   'newsInjuriesTotal', // noticias de lesiones de ambos (para totales)
-  'fPeriod', // mercado de un periodo (mitad, cuarto, set...)
-  'fStat', // mercado de estadísticas (córners, tarjetas...)
-  'fScore', // marcador exacto / margen
-  'fCombo', // combinado de la casa
-  'fOther', // otros (primer gol, par/impar...)
-  'viaSim', // probabilidad del modelo por simulación
-  'qualityMarket', // confianza del modelo en ese mercado
+  'viaSim', // probabilidad por simulación
 ];
 
-const V1_LENGTH = 27;
-
-// Filas antiguas: se completan las variables nuevas (sin noticias, mercado principal).
+// Filas guardadas con otra versión: no se usan (otra forma de calcular la base).
 export function upgradeFeatures(x, fv) {
-  if (fv === FEATURE_VERSION) return x;
-  if (fv === 1 && x?.length === V1_LENGTH) {
-    const extra = new Array(FEATURES.length - V1_LENGTH).fill(0);
-    extra[extra.length - 1] = x[6]; // qualityMarket = calidad del modelo
-    return [...x, ...extra];
-  }
-  return null;
+  return fv === FEATURE_VERSION && x?.length === FEATURES.length ? x : null;
 }
 
 function votesFor(c, side, votes) {
@@ -76,14 +51,18 @@ function votesFor(c, side, votes) {
   return c.market === 'DC' ? base + votes.draw : base;
 }
 
-// c: { market, sel, line, pModel, pMarket, pBase, price }
-// ctx: { sport, cfg, model (salida de predict o null), details }
+const SIDE = { over: 1, yes: 1, home: 1, under: -1, no: -1, away: -1 };
+
+// c: { market, sel, line, pModel, pMarket, pBase, price, z, trend, minutes, via }
+// ctx: { sport, cfg, model (salida de predict o null), details, spec, quality }
 export function buildFeatures(c, ctx) {
   const side = sideOf(c.market, c.sel);
+  const dir = SIDE[c.sel] ?? 0;
   const base = logit(c.pBase);
   const m = ctx.model;
   const d = ctx.details || {};
   const f = m?.form;
+  const spec = ctx.spec;
 
   let sideForm = 0;
   if (f?.home && f?.away) {
@@ -95,58 +74,33 @@ export function buildFeatures(c, ctx) {
   const miss = d.missing ? (d.missing.away.length - d.missing.home.length) / 5 : 0;
   const pv = votesFor(c, side, d.votes);
   const votes = pv == null ? 0 : clamp(logit(clamp(pv, 0.02, 0.98)) / 3, -2, 2);
-
-  let zLine = 0;
-  const e = m?.expected;
-  if (e && c.market === 'OU') zLine = ((e.total - c.line) / e.sdTotal) * (c.sel === 'over' ? 1 : -1);
-  if (e && c.market === 'HCP') zLine = ((e.margin + c.line) / e.sdMargin) * (c.sel === 'home' ? 1 : -1);
-
-  const sport = ctx.sport;
-  const model = ctx.cfg?.model;
   const news = d.news || null;
   const nh = news?.home;
   const na = news?.away;
-  const group = marketGroupOf(c.family);
   const x = [
     clamp(base, -6, 6),
-    c.pModel != null ? clamp(logit(c.pModel) - base, -4, 4) : 0,
     c.pMarket != null ? clamp(logit(c.pMarket) - base, -4, 4) : 0,
-    c.pModel != null ? 1 : 0,
     c.pMarket != null ? 1 : 0,
     clamp(Math.log(c.price || 1), 0, 3),
-    m?.quality ?? 0,
+    ctx.quality ?? m?.quality ?? 0,
+    clamp(c.z ?? 0, -4, 4),
+    c.line != null ? clamp(Math.log1p(Math.abs(c.line)), 0, 6) : 0,
+    dir,
+    spec?.scope === 'h1' ? 1 : 0,
+    spec?.n != null && /^pl_/.test(spec.stat) ? 1 : 0,
     side * clamp(m?.strength ?? 0, -3, 3),
     sideForm,
     side * h2h,
     side * clamp(miss, -2, 2),
     votes,
-    clamp(zLine, -4, 4),
-    (c.market === '1X2' && c.sel !== 'draw') || c.market === 'ML' ? 1 : 0,
-    c.market === '1X2' && c.sel === 'draw' ? 1 : 0,
-    c.market === 'DC' ? 1 : 0,
-    c.market === 'OU' && c.sel === 'over' ? 1 : 0,
-    c.market === 'OU' && c.sel === 'under' ? 1 : 0,
-    c.market === 'BTTS' && c.sel === 'yes' ? 1 : 0,
-    c.market === 'BTTS' && c.sel === 'no' ? 1 : 0,
-    c.market === 'HCP' ? 1 : 0,
-    sport === 'football' ? 1 : 0,
-    sport === 'basketball' ? 1 : 0,
-    sport === 'tennis' ? 1 : 0,
-    model === 'goals' && sport !== 'football' ? 1 : 0,
-    model === 'points' && sport !== 'basketball' ? 1 : 0,
-    model !== 'goals' && model !== 'points' && sport !== 'tennis' ? 1 : 0,
+    clamp(c.trend ?? 0, -3, 3),
+    clamp((c.minutes ?? 0) / 36, 0, 1.5),
     news ? 1 : 0,
     news ? side * clamp(Math.log1p(nh.n) - Math.log1p(na.n), -3, 3) : 0,
     news ? side * clamp((na.injuries - nh.injuries) / 2, -2, 2) : 0,
     news ? side * (sentiment(nh) - sentiment(na)) : 0,
     news ? clamp(Math.log1p(nh.injuries + na.injuries), 0, 3) : 0,
-    group === 'periodos' ? 1 : 0,
-    group === 'estadisticas' ? 1 : 0,
-    group === 'marcador' ? 1 : 0,
-    group === 'combinados' ? 1 : 0,
-    group === 'otros' ? 1 : 0,
     c.via === 'simulación' ? 1 : 0,
-    ctx.quality ?? m?.quality ?? 0,
   ];
   return x.map((v) => Math.round(v * 1000) / 1000);
 }

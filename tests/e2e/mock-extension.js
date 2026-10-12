@@ -143,8 +143,55 @@
     return [{ name: 'Home/Away', group: null, live: false, choices: [{ name: '1', price: odd(pHome) }, { name: '2', price: odd(1 - pHome) }] }];
   }
 
+  // Jugadores de la NBA: [nombre, equipo (id), puntos, rebotes, asistencias, triples] promedio.
+  const PLAYERS = [
+    ['LeBron James', 21, 30, 7.5, 8, 2.2],
+    ['Anthony Davis', 21, 24, 11.5, 3.5, 0.5],
+    ['Jayson Tatum', 22, 27, 8.4, 4.6, 3.1],
+    ['Jaylen Brown', 22, 22, 5.5, 3.5, 2.2],
+    ['Stephen Curry', 23, 26, 4.5, 6, 4.8],
+    ['Jimmy Butler', 24, 20, 5.5, 5, 0.8],
+  ];
+  const vary = (m, sd) => Math.max(0, Math.round(m + sd * (rand() + rand() + rand() - 1.5) * 1.15));
+  // Un partido de un jugador en el formato del contrato (ESPN/Sofascore normalizado).
+  const gameRow = ([, , pts, reb, ast, tpm], start) => {
+    const t = vary(tpm, 1.4);
+    const p = Math.max(vary(pts, 6), 3 * t);
+    return { start, min: vary(34, 4), pts: p, reb: vary(reb, 2.5), ast: vary(ast, 2), tpm: t, stl: vary(1.2, 1), blk: vary(0.8, 0.8), tov: vary(2.5, 1.2), oreb: vary(reb * 0.25, 1), dreb: vary(reb * 0.75, 2), ftm: vary(4, 2), fgm: vary((p - t) / 2.2, 2) };
+  };
+  const teamOf = (name) => events.find((e) => e.sport === 'basketball' && (e.home.name === name || e.away.name === name));
+  const playerLogs = (teamName, start) => {
+    const t = [...teamById.values()].find((x) => x.name === teamName);
+    const players = PLAYERS.filter((p) => p[1] === t?.id).map((p) => ({
+      name: p[0],
+      short: `${p[0][0]}. ${p[0].split(' ').slice(1).join(' ')}`,
+      out: false,
+      games: Array.from({ length: 10 }, (_, i) => gameRow(p, start - (i + 1) * 2 * 86400000)),
+    }));
+    return { teamGames: 10, players };
+  };
+  const boxCache = new Map();
+  const boxScore = (e) => {
+    if (!boxCache.has(e.id)) boxCache.set(e.id, Object.fromEntries(PLAYERS.filter((p) => p[1] === e.home.id || p[1] === e.away.id).map((p) => [p[0], gameRow(p, e.start)])));
+    return boxCache.get(e.id);
+  };
+
+  // Betano en la NBA: Más/Menos de jugador (el jugador va en el nombre del mercado).
+  function betanoBasketball(e) {
+    const ou = (name, line, over, under) => ({ name, selections: [{ name: `Más de ${line}`, price: over }, { name: `Menos de ${line}`, price: under }] });
+    const list = [];
+    for (const [name, team] of PLAYERS) {
+      if (team !== e.home.id && team !== e.away.id) continue;
+      list.push(ou(`Total de Puntos ${name}`, 24.5, 1.87, 1.87), ou(`Total de rebotes ${name}`, 7.5, 1.9, 1.85), ou(`${name} Total de Puntos, Rebotes y Asistencias`, 39.5, 1.85, 1.95));
+      list.push({ name: `Double-double ${name}`, selections: [{ name: 'Sí', price: 2.4 }, { name: 'No', price: 1.55 }] });
+    }
+    list.push(ou('Total de Tiros de tres puntos anotados Stephen Curry', 4.5, 1.8, 2.0));
+    return list.filter((m) => !m.name.includes('Stephen Curry') || e.home.id === 23 || e.away.id === 23);
+  }
+
   // Mercados de Betano de la página del partido (nombres reales de Betano).
   function betanoMarkets(e) {
+    if (e.sport === 'basketball') return betanoBasketball(e);
     const f = fairFootball(e);
     const h1 = { h: f.h * 0.75, d: 0.42, a: f.a * 0.75 };
     const n = h1.h + h1.d + h1.a;
@@ -283,11 +330,11 @@
     // Betano: solo fútbol (en los otros deportes falla, para probar que no rompe
     // el análisis). La lista trae el resultado; la página de cada partido, todo.
     'betano.getOdds': ({ sport }) => {
-      if (sport !== 'football') throw new Error('No se encontraron cuotas en Betano');
+      if (sport !== 'football' && sport !== 'basketball') throw new Error('No se encontraron cuotas en Betano');
       return {
         mode: 'tab',
         items: events
-          .filter((e) => e.sport === 'football')
+          .filter((e) => e.sport === sport)
           .map((e) => ({ eventId: `b${e.id}`, start: e.start, home: e.home.name, away: e.away.name, url: `https://www.betano.pe/cuotas-de-partido/x/${e.id}/`, markets: betanoMarkets(e).slice(0, 1) })),
       };
     },
@@ -296,6 +343,14 @@
       items: Object.fromEntries(Object.entries(urls).map(([key, url]) => [key, betanoMarkets(byId.get(Number(url.match(/(\d+)\/$/)[1])))])),
       notes: [],
     }),
+    // ESPN (NBA y WNBA): últimos partidos de cada jugador y estadísticas al terminar.
+    'espn.getPlayerLogs': ({ home, away, start }) => ({ mode: 'direct', home: playerLogs(home, start), away: playerLogs(away, start) }),
+    'espn.getBoxScore': ({ home }) => {
+      const e = teamOf(home);
+      if (!e) return null;
+      const done = Date.now() > e.start + 3 * 3600000;
+      return { state: done ? 'finalizado' : 'pendiente', players: done ? boxScore(e) : {} };
+    },
     // Flashscore (con la extensión): los mismos partidos, para sumar estadísticas de equipo.
     'flashscore.getSportDay': ({ sport }) => ({
       mode: 'direct',

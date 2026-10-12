@@ -3,7 +3,7 @@ import test from 'node:test';
 import { analyzeEvent } from '../docs/js/analysis/engine.js';
 import { FEATURES } from '../docs/js/analysis/features.js';
 import { offersFromApuestaTotal, offersFromBetano, offersFromSofascore } from '../docs/js/analysis/markets.js';
-import { Corrector } from '../docs/js/analysis/neural.js';
+import { NetworkSet } from '../docs/js/analysis/networks.js';
 import { buildCombos, DEFAULT_SETTINGS, marketsOf, selectPicks } from '../docs/js/analysis/picks.js';
 import { compactAnalysis, daySummary, trainingRows } from '../docs/js/history.js';
 
@@ -188,8 +188,8 @@ test('béisbol: ganador (incl. entradas extra), run line y total', () => {
   assert.equal(by['ML|home|'].label, 'Gana Yankees');
 });
 
-test('la red sin entrenar da lo mismo que el análisis estadístico', () => {
-  const net = new Corrector({ inputs: FEATURES.length });
+test('las redes sin entrenar dan lo mismo que el análisis estadístico', () => {
+  const net = new NetworkSet();
   const est = analyzeEvent(ev, details, offers(), {}).candidates;
   const rn = analyzeEvent(ev, details, offers(), { network: net, method: 'red_neuronal' }).candidates;
   assert.deepEqual(
@@ -239,4 +239,40 @@ test('el mismo partido da siempre las mismas probabilidades simuladas', () => {
   const a = analyzeEvent(basketEv, basketDetails, list, {}).candidates.map((c) => c.p);
   const b = analyzeEvent(basketEv, basketDetails, list, {}).candidates.map((c) => c.p);
   assert.deepEqual(a, b);
+});
+
+// Más/Menos de jugador (Betano) con los últimos partidos de cada jugador (ESPN o Sofascore).
+test('jugadores: el nombre de la casa se busca en los datos y la línea más pareja de cada jugador', () => {
+  const games = (vals) => vals.map((pts, i) => ({ start: Date.parse('2026-10-01T00:00:00Z') - i * 2 * 864e5, min: 34, pts, reb: 7, ast: 8, tpm: 2, stl: 1, blk: 1, tov: 3, oreb: 1, dreb: 6, ftm: 5, fgm: 11 }));
+  const players = {
+    source: 'espn',
+    home: { teamGames: 10, players: [{ name: 'LeBron James', short: 'L. James', out: false, games: games([31, 28, 35, 27, 30, 33, 29, 26, 32, 30]) }, { name: 'Anthony Davis', short: 'A. Davis', out: true, games: games([24, 22, 26, 25, 21, 23, 27, 22, 20, 25]) }] },
+    away: { teamGames: 10, players: [{ name: 'Jayson Tatum', short: 'J. Tatum', out: false, games: games([25, 27]) }] },
+  };
+  const betano = [
+    { name: 'Total de Puntos LeBron James', selections: [{ name: 'Más de 24.5', price: 1.87 }, { name: 'Menos de 24.5', price: 1.87 }] },
+    { name: 'Total de Puntos L. James', selections: [{ name: 'Más de 29.5', price: 1.9 }, { name: 'Menos de 29.5', price: 1.95 }] },
+    { name: 'Total de Puntos Anthony Davis', selections: [{ name: 'Más de 23.5', price: 1.87 }, { name: 'Menos de 23.5', price: 1.87 }] },
+    { name: 'Total de Puntos Jayson Tatum', selections: [{ name: 'Más de 26.5', price: 1.87 }, { name: 'Menos de 26.5', price: 1.87 }] },
+    { name: 'Total de Puntos Kevin Durant', selections: [{ name: 'Más de 27.5', price: 1.87 }, { name: 'Menos de 27.5', price: 1.87 }] },
+  ];
+  const list = offersFromBetano(betano, { home: 'Lakers', away: 'Celtics' }, basketEv);
+  const { candidates } = analyzeEvent(basketEv, { ...basketDetails, players }, list, {});
+  const keys = candidates.map((c) => c.key);
+  // "L. James" es el mismo jugador: de sus dos líneas queda la más pareja (24.5: 1.87/1.87).
+  assert.deepEqual(keys.filter((k) => k.includes('pl_')).sort(), ['OU.pl_pts#LeBron James|over|24.5', 'OU.pl_pts#LeBron James|under|24.5']);
+  const over = candidates.find((c) => c.key === 'OU.pl_pts#LeBron James|over|24.5');
+  assert.equal(over.via, 'jugador');
+  assert.ok(over.p > 0.8, `promedia 30 puntos: ${over.p}`);
+  assert.equal(over.label, 'LeBron James: Más de 24.5 puntos');
+  assert.ok(over.factors.some((f) => f.startsWith('LeBron James (Lakers): ')));
+  // Baja anunciada (Davis), pocos partidos (Tatum: 2) o sin datos (Durant): no se analizan.
+  assert.ok(!keys.some((k) => /Davis|Tatum|Durant/.test(k)));
+});
+
+test('jugadores: un Más/Menos de jugador nunca se toma como el total del partido', () => {
+  const betano = [{ name: 'Total de Puntos LeBron James', selections: [{ name: 'Más de 24.5', price: 1.87 }, { name: 'Menos de 24.5', price: 1.87 }] }];
+  const list = offersFromBetano(betano, { home: 'Lakers', away: 'Celtics' }, basketEv);
+  const { candidates } = analyzeEvent(basketEv, basketDetails, list, {});
+  assert.ok(!candidates.some((c) => c.market === 'OU'), 'sin datos de jugadores no hay candidato, y nunca como total del partido');
 });

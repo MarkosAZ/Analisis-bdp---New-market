@@ -15,7 +15,10 @@
 //   stats   { córners: { ft: [l, v], h1: [...], h2: [...] }, ... } (opcional)
 //   games   tenis: [{ s: set (0..), w: ganador, srv: quien saca }] (opcional)
 //   duration { ft: minutos, s1: minutos } (opcional)
+//   players { [nombre]: { min, pts, reb, ... } | { min: 0, dnp: true } } box score
+//           de ambos equipos (básquet, para los Más/Menos de jugador; opcional)
 import { decodeParts, parseMarketId, SET_SPORTS } from './catalog.js';
+import { playerValue } from './players.js';
 
 // Deportes que se liquidan con el tiempo reglamentario ("partido" = 90 minutos).
 const FT_IS_REG = new Set(['football', 'futsal', 'handball', 'rugby', 'waterpolo']);
@@ -250,6 +253,14 @@ function evalSpec(spec, sel, line, rec) {
       return result({ '1X': r !== 'away', X2: r !== 'home', 12: r !== 'draw' }[s]);
     }
     case 'OU': {
+      // Jugador (OU.pl_pts#LeBron James): si no jugó, la casa anula.
+      if (String(stat).startsWith('pl_')) {
+        const pv = playerValue(rec, n, stat);
+        if (!pv) return null;
+        if (pv.dnp) return 'void';
+        if (line == null) return null;
+        return asian(line, (l) => (pv.value === l ? 'void' : result(s === 'over' ? pv.value > l : pv.value < l)));
+      }
       const v = q();
       if (!v || line == null) return null;
       const total = team === 'home' ? v[0] : team === 'away' ? v[1] : v[0] + v[1];

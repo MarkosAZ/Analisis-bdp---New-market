@@ -85,3 +85,25 @@ test('medias apuestas, combinadas con medias y apuestas sin datos', async () => 
   const withRecord = { ...res, record: { state: 'finalizado', final: [2, 1], stats: { corners: { ft: [6, 4] } } } };
   assert.deepEqual(legStatus(leg, withRecord, leg.start + 3 * 3600000), { status: 'won' });
 });
+
+test('nivel Baja: su propia fila, fuera de los totales, pero se sigue liquidando', () => {
+  const s = daySummary({
+    date: '2026-10-12',
+    analyses: [
+      {
+        id: 'est-9',
+        method: 'estadistico',
+        created: '2026-10-12T10:00:00Z',
+        picks: [pick(1, 'OU|over|2.5', 'alta', 'won', 1.9), pick(1, 'BTTS|no|', 'baja', 'lost', 1.9), pick(2, 'OU.corners|over|9.5', 'baja', 'pending', 1.88)],
+        combos: [],
+      },
+    ],
+  });
+  const est = s.methods.estadistico;
+  assert.equal(est.n, 1, 'el total no incluye Baja');
+  assert.equal(est.won, 1);
+  assert.equal(est.byLevel.baja.n, 2);
+  assert.equal(est.byLevel.baja.lost, 1);
+  assert.equal(est.byLevel.baja.pending, 1);
+  assert.equal(s.pendingAll, 1, 'un día con solo Baja pendiente se vuelve a revisar');
+});

@@ -221,10 +221,12 @@ const PAIRS = { OU: ['over', 'under'], HCP: ['home', 'away'], BTTS: ['yes', 'no'
 // separado, la línea .5 con menos diferencia entre sus dos cuotas; las demás
 // líneas se descartan. Ej.: Más 2.5 @1.75 / Menos 2.5 @1.80 (diferencia 0.05)
 // gana a Más 3.5 @1.90 / Menos 3.5 @2.05 (0.15). Sin líneas enteras ni
-// asiáticas: con .5 no hay devolución. Devuelve las ofertas de las líneas elegidas.
+// asiáticas: con .5 no hay devolución. allowed: Set (o { has }) de mercados, o
+// una función (oferta) → bool. Devuelve las ofertas de las líneas elegidas.
 export function balancedLines(offers, allowed) {
   const out = [];
-  const usable = offers.filter((o) => BETTABLE.includes(o.source) && allowed.has(o.market) && o.price > 1);
+  const ok = typeof allowed === 'function' ? allowed : (o) => allowed.has(o.market);
+  const usable = offers.filter((o) => BETTABLE.includes(o.source) && o.price > 1 && ok(o));
   for (const list of groupBy(usable, (o) => `${o.source}|${o.market}`).values()) {
     const spec = parseMarketId(list[0].market);
     const pair = PAIRS[spec?.t];

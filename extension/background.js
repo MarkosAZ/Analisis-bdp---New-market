@@ -25,10 +25,10 @@ const API = {
 
 // Funciones que puede pedir la página web: { action: 'call', params: { source, fn, args } }.
 const PAGE_ALLOWED = {
-  sofascore: ['getSportEvents', 'getEventDetails', 'getEventResults', 'getMatches'],
+  sofascore: ['getSportEvents', 'getEventDetails', 'getEventResults', 'getMatches', 'getPlayerLogs'],
   flashscore: ['getMatches', 'getNews', 'getSportDay', 'getTeamFeeds', 'getMatchFeeds'],
   fotmob: ['getMatches', 'getNews'],
-  espn: ['getMatches', 'getNews', 'getAllNews'],
+  espn: ['getMatches', 'getNews', 'getAllNews', 'getPlayerLogs', 'getBoxScore'],
   understat: ['getTeamStrength'],
   betano: ['getOdds', 'getEventMarkets'],
   apuestatotal: ['getEventList', 'getMarkets', 'getOdds'],

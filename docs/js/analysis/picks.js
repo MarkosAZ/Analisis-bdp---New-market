@@ -1,47 +1,59 @@
-// Niveles de confianza y combinadas.
+// Niveles de confianza, mercados analizados (con su red especializada) y combinadas.
 import { groupBy } from '../util.js';
 
+// Baja: menos de "moderada". Se muestra y se guarda en su propia fila, sin
+// sumarse a los totales de los otros niveles.
 export const LEVELS = [
   { id: 'alta', name: 'Alta' },
   { id: 'moderada_alta', name: 'Moderada-alta' },
   { id: 'moderada', name: 'Moderada' },
+  { id: 'baja', name: 'Baja' },
 ];
+export const MAIN_LEVELS = LEVELS.filter((l) => l.id !== 'baja');
 
 // Mercados que se analizan: solo estos, con líneas .5 (dos resultados posibles,
 // sin devolución) y, en cada casa, la línea con menos diferencia entre sus dos
-// cuotas (markets.balancedLines). market: identificador del catálogo.
+// cuotas (markets.balancedLines). market: identificador del catálogo ('OU.player'
+// reúne los Más/Menos de jugador: OU.pl_pts#Nombre, OU.pl_reb#Nombre...).
+// range: líneas posibles; las de fuera son de otro mercado mal leído (p. ej. los
+// 24.5 puntos de un jugador no son el total del partido). net: red especializada.
 export const MARKETS = [
-  { sport: 'football', market: 'OU', name: 'Goles totales Más/Menos' },
-  { sport: 'football', market: 'BTTS', name: 'Ambos equipos anotan' },
-  { sport: 'football', market: 'OU.corners', name: 'Más/Menos córners' },
-  { sport: 'football', market: 'OU.cards', name: 'Total de tarjetas' },
-  { sport: 'football', market: 'OU.shots_on', name: 'Tiros al arco' },
-  { sport: 'football', market: 'OU.shots', name: 'Remates totales' },
-  { sport: 'football', market: 'OU.corners@h1', name: 'Córners en el primer tiempo Más/Menos' },
-  { sport: 'basketball', market: 'OU', name: 'Total de puntos' },
-  { sport: 'basketball', market: 'HCP', name: 'Hándicap' },
-  { sport: 'basketball', market: 'HCP@h1', name: 'Primer tiempo: hándicap' },
-  { sport: 'basketball', market: 'OU@h1', name: 'Primer tiempo: total de puntos' },
-  { sport: 'baseball', market: 'ML', name: 'Ganador' },
-  { sport: 'baseball', market: 'HCP', name: 'Hándicap (run line)' },
-  { sport: 'baseball', market: 'OU', name: 'Total de carreras' },
+  { sport: 'football', market: 'OU', name: 'Goles totales Más/Menos', range: [0.5, 7.5], net: 'Football_Goals_Model' },
+  { sport: 'football', market: 'BTTS', name: 'Ambos equipos anotan', net: 'Football_BTTS_Model' },
+  { sport: 'football', market: 'OU.corners', name: 'Más/Menos córners', range: [3.5, 18.5], net: 'Football_Corners_Model' },
+  { sport: 'football', market: 'OU.cards', name: 'Total de tarjetas', range: [0.5, 12.5], net: 'Football_Cards_Model' },
+  { sport: 'football', market: 'OU.shots_on', name: 'Tiros al arco', range: [2.5, 22.5], net: 'Football_Shots_Model' },
+  { sport: 'football', market: 'OU.shots', name: 'Remates totales', range: [8.5, 45.5], net: 'Football_Shots_Model' },
+  { sport: 'football', market: 'OU.corners@h1', name: 'Córners en el primer tiempo Más/Menos', range: [0.5, 10.5], net: 'Football_Corners_Model' },
+  { sport: 'basketball', market: 'OU', name: 'Total de puntos', range: [100.5, 290.5], net: 'Basketball_Totals_Model' },
+  { sport: 'basketball', market: 'HCP', name: 'Hándicap', range: [-45.5, 45.5], net: 'Basketball_Handicap_Model' },
+  { sport: 'basketball', market: 'OU.player', name: 'Jugador: Más/Menos (puntos, rebotes, asistencias, triples...)', range: [0.5, 80.5], net: 'Basketball_PlayerProps_Model' },
+  { sport: 'basketball', market: 'HCP@h1', name: 'Primer tiempo: hándicap', range: [-30.5, 30.5], net: 'Basketball_Handicap_Model' },
+  { sport: 'basketball', market: 'OU@h1', name: 'Primer tiempo: total de puntos', range: [50.5, 150.5], net: 'Basketball_Totals_Model' },
+  { sport: 'baseball', market: 'ML', name: 'Ganador', net: 'Baseball_Winner_Model' },
+  { sport: 'baseball', market: 'HCP', name: 'Hándicap (run line)', range: [-3.5, 3.5], net: 'Baseball_RunLine_Model' },
+  { sport: 'baseball', market: 'OU', name: 'Total de carreras', range: [3.5, 18.5], net: 'Baseball_Totals_Model' },
 ].map((m) => ({ ...m, id: `${m.sport}:${m.market}` }));
 
-export const marketsOf = (sport) => new Set(MARKETS.filter((m) => m.sport === sport).map((m) => m.market));
+const BY_ID = new Map(MARKETS.map((m) => [m.id, m]));
+export const isPlayerMarket = (market) => /^OU\.pl_/.test(String(market));
+// Mercado de la lista al que pertenece una selección ("basketball:OU.player" para los de jugador).
+export const marketKey = (sport, market) => `${sport}:${isPlayerMarket(market) ? 'OU.player' : String(market).replace(/#.*$/, '')}`;
+export const marketInfo = (sport, market) => BY_ID.get(marketKey(sport, market)) || null;
+// ¿El mercado (identificador del catálogo) se analiza en ese deporte?
+export const marketsOf = (sport) => ({ has: (market) => Boolean(marketInfo(sport, market)) });
 
-// Tipo de mercado (para las variables de la red neuronal).
-// family: la de catalog.familyOf (resultado, total, periodo, corners...).
-const MAIN = new Set(['resultado', 'total', 'handicap', 'ambos', 'games', 'sets', 'legs', 'maps', 'rounds', 'frames']);
-export function marketGroupOf(family) {
-  if (!family || MAIN.has(family)) return 'principales';
-  if (family === 'periodo') return 'periodos';
-  if (family === 'marcador' || family === 'margen') return 'marcador';
-  if (family === 'combinado') return 'combinados';
-  if (family === 'otro') return 'otros';
-  return 'estadisticas';
+// ¿La oferta es de un mercado analizado y su línea es posible para ese mercado?
+export function acceptsOffer(sport, market, line) {
+  const info = marketInfo(sport, market);
+  if (!info) return false;
+  if (!info.range || line == null) return true;
+  return line >= info.range[0] && line <= info.range[1];
 }
-// Los ajustes eligen cuáles de los mercados analizados pueden salir en picks y combinadas.
-const allowedMarket = (c, s) => !s.markets || s.markets.includes(`${c.sport}:${c.market}`);
+
+// Los ajustes eligen cuáles de los mercados analizados pueden salir en picks y
+// combinadas (se guardan los apagados: un mercado nuevo sale encendido).
+const allowedMarket = (c, s) => !(s.marketsOff || []).includes(marketKey(c.sport, c.market));
 
 export const DEFAULT_SETTINGS = {
   alta: 0.8, // probabilidad mínima para "alta"
@@ -51,7 +63,7 @@ export const DEFAULT_SETTINGS = {
   comboTargets: [5, 10], // cuota mínima de cada combinada
   comboMinProb: 0.7, // probabilidad mínima de cada selección de una combinada
   comboMaxLegs: 8,
-  markets: MARKETS.map((m) => m.id), // mercados que pueden salir en picks y combinadas
+  marketsOff: [], // mercados de la lista que no salen en picks ni combinadas
   betanoAllMarkets: true, // abrir la página de cada partido en Betano (todos los mercados; más lento)
 };
 
@@ -61,27 +73,28 @@ export function levelOf(p, s = DEFAULT_SETTINGS) {
   if (p >= s.alta) return 'alta';
   if (p >= s.moderadaAlta) return 'moderada_alta';
   if (p >= s.moderada) return 'moderada';
-  return null;
+  return 'baja';
 }
 
-const levelRank = (id) => LEVELS.findIndex((l) => l.id === id);
+const marketOrder = (c) => {
+  const i = MARKETS.findIndex((m) => m.id === marketKey(c.sport, c.market));
+  return i < 0 ? MARKETS.length : i;
+};
 
-// Por cada partido y nivel, la selección con mejor valor esperado
-// (probabilidad × cuota) entre las que caen en ese nivel.
+// Todos los mercados de cada partido: por cada uno (y cada jugador), la
+// selección más probable de su línea con su nivel de confianza, también Baja.
+// Si su mejor cuota queda debajo de la mínima, ese mercado no sale.
 export function selectPicks(candidates, s = DEFAULT_SETTINGS) {
   const picks = [];
   for (const list of groupBy(
-    candidates.filter((c) => c.best && c.best.price >= s.minOdds && allowedMarket(c, s)),
-    (c) => c.eventId,
+    candidates.filter((c) => c.best && allowedMarket(c, s)),
+    (c) => `${c.eventId}|${c.market}`,
   ).values()) {
-    for (const level of LEVELS) {
-      const inLevel = list.filter((c) => levelOf(c.p, s) === level.id);
-      if (!inLevel.length) continue;
-      const best = inLevel.reduce((a, b) => (b.p * b.best.price > a.p * a.best.price ? b : a));
-      picks.push({ ...best, level: level.id });
-    }
+    const best = list.reduce((a, b) => (b.p > a.p || (b.p === a.p && b.best.price > a.best.price) ? b : a));
+    if (best.best.price < s.minOdds) continue;
+    picks.push({ ...best, level: levelOf(best.p, s) });
   }
-  return picks.sort((a, b) => levelRank(a.level) - levelRank(b.level) || b.p - a.p);
+  return picks.sort((a, b) => (a.start || 0) - (b.start || 0) || String(a.eventId).localeCompare(String(b.eventId)) || marketOrder(a) - marketOrder(b) || b.p - a.p);
 }
 
 // Combinación de selecciones (máximo una por partido) que alcanza la cuota

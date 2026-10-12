@@ -23,8 +23,8 @@ function nbPmf(mean, k, max) {
 }
 
 // Más/Menos del total del partido (scope 'ft') o del 1.er tiempo ('h1').
-// spec: catalog.parseMarketId del mercado. Devuelve { p, n, home, away } (n:
-// partidos con datos; home/away: medias usadas) o null si faltan datos.
+// spec: catalog.parseMarketId del mercado. Devuelve { p, n, home, away, mean, sd }
+// (n: partidos con datos; home/away: medias usadas; mean/sd: del total) o null si faltan datos.
 export function statProbability(sport, teamStats, spec, sel, line) {
   const def = sport === 'football' ? FOOTBALL_STATS[spec?.stat] : null;
   if (!def || spec.t !== 'OU' || spec.team || !['ft', 'h1'].includes(spec.scope) || !Number.isFinite(line)) return null;
@@ -46,5 +46,6 @@ export function statProbability(sport, teamStats, spec, sel, line) {
     }
   }
   const pOver = over / total;
-  return { p: sel === 'under' ? 1 - pOver : pOver, n: prior.n, home: mh, away: ma };
+  const variance = (m) => m + (def.k ? (m * m) / def.k : 0);
+  return { p: sel === 'under' ? 1 - pOver : pOver, n: prior.n, home: mh, away: ma, mean: mh + ma, sd: Math.sqrt(variance(mh) + variance(ma)) };
 }
