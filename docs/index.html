@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Análisis BDP</title>
+  <meta name="description" content="Partidos de todos los deportes, análisis estadístico y con red neuronal, mejores cuotas y seguimiento de apuestas por nivel de confianza.">
+  <link rel="icon" href="img/logo-32.png" sizes="32x32">
+  <link rel="icon" href="img/logo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="img/logo.svg" alt="" width="28" height="28"><span>Análisis <b>BDP</b></span></div>
+    <div class="date-nav">
+      <button class="icon-btn" id="prev-day" aria-label="Día anterior">‹</button>
+      <input type="date" id="date" aria-label="Fecha">
+      <button class="icon-btn" id="next-day" aria-label="Día siguiente">›</button>
+      <button class="btn small" id="today">Hoy</button>
+    </div>
+    <div class="actions">
+      <span class="sel-count" id="sel-count">0 partidos marcados</span>
+      <button class="btn primary" id="run-stats" disabled title="Análisis estadístico"><span class="long">Análisis estadístico</span><span class="short">Estadístico</span></button>
+      <button class="btn nn" id="run-nn" disabled title="Análisis con red neuronal"><span class="long">Análisis red neuronal</span><span class="short">Red neuronal</span></button>
+      <button class="btn both" id="run-both" disabled title="Hace los dos análisis a la vez y guarda cada uno por separado"><span class="long">Ambos análisis</span><span class="short">Ambos</span></button>
+      <button class="icon-btn" id="open-settings" aria-label="Ajustes" title="Ajustes">⚙</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button data-tab="partidos" class="active">Partidos</button>
+    <button data-tab="analisis">Análisis</button>
+    <button data-tab="historial">Historial</button>
+    <span class="status" id="ext-status"></span>
+  </nav>
+
+  <main>
+    <section id="tab-partidos"></section>
+    <section id="tab-analisis" hidden></section>
+    <section id="tab-historial" hidden></section>
+  </main>
+
+  <dialog id="settings">
+    <form class="form" method="dialog" id="settings-form">
+      <h3>Ajustes del análisis</h3>
+      <label>Confianza alta: probabilidad mínima (%)<input name="alta" type="number" min="50" max="99" step="1"></label>
+      <label>Moderada-alta: probabilidad mínima (%)<input name="moderadaAlta" type="number" min="50" max="99" step="1"></label>
+      <label>Moderada: probabilidad mínima (%)<input name="moderada" type="number" min="50" max="99" step="1"></label>
+      <label>Cuota mínima de cada pick<input name="minOdds" type="number" min="1.01" max="3" step="0.01"></label>
+      <label>Cuotas objetivo de las combinadas (separadas por coma)<input name="comboTargets" type="text"></label>
+      <label>Combinadas: probabilidad mínima de cada selección (%)<input name="comboMinProb" type="number" min="50" max="99" step="1"></label>
+      <label>Combinadas: máximo de selecciones<input name="comboMaxLegs" type="number" min="2" max="12" step="1"></label>
+      <fieldset class="groups">
+        <legend>Mercados para picks y combinadas</legend>
+        <div id="market-groups"></div>
+        <p class="note">Todos se analizan y se guardan; aquí eliges cuáles pueden salir como pick o en una combinada.</p>
+        <label class="check"><input type="checkbox" name="betanoAllMarkets"> Betano: abrir la página de cada partido para leer todos sus mercados (con la extensión; tarda unos segundos por partido)</label>
+      </fieldset>
+      <fieldset class="gh">
+        <legend>Guardar el historial en GitHub (celular y PC)</legend>
+        <p class="note" id="gh-status"></p>
+        <label>Token de GitHub<input name="ghToken" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"></label>
+        <div class="row">
+          <button class="btn small ghost" type="button" id="gh-forget" hidden>Olvidar token</button>
+          <button class="btn small" type="button" id="gh-save">Guardar y probar</button>
+        </div>
+        <p class="note">Créalo en GitHub → Settings → Developer settings → Fine-grained tokens: solo el repositorio Analisis-BDP, permiso <b>Contents: Read and write</b>. Se guarda solo en este navegador y la página solo escribe en <code>docs/data/</code>. Pégalo una vez en cada dispositivo.</p>
+      </fieldset>
+      <div class="row">
+        <button class="btn" value="reset" type="submit">Valores por defecto</button>
+        <button class="btn" value="cancel" type="submit">Cancelar</button>
+        <button class="btn primary" value="save" type="submit">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="overlay" id="busy" hidden>
+    <div class="box">
+      <strong id="busy-title">Analizando…</strong>
+      <div class="progress"><span id="busy-bar" style="width: 0%"></span></div>
+      <span class="note" id="busy-text"></span>
+    </div>
+  </div>
+  <div id="toast" role="status"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
