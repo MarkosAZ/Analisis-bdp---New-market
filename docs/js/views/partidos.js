@@ -29,7 +29,7 @@ export class PartidosView {
           { class: 'banner warn' },
           h('b', {}, 'Sofascore necesita la extensión "Análisis BDP - Conector". '),
           'Solo funciona en la PC (instrucciones en ',
-          h('a', { href: 'https://github.com/LuisP11127/Analisis-BDP/tree/main/extension', target: '_blank', rel: 'noopener' }, 'extension/README.md'),
+          h('a', { href: 'https://github.com/MarkosAZ/Analisis-bdp---New-market/tree/main/extension', target: '_blank', rel: 'noopener' }, 'extension/README.md'),
           '). En el celular usa la fuente Automático.',
         ),
       );

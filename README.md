@@ -3,7 +3,7 @@
 Página web para analizar partidos de todos los deportes, encontrar las mejores
 cuotas de Apuesta Total y Betano por nivel de confianza y llevar el historial de
 resultados. Funciona en el **celular y en la PC**:
-<https://luisp11127.github.io/Analisis-BDP/>
+<https://markosaz.github.io/Analisis-bdp---New-market/>
 
 - **Partidos**: fútbol, básquet, tenis, béisbol, hockey, vóley y más, agrupados
   por país y liga. Marca ligas completas o partidos sueltos. Dos fuentes:
@@ -58,7 +58,7 @@ el token de GitHub se cambian en **⚙ Ajustes**.
 
 ## Cómo se usa
 
-1. Abre <https://luisp11127.github.io/Analisis-BDP/> en el celular o en la PC.
+1. Abre <https://markosaz.github.io/Analisis-bdp---New-market/> en el celular o en la PC.
 2. Pega tu token de GitHub en **⚙ Ajustes** (una vez en cada dispositivo; ver
    abajo) para que el historial se guarde en el repositorio.
 3. Marca partidos o ligas y pulsa **Análisis estadístico**, **Análisis red
@@ -82,7 +82,7 @@ celular y en la PC:
    subirlos.
 
 El token se guarda solo en ese navegador (lo pueden leer las páginas de
-`luisp11127.github.io`, que son tuyas) y la página solo lo usa para escribir
+`markosaz.github.io`, que son tuyas) y la página solo lo usa para escribir
 archivos JSON dentro de `docs/data/`. Para quitarlo: **Olvidar token**. El
 repositorio es público, así que el historial también lo es. En la PC también
 puedes guardar el token en la extensión (clic en su ícono → Guardar en GitHub).

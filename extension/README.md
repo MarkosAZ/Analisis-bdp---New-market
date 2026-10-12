@@ -68,7 +68,7 @@ Haz clic en el ícono de la extensión: se abre la página **Diagnóstico de fue
 
 La extensión solo puede leer los sitios listados en `manifest.json` (`host_permissions`).
 No accede a tus otras pestañas ni a otros sitios. Solo la página web del proyecto
-(`luisp11127.github.io/Analisis-BDP`) se comunica con ella, a través de `bridge.js`.
+(`markosaz.github.io/Analisis-bdp---New-market`) se comunica con ella, a través de `bridge.js`.
 
 ## Estructura
 
