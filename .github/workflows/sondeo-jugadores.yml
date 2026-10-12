@@ -1,0 +1,25 @@
+name: Sondeo de mercados de jugador (temporal)
+
+# Temporal: muestra en el registro los formatos reales de Apuesta Total,
+# Flashscore y ESPN para los mercados de jugador. Se borra antes de unir a main.
+on:
+  push:
+    branches: [claude/quirky-ptolemy-t7wcuw]
+    paths:
+      - scripts/sondeo-jugadores.mjs
+      - .github/workflows/sondeo-jugadores.yml
+
+permissions:
+  contents: read
+
+jobs:
+  sondeo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Sondeo
+        run: node scripts/sondeo-jugadores.mjs
