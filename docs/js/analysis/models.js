@@ -237,17 +237,3 @@ export function predict(ev, details, cfg, ctx) {
       return genericModel(ev, d, cfg);
   }
 }
-
-// Mercados que se analizan en cada deporte.
-export function allowedMarkets(cfg) {
-  if (cfg.model === 'tennis' || cfg.model === 'generic') return new Set(['ML']);
-  const set = new Set(['OU', 'HCP']);
-  if (cfg.draw) {
-    set.add('1X2');
-    if (cfg.dc) set.add('DC');
-    if (cfg.btts) set.add('BTTS');
-  } else {
-    set.add('ML');
-  }
-  return set;
-}

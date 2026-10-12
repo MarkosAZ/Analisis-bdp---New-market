@@ -64,7 +64,8 @@ export class Corrector {
   }
 
   predict(x, pBase) {
-    return sigmoid(logit(pBase) + this.correction(x));
+    const d = this.correction(x);
+    return d ? sigmoid(logit(pBase) + d) : pBase; // sin corrección, exactamente la del estadístico
   }
 
   // Pérdida media (log loss) con la corrección multiplicada por `scale`.

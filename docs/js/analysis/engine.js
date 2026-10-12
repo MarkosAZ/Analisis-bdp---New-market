@@ -5,18 +5,23 @@
 //  2) Cuotas de Apuesta Total y Betano (emparejando cada partido). Sin la
 //     extensión se usan las cuotas de Apuesta Total publicadas cada 2 horas.
 //  3) xG de Understat (fútbol, 5 grandes ligas).
-//  4) Probabilidad del modelo + probabilidad del mercado -> probabilidad base.
-//  5) Red neuronal (opcional): corrige la probabilidad base.
-//  6) Picks por nivel de confianza y combinadas.
+//  4) Solo los mercados de picks.MARKETS y, en cada casa, su línea .5 más
+//     pareja (la de menos diferencia entre sus dos cuotas).
+//  5) Probabilidad de cada selección con la estadística: modelo de goles o de
+//     puntos, promedios de los equipos (córners, tarjetas, tiros) o partidos
+//     simulados (1.er tiempo del básquet). Las cuotas no la cambian.
+//  6) Red neuronal (opcional): corrige esa probabilidad.
+//  7) Picks por nivel de confianza y combinadas.
 import * as ext from '../ext.js';
 import * as provider from '../provider.js';
 import { addTeamStats } from '../flashscore-link.js';
 import { sportOf } from '../sports.js';
-import { clamp, groupBy, limaDateOf, logit, sigmoid } from '../util.js';
+import { clamp, groupBy, limaDateOf } from '../util.js';
 import { buildFeatures, FEATURE_VERSION } from './features.js';
 import {
+  balancedLines,
+  BETTABLE,
   candidateKey,
-  looseProbabilities,
   marketProbabilities,
   offersFromApuestaTotal,
   offersFromBetano,
@@ -24,36 +29,22 @@ import {
   pricesByKey,
   selectionLabel,
 } from './markets.js';
-import { calibrateExpected, fitStatMeans } from './calibrate.js';
 import { familyOf, parseMarketId, STAT_NAME } from './catalog.js';
 import { bestByName, matchEvent } from './matching.js';
-import { allowedMarkets, predict } from './models.js';
-import { buildCombos, DEFAULT_SETTINGS, selectPicks } from './picks.js';
-import { estimate, fitTennisGames, simParams, statPriors } from './simulate.js';
+import { predict } from './models.js';
+import { BOOKMAKERS, buildCombos, DEFAULT_SETTINGS, marketsOf, selectPicks } from './picks.js';
+import { estimate, simParams } from './simulate.js';
+import { MIN_MATCHES, statProbability } from './stats.js';
 import { xgFromTeamStats } from './teamstats.js';
 import { newsFeatures, prepareNews } from './news.js';
 
 // Ligas de Understat según el id de torneo de Sofascore.
 const UNDERSTAT_LEAGUES = { 17: 'EPL', 8: 'La_liga', 35: 'Bundesliga', 23: 'Serie_A', 34: 'Ligue_1' };
 const DETAILS_PER_CALL = 5;
-const BETTABLE = ['apuestatotal', 'betano'];
-
-// Probabilidad base: mezcla (en escala logit) del modelo y del mercado. El
-// mercado pesa más cuando el modelo tiene pocos datos o es un deporte sin
-// modelo propio. loose: la del mercado es aproximada (grupo incompleto).
-export function blend(pModel, pMarket, quality, kind, { loose = false } = {}) {
-  if (pModel == null && pMarket == null) return null;
-  if (pMarket == null) return sigmoid(0.85 * logit(pModel)); // sin mercado: moderar el modelo
-  if (pModel == null) return pMarket;
-  let wMarket = kind === 'tennis' || kind === 'generic' ? 0.7 : quality >= 0.6 ? 0.55 : 0.75;
-  if (loose) wMarket = Math.min(wMarket, 0.5);
-  return sigmoid(wMarket * logit(pMarket) + (1 - wMarket) * logit(pModel));
-}
 
 function bestPrice(prices) {
   let best = null;
   for (const source of BETTABLE) if (prices[source] > 1 && (!best || prices[source] > best.price)) best = { source, price: prices[source] };
-  if (!best && prices.sofascore > 1) best = { source: 'sofascore', price: prices.sofascore, reference: true };
   return best;
 }
 
@@ -62,8 +53,23 @@ function formText(f) {
   return f.last5.map((r) => ({ W: 'G', D: 'E', L: 'P' })[r]).join('');
 }
 
+const SIDE_NAME = { over: 'Más', under: 'Menos', yes: 'Sí', no: 'No' };
+const VIA = { modelo: 'Modelo', estadísticas: 'Promedios de los equipos', simulación: 'Simulación' };
+
+// Cuotas de la línea elegida en cada casa ("Apuesta Total Más 1.85 / Menos 1.95").
+function lineText(ev, c, chosen) {
+  const parts = [];
+  for (const source of BETTABLE) {
+    const pair = chosen.filter((o) => o.source === source && o.market === c.market && o.line === c.line);
+    if (pair.length !== 2) continue;
+    const name = (o) => SIDE_NAME[o.sel] || (o.sel === 'home' ? ev.home.name : ev.away.name);
+    parts.push(`${BOOKMAKERS[source]} ${pair.map((o) => `${name(o)} ${o.price.toFixed(2)}`).join(' / ')}`);
+  }
+  return parts.length ? `Línea más pareja: ${parts.join(' · ')}` : null;
+}
+
 // Datos que explican el pick (se muestran en la tarjeta).
-function factorsFor(ev, d, model, c) {
+function factorsFor(ev, d, model, c, chosen = []) {
   const out = [];
   const fh = model?.form?.home;
   const fa = model?.form?.away;
@@ -83,8 +89,10 @@ function factorsFor(ev, d, model, c) {
     const f = (x) => (Math.round(x * 10) / 10).toString();
     out.push(`${STAT_NAME[st] || st} por partido: ${ev.home.name} ${f(ts.home[st].for)} (recibe ${f(ts.home[st].against)}) · ${ev.away.name} ${f(ts.away[st].for)} (recibe ${f(ts.away[st].against)})`);
   }
-  if (c.pMarket != null) out.push(`Mercado: ${Math.round(c.pMarket * 100)}%`);
-  if (c.pModel != null) out.push(`${c.via === 'simulación' ? `Simulación (${SIMULATIONS} partidos)` : 'Modelo'}: ${Math.round(c.pModel * 100)}%`);
+  const line = lineText(ev, c, chosen);
+  if (line) out.push(line);
+  if (c.pMarket != null) out.push(`Según las cuotas (solo referencia): ${Math.round(c.pMarket * 100)}%`);
+  if (c.pModel != null) out.push(`${c.via === 'simulación' ? `Simulación (${SIMULATIONS} partidos)` : VIA[c.via] || 'Modelo'}: ${Math.round(c.pModel * 100)}%`);
   return out;
 }
 
@@ -245,130 +253,83 @@ async function loadArticles(withExt, sources, progress) {
   return articles;
 }
 
-const halfLines = (offers, market) => [...new Set(offers.filter((o) => o.market === market && o.line != null).map((o) => o.line))];
+export const SIMULATIONS = 10000;
 
-export const SIMULATIONS = 2500;
-
-// Formato del partido (mejor de 3/5 sets, rondas en esports...) según el torneo y las cuotas.
-export function inferFormat(ev, offers = []) {
-  const name = `${ev.category?.name || ''} ${ev.tournament?.name || ''}`;
-  const scores = offers.filter((o) => o.market === 'CS').map((o) => String(o.sel));
-  const maxScore = Math.max(0, ...scores.flatMap((x) => x.split(/[-,!]/).map(Number).filter(Number.isFinite)));
-  if (ev.sport === 'tennis') {
-    const women = /wta|femenin|mujeres|women|\bf\b/i.test(name);
-    return { women, bestOf: !women && /grand slam|australian open|roland garros|wimbledon|us open|copa davis/i.test(name) ? 5 : 3 };
-  }
-  if (ev.sport === 'table-tennis') return { bestOf: maxScore >= 4 ? 7 : 5 };
-  if (ev.sport === 'esports') return { rounds: /counter|cs2|cs:go|csgo|valorant/i.test(name), bestOf: maxScore >= 3 ? 5 : maxScore === 2 ? 3 : 3 };
-  if (ev.sport === 'darts') {
-    const sets = offers.some((o) => /@s\d/.test(o.market));
-    return sets ? { sets: true, bestOf: Math.max(3, maxScore * 2 - 1) } : { sets: false, bestOfLegs: Math.max(5, maxScore * 2 - 1) };
-  }
-  return {};
-}
-
-// Qué tan confiable es el modelo para un mercado (0 a 1): con estadísticas de
-// equipo usa cuántos partidos hay; sin ellas, casi todo lo decide el mercado.
-// Los mercados del marcador simulados con lo esperado ya calibrado con las
-// cuotas principales valen al menos 0.5.
-function qualityFor(spec, model, d, calibrated) {
-  const base = model?.quality ?? 0;
-  if (!spec || spec.stat === 'score' || spec.stat === 'sets') return calibrated ? Math.max(base, 0.5) : base;
-  const n = Math.min(d?.teamStats?.home?.[spec.stat]?.n ?? 0, d?.teamStats?.away?.[spec.stat]?.n ?? 0);
-  // Las líneas de estadísticas de la casa suelen ser más fiables que 8 partidos por equipo.
-  return n ? Math.min(1, n / 8) * 0.55 : 0.15;
-}
-
-// Candidatos (todas las selecciones con cuota y probabilidad) de un partido, sin
-// aplicar todavía el método (estadístico o red neuronal).
-//  1) Modelo propio (Poisson / normal / ganador) para los mercados principales.
-//  2) Probabilidad base de esos mercados (modelo + mercado).
-//  3) Lo esperado se calibra con esa base y se simulan los demás mercados
-//     (mitades, cuartos, sets, córners, marcador exacto, combinados...).
+// Candidatos (las dos selecciones de la línea elegida de cada mercado, con
+// cuota y probabilidad) de un partido, sin aplicar todavía el método
+// (estadístico o red neuronal).
+//  1) De cada mercado permitido, la línea .5 más pareja de cada casa.
+//  2) Probabilidad con la estadística de los equipos: modelo de goles o de
+//     puntos (total, hándicap, ambos marcan, ganador), promedios de córners,
+//     tarjetas y tiros, o partidos simulados con lo esperado del modelo
+//     (1.er tiempo del básquet). Las cuotas no la cambian.
+//  3) Sin datos suficientes de ambos equipos no se da probabilidad.
 export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } = {}) {
   const cfg = sportOf(ev.sport);
-  const allowed = allowedMarkets(cfg);
-  const legacy = offers.filter((o) => allowed.has(o.market));
-  const model = predict(ev, d, cfg, { lines: { OU: halfLines(legacy, 'OU'), HCP: halfLines(legacy, 'HCP') }, xg });
-  const kind = model?.kind || cfg.model;
-  const pMarket = marketProbabilities(offers);
-  const pLoose = looseProbabilities(offers);
-  const prices = pricesByKey(offers);
-  const keys = new Map();
-  for (const c of model?.candidates || []) if (allowed.has(c.market)) keys.set(candidateKey(c.market, c.sel, c.line), { ...c, pModel: c.p, via: 'modelo' });
-  for (const key of prices.keys()) {
-    if (keys.has(key)) continue;
-    const [market, sel, line] = key.split('|');
-    keys.set(key, { market, sel, line: line === '' ? null : Number(line), pModel: null });
-  }
-  // Base de los mercados principales: con ella se calibra la simulación.
-  const targets = [];
-  for (const [key, c] of keys) {
-    if (!allowed.has(c.market)) continue;
-    const p = blend(c.pModel, pMarket.get(key) ?? null, model?.quality ?? 0, kind);
-    if (p != null && (c.pModel != null || pMarket.has(key))) targets.push({ market: c.market, sel: c.sel, line: c.line, p });
-  }
-  const expected = calibrateExpected(ev.sport, cfg, model?.expected || null, targets);
-  const calibrated = Boolean(expected?.calibrated);
-  const simModel = expected ? { ...(model || { kind, quality: 0 }), expected } : model;
-  const winTarget = targets.find((t) => t.market === 'ML' && t.sel === 'home');
+  const chosen = balancedLines(offers, marketsOf(ev.sport));
+  const lines = (market) => [...new Set(chosen.filter((o) => o.market === market).map((o) => o.line))];
+  const model = predict(ev, d, cfg, { lines: { OU: lines('OU'), HCP: lines('HCP') }, xg });
+  const enough = Math.min(model?.form?.home?.n ?? 0, model?.form?.away?.n ?? 0) >= MIN_MATCHES;
+  const fromModel = new Map(enough ? model.candidates.map((c) => [candidateKey(c.market, c.sel, c.line), c.p]) : []);
+  const pMarket = marketProbabilities(chosen);
+  const prices = pricesByKey(chosen);
 
-  // Mercados sin modelo propio (y líneas asiáticas): partidos simulados.
-  const need = [...keys.entries()].filter(([, c]) => c.pModel == null);
+  const items = [];
+  const need = []; // sin modelo propio: se simulan
+  for (const key of prices.keys()) {
+    const [market, sel, raw] = key.split('|');
+    const line = raw === '' ? null : Number(raw);
+    const spec = parseMarketId(market);
+    const c = { key, market, sel, line, spec, pModel: null, via: null, quality: model?.quality ?? 0 };
+    if (fromModel.has(key)) Object.assign(c, { pModel: fromModel.get(key), via: 'modelo' });
+    else if (spec.stat !== 'score') {
+      const r = statProbability(ev.sport, d?.teamStats, spec, sel, line);
+      if (r) Object.assign(c, { pModel: r.p, via: 'estadísticas', quality: Math.min(1, r.n / 8) });
+    } else if (enough) need.push(c);
+    items.push(c);
+  }
   let simulated = 0;
   if (need.length && simulations > 0) {
-    // Córners, tarjetas, tiros...: promedios de los equipos ajustados a las líneas de la casa.
-    const statMeans = fitStatMeans(statPriors(ev.sport, d?.teamStats), pMarket);
-    let params = simParams(ev, cfg, simModel, { teamStats: d?.teamStats, winProb: winTarget?.p ?? null, format: inferFormat(ev, offers), statMeans });
-    // Tenis: el total de juegos se ajusta con la línea más pareja del mercado.
-    const games = [...pMarket].filter(([k]) => k.startsWith('OU.games|over|')).sort((x, y) => Math.abs(x[1] - 0.5) - Math.abs(y[1] - 0.5))[0];
-    if (params?.sport === 'tennis' && games) params = fitTennisGames(params, Number(games[0].split('|')[2]), games[1]);
-    if (params) {
-      const est = estimate(params, need.map(([key, c]) => ({ key, market: c.market, sel: c.sel, line: c.line })), { n: simulations, seed: hashSeed(ev.id) });
-      for (const [key, c] of need) {
-        const r = est.get(key);
-        if (!r) continue;
-        c.pModel = r.p;
-        c.via = 'simulación';
-        simulated++;
-      }
+    const params = simParams(ev, cfg, model, { teamStats: d?.teamStats });
+    const est = params ? estimate(params, need, { n: simulations, seed: hashSeed(ev.id) }) : new Map();
+    for (const c of need) {
+      const r = est.get(c.key);
+      if (!r) continue;
+      c.pModel = r.p;
+      c.via = 'simulación';
+      simulated++;
     }
   }
+
   const out = [];
-  for (const [key, c] of keys) {
-    const spec = parseMarketId(c.market);
-    const exact = pMarket.get(key) ?? null;
-    const pm = exact ?? pLoose.get(key) ?? null;
-    const quality = c.via === 'simulación' ? qualityFor(spec, model, d, calibrated) : model?.quality ?? 0;
-    // Sin datos del equipo para esa estadística no se inventa una probabilidad.
-    if (exact == null && c.via === 'simulación' && quality < 0.25) continue;
-    const pBase = blend(c.pModel, pm, quality, kind, { loose: exact == null });
-    const priceMap = prices.get(key) || {};
+  for (const c of items) {
+    if (c.pModel == null) continue; // sin datos de los equipos no se inventa una probabilidad
+    const priceMap = prices.get(c.key);
     const best = bestPrice(priceMap);
-    if (pBase == null || !best) continue; // sin cuota no se puede apostar ni aprender
+    if (!best) continue;
     const cand = {
-      key,
+      key: c.key,
       eventId: ev.id,
       sport: ev.sport,
       start: ev.start,
       market: c.market,
       sel: c.sel,
       line: c.line,
-      family: familyOf(spec),
+      family: familyOf(c.spec),
       pModel: c.pModel,
-      pMarket: exact,
-      pBase,
-      quality,
-      via: c.via || 'mercado',
+      pMarket: pMarket.get(c.key) ?? null,
+      pBase: clamp(c.pModel, 0.001, 0.999),
+      quality: c.quality,
+      via: c.via,
       prices: priceMap,
       best,
     };
-    cand.x = buildFeatures({ ...cand, price: best.price }, { sport: ev.sport, cfg, model, details: d, spec, quality });
+    cand.x = buildFeatures({ ...cand, price: best.price }, { sport: ev.sport, cfg, model, details: d, spec: c.spec, quality: c.quality });
     cand.label = selectionLabel(cand, ev, cfg.unit);
-    cand.factors = factorsFor(ev, d, model, cand);
+    cand.factors = factorsFor(ev, d, model, cand, chosen);
     out.push(cand);
   }
-  return { model, expected, candidates: out, simulated };
+  return { model, candidates: out, simulated };
 }
 
 // Aplica el método: con red neuronal corrige la probabilidad base.

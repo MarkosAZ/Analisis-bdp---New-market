@@ -5,7 +5,8 @@ import * as provider from './provider.js';
 import * as store from './storage.js';
 import * as history from './history.js';
 import { analyzeMany } from './analysis/engine.js';
-import { DEFAULT_SETTINGS, MARKET_GROUPS } from './analysis/picks.js';
+import { DEFAULT_SETTINGS, MARKETS } from './analysis/picks.js';
+import { isActiveSport, sportOf } from './sports.js';
 import { addDays, h, limaToday } from './util.js';
 import { PartidosView } from './views/partidos.js';
 import { analysisText, renderAnalisis } from './views/analisis.js';
@@ -30,12 +31,18 @@ const LS = {
   },
 };
 
+// Ajustes guardados (sin los grupos de mercados de antes: ahora se elige cada mercado).
+function savedSettings() {
+  const { marketGroups, ...saved } = LS.get('bdp:ajustes', {}) || {};
+  return { ...DEFAULT_SETTINGS, ...saved };
+}
+
 const app = {
   extOk: false,
   storage: { mode: 'lectura', info: null },
   state: {
     date: limaToday(),
-    sport: LS.get('bdp:deporte', 'football'),
+    sport: isActiveSport(LS.get('bdp:deporte', 'football')) ? LS.get('bdp:deporte', 'football') : 'football',
     source: LS.get('bdp:fuente', null), // 'auto' (datos publicados) o 'sofascore' (extensión)
     events: new Map(), // "fuente|fecha|deporte" -> { status, items, error, withOdds, generated }
     onlyOdds: LS.get('bdp:solo-cuotas', true),
@@ -52,7 +59,7 @@ const app = {
     dayCache: new Map(),
     localFiles: 0,
     tab: 'partidos',
-    settings: { ...DEFAULT_SETTINGS, ...LS.get('bdp:ajustes', {}) },
+    settings: savedSettings(),
   },
 };
 
@@ -152,7 +159,7 @@ function showTab(tab) {
 const selectionKey = () => `bdp:seleccion:${app.state.date}`;
 
 function loadSelection() {
-  app.state.selected = new Map(LS.get(selectionKey(), []).map((e) => [e.id, e]));
+  app.state.selected = new Map(LS.get(selectionKey(), []).filter((e) => isActiveSport(e.sport)).map((e) => [e.id, e]));
 }
 
 function saveSelection() {
@@ -398,9 +405,19 @@ function openSettings() {
   f.comboTargets.value = s.comboTargets.join(', ');
   f.comboMinProb.value = Math.round(s.comboMinProb * 100);
   f.comboMaxLegs.value = s.comboMaxLegs;
-  const groups = s.marketGroups || DEFAULT_SETTINGS.marketGroups;
+  const on = s.markets || DEFAULT_SETTINGS.markets;
+  const sports = [...new Set(MARKETS.map((m) => m.sport))];
   $('#market-groups').replaceChildren(
-    ...MARKET_GROUPS.map((g) => h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'marketGroup', value: g.id, checked: groups.includes(g.id) }), ` ${g.name}`)),
+    ...sports.map((sport) =>
+      h(
+        'div',
+        { class: 'market-sport' },
+        h('b', {}, `${sportOf(sport).icon} ${sportOf(sport).name}`),
+        ...MARKETS.filter((m) => m.sport === sport).map((m) =>
+          h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'market', value: m.id, checked: on.includes(m.id) }), ` ${m.name}`),
+        ),
+      ),
+    ),
   );
   f.betanoAllMarkets.checked = s.betanoAllMarkets !== false;
   f.ghToken.value = '';
@@ -467,11 +484,11 @@ function closeSettings(action) {
       comboTargets: targets.length ? targets : DEFAULT_SETTINGS.comboTargets,
       comboMinProb: Number(f.comboMinProb.value) / 100,
       comboMaxLegs: Math.round(Number(f.comboMaxLegs.value)),
-      marketGroups: [...f.querySelectorAll('input[name=marketGroup]:checked')].map((x) => x.value),
+      markets: [...f.querySelectorAll('input[name=market]:checked')].map((x) => x.value),
       betanoAllMarkets: f.betanoAllMarkets.checked,
     };
-    if (!next.marketGroups.length) {
-      toast('Elige al menos un tipo de mercado para los picks', 6000);
+    if (!next.markets.length) {
+      toast('Elige al menos un mercado para los picks', 6000);
       return;
     }
     if (!(next.alta > next.moderadaAlta && next.moderadaAlta > next.moderada)) {

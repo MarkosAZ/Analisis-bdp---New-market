@@ -50,7 +50,8 @@ async function fixtures() {
   const strong = last([[3, 0], [2, 1], [2, 0], [1, 1], [3, 1], [2, 0], [1, 0], [2, 2], [4, 1], [2, 1]]);
   const weak = last([[0, 2], [1, 1], [0, 1], [1, 3], [0, 0], [1, 2], [0, 2], [2, 2], [0, 1], [1, 2]]);
   const o = (market, sel, line, price) => ({ source: 'apuestatotal', market, sel, line, price });
-  const book = (h, d, a) => [o('1X2', 'home', null, h), o('1X2', 'draw', null, d), o('1X2', 'away', null, a), o('DC', '1X', null, 1.08), o('OU', 'over', 2.5, 1.8), o('OU', 'under', 2.5, 1.95), o('OU', 'over', 1.5, 1.25), o('OU', 'under', 1.5, 3.6)];
+  // 1X2 y doble oportunidad no se analizan; de goles se usa la 2.5 (la más pareja).
+  const book = (h, d, a) => [o('1X2', 'home', null, h), o('1X2', 'draw', null, d), o('1X2', 'away', null, a), o('DC', '1X', null, 1.08), o('OU', 'over', 2.5, 1.8), o('OU', 'under', 2.5, 1.95), o('OU', 'over', 1.5, 1.25), o('OU', 'under', 1.5, 3.6), o('BTTS', 'yes', null, 1.95), o('BTTS', 'no', null, 1.85)];
   const football = compactDay({
     date: DAY,
     sport: 'football',
@@ -240,9 +241,11 @@ async function withoutExtension(browser, errors) {
     await page.click('.sport:has-text("Básquet")');
     await page.waitForSelector('.league:has-text("NBA")');
     await page.click('.league:has-text("NBA") .league-head input');
-    await page.click('.sport:has-text("Tenis")');
-    await page.waitForSelector('.league:has-text("ATP Tokyo")');
-    await page.click('.league:has-text("ATP Tokyo") .league-head input');
+    const sportChips = await page.$$eval('.sport', (els) => els.map((e) => e.textContent));
+    check('solo fútbol, básquet y béisbol', sportChips.length === 3 && ['Fútbol', 'Básquet', 'Béisbol'].every((n, i) => sportChips[i].includes(n)), sportChips.join(' | '));
+    await page.click('.sport:has-text("Béisbol")');
+    await page.waitForSelector('.league:has-text("MLB")');
+    await page.click('.league:has-text("MLB") .league-head input');
     await page.click('.sport:has-text("Fútbol")');
     await page.waitForSelector('.match');
     const count = await page.textContent('#sel-count');
@@ -261,14 +264,19 @@ async function withoutExtension(browser, errors) {
     const log = await page.evaluate(() => window.__BDP_MOCK_LOG__);
     check('abre la página de cada partido de Betano (todos los mercados)', log.includes('betano.getEventMarkets'));
     check('suma las estadísticas de equipo de Flashscore a los partidos de Sofascore', log.includes('flashscore.getTeamFeeds') && /Flashscore · \d+ partidos/.test(summary), summary.match(/Flashscore[^A-Z]*/)?.[0]);
-    // Filas de entrenamiento guardadas en el navegador: incluyen los mercados nuevos.
+    // Filas de entrenamiento guardadas en el navegador: solo los mercados de la lista.
     const rowMarkets = await page.evaluate(async () => {
       const st = await import(new URL('js/storage.js', location.href).href);
       const out = new Set();
       for (const p of await st.localPaths()) if (p.includes('entrenamiento')) for (const r of (await st.read(p))?.rows || []) out.add(r.market);
       return [...out];
     });
-    check('analiza los mercados nuevos (córners, 1.er tiempo, descanso/final)', ['OU.corners', '1X2@h1', 'OU.cards'].every((m) => rowMarkets.includes(m)), rowMarkets.join(' '));
+    const LIST = ['OU', 'BTTS', 'OU.corners', 'OU.cards', 'OU.shots_on', 'OU.shots', 'OU.corners@h1', 'HCP', 'HCP@h1', 'OU@h1', 'ML'];
+    check(
+      'solo analiza los mercados de la lista (goles, córners, tarjetas, tiros, hándicap, ganador)',
+      ['OU', 'OU.corners', 'OU.cards', 'OU.shots_on', 'HCP', 'ML'].every((m) => rowMarkets.includes(m)) && rowMarkets.every((m) => LIST.includes(m)),
+      rowMarkets.join(' '),
+    );
     const levels = await page.$$eval('#tab-analisis .card', (cards) => cards.map((c) => c.className));
     check(
       'hay picks por nivel y combinadas',

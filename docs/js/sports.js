@@ -32,4 +32,9 @@ export const SPORTS = [
 
 export const sportBySlug = Object.fromEntries(SPORTS.map((s) => [s.slug, s]));
 
+// Deportes que se muestran y se analizan (los demás quedan para leer el historial).
+export const ACTIVE_SPORTS = ['football', 'basketball', 'baseball'];
+export const isActiveSport = (slug) => ACTIVE_SPORTS.includes(slug);
+export const activeSports = () => SPORTS.filter((s) => isActiveSport(s.slug));
+
 export const sportOf = (slug) => sportBySlug[slug] || { slug, name: slug, icon: '🏅', model: 'generic', unit: 'puntos' };

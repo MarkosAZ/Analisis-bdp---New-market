@@ -191,7 +191,7 @@ const STATS = [
   [/tie[ -]?breaks?/, 'tiebreaks'],
   [/breaks? de servicio|quiebres? de servicio|\bquiebres?\b|primer break/, 'breaks'],
   [/duracion/, 'duration'],
-  [/puntos de tarjetas/, 'cards'],
+  [/puntos de tarjetas/, 'card_points'],
   [/tarjetas? rojas?/, 'reds'],
   [/tarjeta|amonestacion/, 'cards'],
   [/corner|corneres|tiros? de esquina/, 'corners'],
@@ -244,8 +244,9 @@ const STATS = [
   [/games|juegos/, 'games'],
 ];
 
-// Estadísticas que no trae Flashscore (no se pueden liquidar).
-const NO_DATA_STATS = new Set(['rush_att', 'receptions', 'singles', 'doubles', 'checkout']);
+// Estadísticas que no trae Flashscore (no se pueden liquidar). Los puntos de
+// tarjetas (amarilla 10, roja 25) no son la cantidad de tarjetas.
+const NO_DATA_STATS = new Set(['rush_att', 'receptions', 'singles', 'doubles', 'checkout', 'card_points']);
 
 // Deportes en los que "puntos" no es el marcador sino los puntos de los sets.
 const RALLY = new Set(['table-tennis', 'badminton', 'volleyball', 'beach-volley']);
@@ -372,7 +373,8 @@ function typeFromName(name, sport) {
   if (/en todos los periodos (mas de|menos)|goles anotados en cada tiempo|goles anotados en ambos tiempos/.test(name)) return 'ALLPER';
   if (/gana a cero/.test(name)) return 'CLEAN';
   if (/gana luego de ir perdiendo/.test(name)) return 'COMEBACK';
-  if (/tiempo extra|tiempo suplementario|entradas extra/.test(name)) return 'OT';
+  // "Ganador (incl. entradas extra)" es el ganador del partido, no "¿hay entradas extra?".
+  if (/tiempo extra|tiempo suplementario|entradas extra/.test(name) && !/\bincl/.test(name)) return 'OT';
   if (/setcast/.test(name)) return 'SEQ';
   if (/ganador del primer juego de servicio/.test(name)) return 'SVC1';
   if (/equipo con mas|mas quiebres|mas aces|mas faltas dobles|mas 180s|mas alto checkout/.test(name)) return 'MOST';

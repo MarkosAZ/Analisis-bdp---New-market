@@ -169,3 +169,36 @@ test('traduce las cuotas reales de Betano', () => {
   assert.ok(!offers.some((o) => o.market === 'OU' && [0.5, 8.5, 4.5].includes(o.line)));
   assert.equal(offers.length, 16);
 });
+
+test('línea más pareja: la de menos diferencia entre sus dos cuotas, en cada casa', async () => {
+  const { balancedLines } = await import('../docs/js/analysis/markets.js');
+  const o = (source, market, sel, line, price) => ({ source, market, sel, line, price });
+  const allowed = new Set(['OU', 'HCP', 'BTTS']);
+  const offers = [
+    // El ejemplo: Más 2.5 @1.75 / Menos 2.5 @1.80 (0.05) gana a Más 3.5 @1.90 / Menos 3.5 @2.05 (0.15).
+    o('apuestatotal', 'OU', 'over', 2.5, 1.75), o('apuestatotal', 'OU', 'under', 2.5, 1.8),
+    o('apuestatotal', 'OU', 'over', 3.5, 1.9), o('apuestatotal', 'OU', 'under', 3.5, 2.05),
+    // Líneas entera y asiática: no se usan aunque sean más parejas.
+    o('apuestatotal', 'OU', 'over', 3, 1.9), o('apuestatotal', 'OU', 'under', 3, 1.9),
+    o('apuestatotal', 'OU', 'over', 2.75, 1.88), o('apuestatotal', 'OU', 'under', 2.75, 1.88),
+    // En Betano la más pareja es la 3.5.
+    o('betano', 'OU', 'over', 2.5, 1.55), o('betano', 'OU', 'under', 2.5, 2.4),
+    o('betano', 'OU', 'over', 3.5, 1.92), o('betano', 'OU', 'under', 3.5, 1.9),
+    // Hándicap: la línea es la del local; los dos lados comparten la misma.
+    o('apuestatotal', 'HCP', 'home', -6.5, 1.88), o('apuestatotal', 'HCP', 'away', -6.5, 1.92),
+    o('apuestatotal', 'HCP', 'home', -9.5, 2.3), o('apuestatotal', 'HCP', 'away', -9.5, 1.6),
+    // Sin su pareja no hay línea; Sofascore es solo de referencia; el 1X2 no está en la lista.
+    o('apuestatotal', 'OU', 'over', 1.5, 1.85),
+    o('sofascore', 'OU', 'over', 4.5, 1.9), o('sofascore', 'OU', 'under', 4.5, 1.9),
+    o('apuestatotal', '1X2', 'home', null, 1.9), o('apuestatotal', '1X2', 'away', null, 1.9),
+  ];
+  const keys = balancedLines(offers, allowed).map((x) => `${x.source} ${x.market} ${x.sel} ${x.line}`);
+  assert.deepEqual(keys.sort(), [
+    'apuestatotal HCP away -6.5',
+    'apuestatotal HCP home -6.5',
+    'apuestatotal OU over 2.5',
+    'apuestatotal OU under 2.5',
+    'betano OU over 3.5',
+    'betano OU under 3.5',
+  ]);
+});

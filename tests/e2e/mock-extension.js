@@ -42,13 +42,13 @@
       [T(23, 'Golden State Warriors', 'Golden State Warriors', 115, 110), T(24, 'Miami Heat', 'Miami Heat', 108, 107), 21],
     ] },
   ];
-  const tennis = [
-    { t: { id: 2363, name: 'ATP Tokyo', priority: 700 }, c: { name: 'ATP', alpha2: null }, games: [
-      [T(31, 'Carlos Alcaraz', 'C. Alcaraz', 0.75, 0, { ranking: 2 }), T(32, 'Tommy Paul', 'T. Paul', 0.6, 0, { ranking: 12 }), 3],
-      [T(33, 'Jannik Sinner', 'J. Sinner', 0.8, 0, { ranking: 1 }), T(34, 'Alex de Minaur', 'A. De Minaur', 0.62, 0, { ranking: 8 }), 5],
+  const baseball = [
+    { t: { id: 11205, name: 'MLB', priority: 700 }, c: { name: 'USA', alpha2: 'US' }, games: [
+      [T(31, 'New York Yankees', 'New York Yankees', 5.4, 3.7), T(32, 'Boston Red Sox', 'Boston Red Sox', 4.0, 4.9), 18],
+      [T(33, 'Los Angeles Dodgers', 'LA Dodgers', 5.6, 3.5), T(34, 'Colorado Rockies', 'Colorado Rockies', 3.7, 5.8), 21],
     ] },
   ];
-  const SPORTS = { football, basketball, tennis };
+  const SPORTS = { football, basketball, baseball };
   const teamById = new Map();
   const events = [];
   let nextId = 1000;
@@ -84,10 +84,9 @@
     url: `https://www.sofascore.com/x-y/abc#id:${e.id}`,
   });
 
-  // Goles/puntos esperados del local y del visitante.
+  // Goles/puntos/carreras esperados del local y del visitante.
   function expected(e) {
     if (e.sport === 'basketball') return [(e.home.att + e.away.def) / 2 + 2, (e.away.att + e.home.def) / 2 - 2];
-    if (e.sport === 'tennis') return null;
     return [((e.home.att + e.away.def) / 2) * 1.1, ((e.away.att + e.home.def) / 2) / 1.1];
   }
 
@@ -99,10 +98,6 @@
       if (t.sport === 'basketball') {
         gf = Math.round(t.att + (rand() - 0.5) * 20);
         ga = Math.round(t.def + (rand() - 0.5) * 20);
-      } else if (t.sport === 'tennis') {
-        const win = rand() < t.att;
-        gf = win ? 2 : rand() < 0.5 ? 1 : 0;
-        ga = win ? (rand() < 0.5 ? 1 : 0) : 2;
       } else {
         gf = poisson(t.att);
         ga = poisson(t.def);
@@ -144,7 +139,7 @@
         { name: 'Match goals', group: '2.5', live: false, choices: [{ name: 'Over', price: odd(f.over(2.5)) }, { name: 'Under', price: odd(1 - f.over(2.5)) }] },
       ];
     }
-    const pHome = e.sport === 'tennis' ? e.home.att / (e.home.att + e.away.att) : 0.5 + (expected(e)[0] - expected(e)[1]) / 30;
+    const pHome = 0.5 + (expected(e)[0] - expected(e)[1]) / (e.sport === 'basketball' ? 30 : 10);
     return [{ name: 'Home/Away', group: null, live: false, choices: [{ name: '1', price: odd(pHome) }, { name: '2', price: odd(1 - pHome) }] }];
   }
 
@@ -155,7 +150,10 @@
     const n = h1.h + h1.d + h1.a;
     return [
       { name: 'Resultado Final', selections: [{ name: '1', price: odd(f.h, 1.05) }, { name: 'X', price: odd(f.d, 1.05) }, { name: '2', price: odd(f.a, 1.05) }] },
-      { name: 'Total de Córners', selections: [{ name: 'Más de 9.5', price: 1.88 }, { name: 'Menos de 9.5', price: 1.88 }] },
+      { name: 'Total de Córners', selections: [{ name: 'Más de 9.5', price: 1.88 }, { name: 'Menos de 9.5', price: 1.88 }, { name: 'Más de 11.5', price: 2.6 }, { name: 'Menos de 11.5', price: 1.45 }] },
+      { name: 'Córners en Primer Tiempo Más/Menos', selections: [{ name: 'Más de 4.5', price: 1.9 }, { name: 'Menos de 4.5', price: 1.85 }] },
+      { name: 'Tiros al Arco', selections: [{ name: 'Más de 8.5', price: 1.87 }, { name: 'Menos de 8.5', price: 1.87 }] },
+      { name: 'Remates totales', selections: [{ name: 'Más de 22.5', price: 1.85 }, { name: 'Menos de 22.5', price: 1.9 }] },
       { name: 'Primer Tiempo - Resultado', selections: ['h', 'd', 'a'].map((k, i) => ({ name: ['1', 'X', '2'][i], price: odd(h1[k] / n, 1.06) })) },
       { name: 'Descanso/Final', selections: [{ name: '1/1', price: odd(f.h * 0.55, 1.2) }, { name: 'X/X', price: odd(f.d * 0.6, 1.2) }, { name: '2/2', price: odd(f.a * 0.55, 1.2) }] },
       { name: 'Total de tarjetas', selections: [{ name: 'Más de 4.5', price: 1.9 }, { name: 'Menos de 4.5', price: 1.86 }] },
@@ -184,12 +182,21 @@
       const total = Math.floor(h + a) + 0.5;
       return [
         { name: 'Ganador (incl. prórroga)', type: 'ML0', selections: [{ name: H, price: odd(0.5 + (h - a) / 30, 1.05) }, { name: A, price: odd(0.5 - (h - a) / 30, 1.05) }] },
-        { name: 'Total de puntos', type: 'OU0', selections: [{ name: `Más de ${total}`, price: 1.9 }, { name: `Menos de ${total}`, price: 1.9 }] },
+        { name: 'Total de puntos', type: 'OU0', selections: [{ name: `Más de ${total}`, price: 1.9 }, { name: `Menos de ${total}`, price: 1.9 }, { name: `Más de ${total + 6}`, price: 2.45 }, { name: `Menos de ${total + 6}`, price: 1.52 }] },
         { name: 'Hándicap', type: 'HC0', selections: [{ name: `${H} (${-Math.round(h - a) - 0.5})`, price: 1.9 }, { name: `${A} (+${Math.round(h - a) + 0.5})`, price: 1.9 }] },
       ];
     }
-    const pHome = e.home.att / (e.home.att + e.away.att);
-    return [{ name: 'Ganador del partido', type: 'ML0', selections: [{ name: H, price: odd(pHome, 1.05) }, { name: A, price: odd(1 - pHome, 1.05) }] }];
+    if (e.sport === 'baseball') {
+      const [h, a] = expected(e);
+      const total = Math.round(h + a) + 0.5;
+      const pHome = 0.5 + (h - a) / 10;
+      return [
+        { name: 'Ganador (incl. entradas extra)', type: 'ML0', selections: [{ name: H, price: odd(pHome, 1.05) }, { name: A, price: odd(1 - pHome, 1.05) }] },
+        { name: 'Línea de carreras', type: 'HC0', selections: [{ name: `${H} -1.5`, price: 2.1 }, { name: `${A} +1.5`, price: 1.75 }] },
+        { name: 'Total de carreras', type: 'OU0', selections: [{ name: `Más de ${total}`, price: 1.9 }, { name: `Menos de ${total}`, price: 1.9 }, { name: `Más de ${total - 1}`, price: 1.6 }, { name: `Menos de ${total - 1}`, price: 2.3 }] },
+      ];
+    }
+    return [];
   }
 
   function result(e) {
@@ -200,11 +207,31 @@
       if (sa === sh) sa++;
       return { home: sh, away: sa };
     }
-    if (e.sport === 'tennis') return rand() < e.home.att / (e.home.att + e.away.att) ? { home: 2, away: rand() < 0.5 ? 1 : 0 } : { home: rand() < 0.5 ? 1 : 0, away: 2 };
     const [lh, la] = expected(e);
     const h = poisson(lh);
-    const a = poisson(la);
+    let a = poisson(la);
+    if (e.sport === 'baseball' && a === h) a++; // en béisbol no hay empate
     return { home: h, away: a, homeNT: h, awayNT: a };
+  }
+  const finalScore = (e) => {
+    if (!fixedResults.has(e.id)) fixedResults.set(e.id, result(e));
+    return fixedResults.get(e.id);
+  };
+  // Estadísticas del partido terminado (feed df_st de Flashscore): partido y 1.er tiempo.
+  const statsCache = new Map();
+  const finishedStats = (e) => statsCache.get(e.id) || statsCache.set(e.id, makeStats()).get(e.id);
+  function makeStats() {
+    const sec = (name, c, y, sh, so) =>
+      `SE÷${name}¬~SG÷Remates totales¬SH÷${sh[0]}¬SI÷${sh[1]}¬~SG÷Remates a puerta¬SH÷${so[0]}¬SI÷${so[1]}¬~SG÷Córneres¬SH÷${c[0]}¬SI÷${c[1]}¬~SG÷Tarjetas amarillas¬SH÷${y[0]}¬SI÷${y[1]}¬~SG÷Tarjetas rojas¬SH÷0¬SI÷0¬~`;
+    const r = (lo, n) => lo + Math.floor(rand() * n);
+    const h1c = [r(1, 5), r(1, 4)];
+    const c = [h1c[0] + r(1, 5), h1c[1] + r(1, 4)];
+    const h1y = [r(0, 2), r(0, 2)];
+    const y = [h1y[0] + r(0, 3), h1y[1] + r(0, 3)];
+    const so = [r(2, 7), r(1, 6)];
+    const sh = [so[0] + r(5, 8), so[1] + r(5, 8)];
+    const half = (x) => x.map((v) => Math.floor(v / 2));
+    return sec('Partido', c, y, sh, so) + sec('1.er tiempo', h1c, h1y, half(sh), half(so));
   }
 
   const all = [...events, ...shown];
@@ -241,8 +268,7 @@
       for (const id of ids) {
         const e = byId.get(id);
         if (!e) continue;
-        if (!fixedResults.has(id)) fixedResults.set(id, result(e));
-        items[id] = { state: 'finalizado', score: fixedResults.get(id), winner: null };
+        items[id] = { state: 'finalizado', score: finalScore(e), winner: null };
       }
       return { mode: 'direct', items };
     },
@@ -275,13 +301,17 @@
       mode: 'direct',
       items: events
         .filter((e) => e.sport === sport)
-        .map((e) => ({ id: `fs:m${e.id}`, sport, start: e.start, state: 'pendiente', home: { id: `t${e.home.id}`, name: e.home.name }, away: { id: `t${e.away.id}`, name: e.away.name }, score: null })),
+        .map((e) => {
+          const done = Date.now() > e.start + 3 * 3600000;
+          return { id: `fs:m${e.id}`, sport, start: e.start, state: done ? 'finalizado' : 'pendiente', home: { id: `t${e.home.id}`, name: e.home.name }, away: { id: `t${e.away.id}`, name: e.away.name }, score: done ? finalScore(e) : null };
+        }),
     }),
+    'flashscore.getMatchFeeds': ({ fsId }) => ({ st: finishedStats(byId.get(Number(String(fsId).replace('fs:m', '')))) }),
     'flashscore.getTeamFeeds': () => {
-      const st = (c1, c2) => `SE÷Partido¬~SG÷Córneres¬SH÷${c1}¬SI÷${c2}¬~SG÷Tarjetas amarillas¬SH÷2¬SI÷3¬~SG÷Tarjetas rojas¬SH÷0¬SI÷0¬~`;
+      const st = (c1, c2) => `SE÷Partido¬~SG÷Remates totales¬SH÷14¬SI÷11¬~SG÷Remates a puerta¬SH÷5¬SI÷4¬~SG÷Córneres¬SH÷${c1}¬SI÷${c2}¬~SG÷Tarjetas amarillas¬SH÷2¬SI÷3¬~SG÷Tarjetas rojas¬SH÷0¬SI÷0¬~`;
       const last = (k) => Array.from({ length: 6 }, (_, i) => ({ fsId: `x${k}${i}`, home: i % 2 === 0, start: Date.now() - (i + 1) * 7 * 864e5, gf: 1, ga: 1, r: 'D' }));
       const ids = [...last('h'), ...last('a')].map((m) => m.fsId);
-      return { lastHome: last('h'), lastAway: last('a'), h2h: null, st: Object.fromEntries(ids.map((id, i) => [id, st(4 + (i % 4), 3 + (i % 3))])) };
+      return { lastHome: last('h'), lastAway: last('a'), h2h: null, st: Object.fromEntries(ids.map((id, i) => [id, st(7 + (i % 4), 5 + (i % 3))])) };
     },
     // Noticias (solo para la red neuronal).
     'flashscore.getNews': () => ({ mode: 'direct', items: [{ source: 'flashscore', title: 'Arsenal pierde a su capitán por lesión', summary: '', published: new Date(Date.now() - 3600000).toISOString() }] }),
