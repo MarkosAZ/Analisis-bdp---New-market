@@ -89,9 +89,10 @@ export function compactAnalysis(result) {
 }
 
 // Filas para las redes: una por mercado de cada partido (en los de jugador, por
-// jugador y estadística), la selección más probable según la estadística entre
-// las de la zona útil (50 % a 97 %), como los picks. Los dos lados de una línea,
-// o dos líneas del mismo mercado, son el mismo resultado contado dos veces.
+// jugador y estadística), la selección más probable según la estadística, como
+// el pick de ese mercado: cada apuesta alimenta la red de su mercado, también
+// las de probabilidad muy alta o sin valor. Los dos lados de una línea, o dos
+// líneas del mismo mercado, son el mismo resultado contado dos veces.
 // Cada estadística de jugador tiene su propia red (networks.PLAYER_NETWORKS): de
 // cada una, hasta 8 jugadores por partido, repartidos entre todas las
 // probabilidades, para que un partido no pese más que los otros en esa red. Los
@@ -106,7 +107,7 @@ const spread = (list, n) => {
 const playerGroup = (c) => networkOf(c.sport, c.market) || String(c.market).split('#')[0];
 export function rowCandidates(candidates) {
   const out = [];
-  const useful = candidates.filter((c) => Number.isFinite(c.pBase) && c.pBase >= 0.5 && c.pBase <= 0.97);
+  const useful = candidates.filter((c) => Number.isFinite(c.pBase));
   for (const list of groupBy(useful, (c) => c.eventId).values()) {
     const best = [...groupBy(list, (c) => c.market).values()].map((same) =>
       same.reduce((a, b) => (b.pBase > a.pBase || (b.pBase === a.pBase && `${b.sel}|${b.line}` < `${a.sel}|${a.line}`) ? b : a)),

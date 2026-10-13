@@ -1,11 +1,14 @@
 // Pestaña "Análisis": el último análisis estadístico y el último con red
-// neuronal, comparados. Cada partido muestra todos sus mercados con su nivel de
-// confianza (también Baja); los de jugador van aparte; después, las combinadas.
+// neuronal, comparados. Los partidos van por deporte y, dentro, por liga; cada
+// partido muestra todos los mercados de la lista con su nivel de confianza
+// (también Baja) o, si no se pudo apostar, el motivo; los de jugador van aparte;
+// después, las combinadas.
 import { MIN_SAMPLES } from '../analysis/neural.js';
 import { NETWORKS } from '../analysis/networks.js';
-import { BOOKMAKERS, isPlayerMarket, LEVELS, marketInfo } from '../analysis/picks.js';
+import { BOOKMAKERS, isPlayerMarket, LEVELS, marketInfo, MARKETS } from '../analysis/picks.js';
 import { sportOf } from '../sports.js';
 import { fmtDateTime, fmtTime, groupBy, h, pct } from '../util.js';
+import { bySportAndLeague } from './grupos.js';
 
 const SOURCE_NAMES = { sofascore: 'Sofascore', flashscore: 'Flashscore', apuestatotal: 'Apuesta Total', betano: 'Betano', understat: 'Understat', jugadores: 'Jugadores', simulacion: 'Simulación', noticias: 'Noticias' };
 const UNITS = { simulacion: 'selecciones', noticias: 'noticias' };
@@ -66,17 +69,34 @@ function marketRow(p, method) {
   );
 }
 
-// Tarjeta de un partido con todos sus mercados (los de jugador, ordenados por probabilidad).
-function matchCard(picks, ev, method) {
-  const sport = sportOf(picks[0].sport);
-  const team = picks.filter((p) => !isPlayerMarket(p.market));
+// Mercado de la lista sin apuesta en este partido, con el motivo.
+function missingRow(m, ev) {
+  const why = !Array.isArray(ev?.noData)
+    ? 'Sin apuesta: sin línea .5 en las casas o sin datos suficientes.'
+    : ev.noData.includes(m.market)
+      ? 'Sin datos suficientes de los equipos para calcularlo.'
+      : 'Ni Apuesta Total ni Betano tienen una línea .5 de este mercado.';
+  return h('div', { class: 'mrow missing' }, h('div', { class: 'mrow-head' }, h('span', {}, m.name), h('span', { class: 'lvl-badge none' }, 'Sin apuesta')), h('div', { class: 'meta' }, why));
+}
+
+// Tarjeta de un partido: los mercados de la lista en su orden (con su apuesta o,
+// si se muestran todos, el motivo por el que no hay) y los de jugador, ordenados
+// por probabilidad.
+function matchCard(picks, ev, method, { all = false, marketsOff = [] } = {}) {
+  const team = new Map(picks.filter((p) => !isPlayerMarket(p.market)).map((p) => [p.market, p]));
   const players = picks.filter((p) => isPlayerMarket(p.market)).sort((a, b) => b.p - a.p);
+  const list = MARKETS.filter((m) => m.sport === ev.sport && m.market !== 'OU.player' && !marketsOff.includes(m.id));
+  const rows = list.map((m) => (team.has(m.market) ? marketRow(team.get(m.market), method) : all ? missingRow(m, ev) : null));
+  // Mercados guardados con otro nombre de lista (análisis antiguos): al final.
+  const known = new Set(list.map((m) => m.market));
+  const extra = [...team.values()].filter((p) => !known.has(p.market)).map((p) => marketRow(p, method));
   return h(
     'div',
     { class: 'match-card' },
-    h('div', { class: 'meta' }, `${sport.icon} ${ev?.league || ''} · ${fmtTime(picks[0].start)}`),
-    h('div', { class: 'teams' }, ev ? `${ev.home} vs ${ev.away}` : ''),
-    team.map((p) => marketRow(p, method)),
+    h('div', { class: 'meta' }, fmtTime(ev.start)),
+    h('div', { class: 'teams' }, `${ev.home} vs ${ev.away}`),
+    rows,
+    extra,
     players.length ? [h('h4', {}, `Jugadores (${players.length})`), ...players.map((p) => marketRow(p, method))] : null,
   );
 }
@@ -107,13 +127,22 @@ function comboCard(k, analysis) {
   );
 }
 
-// Texto para copiar y compartir (WhatsApp, notas...): por partido, cada mercado con su nivel.
-export function analysisText(a, filter = 'todos') {
+// Texto para copiar y compartir (WhatsApp, notas...): por deporte y liga, cada
+// partido con sus mercados y su nivel.
+export function analysisText(a, filter = 'todos', sport = 'todos') {
   const lines = [`${methodTitle(a.method)} · ${a.date}`];
-  for (const picks of groupBy(a.picks.filter((p) => filter === 'todos' || p.level === filter), (p) => p.eventId).values()) {
-    const ev = a.events[picks[0].eventId];
-    lines.push('', `${ev.home} vs ${ev.away} (${fmtTime(picks[0].start)})`);
-    for (const p of picks) lines.push(`• ${p.label} @ ${p.best.price.toFixed(2)} ${BOOKMAKERS[p.best.source]} · ${pct(p.p)} (${LEVEL_NAME[p.level]})`);
+  const picks = a.picks.filter((p) => (filter === 'todos' || p.level === filter) && (sport === 'todos' || p.sport === sport));
+  const byEvent = groupBy(picks, (p) => String(p.eventId));
+  const events = [...byEvent.keys()].map((id) => ({ ...a.events[id], id, start: a.events[id]?.start ?? byEvent.get(id)[0].start, sport: a.events[id]?.sport || byEvent.get(id)[0].sport }));
+  for (const g of bySportAndLeague(events)) {
+    lines.push('', `${sportOf(g.sport).icon} ${sportOf(g.sport).name}`);
+    for (const l of g.leagues) {
+      lines.push(`— ${l.name}`);
+      for (const ev of l.events) {
+        lines.push(`${ev.home} vs ${ev.away} (${fmtTime(ev.start)})`);
+        for (const p of byEvent.get(ev.id)) lines.push(`• ${p.label} @ ${p.best.price.toFixed(2)} ${BOOKMAKERS[p.best.source]} · ${pct(p.p)} (${LEVEL_NAME[p.level]})`);
+      }
+    }
   }
   if (a.combos.length) {
     lines.push('', 'Combinadas');
@@ -240,6 +269,20 @@ function levelFilter(app, a) {
   );
 }
 
+// Filtro por deporte: Todos y cada deporte del análisis (con cuántos partidos tiene).
+function sportFilter(app, a) {
+  const current = app.state.sportFilter || 'todos';
+  const events = Object.values(a.events || {});
+  const sports = bySportAndLeague(events).map((g) => g.sport);
+  const btn = (id, name, n) => h('button', { class: id === current ? 'active' : '', title: `${n} partidos`, onclick: () => app.setSportFilter(id) }, name, h('span', { class: 'n' }, ` ${n}`));
+  return h(
+    'div',
+    { class: 'segmented levels sports', role: 'group', 'aria-label': 'Deporte a mostrar' },
+    btn('todos', 'Todos', events.length),
+    sports.map((id) => btn(id, `${sportOf(id).icon} ${sportOf(id).name}`, events.filter((e) => e.sport === id).length)),
+  );
+}
+
 // Estado de las redes especializadas en un análisis con red neuronal (el resumen
 // guardado con el análisis: las redes que había cuando se hizo).
 function networksBanner(net) {
@@ -274,6 +317,7 @@ function renderMethod(root, app, a) {
     ),
     h('div', { class: 'row' }, ['sofascore', 'flashscore', 'apuestatotal', 'betano', 'understat', 'jugadores', 'simulacion', ...(a.method === 'red_neuronal' ? ['noticias'] : [])].map((id) => sourceChip(id, a.sources[id]))),
     levelFilter(app, a),
+    sportFilter(app, a),
     a.method === 'red_neuronal' ? networksBanner(net) : null,
     h(
       'div',
@@ -299,13 +343,40 @@ function renderMethod(root, app, a) {
   }
   const s = a.settings;
   const filter = app.state.levelFilter || 'todos';
-  const shown = a.picks.filter((p) => filter === 'todos' || p.level === filter);
-  const groups = [...groupBy(shown, (p) => p.eventId).values()];
+  const sport = app.state.sportFilter || 'todos';
+  const all = filter === 'todos';
+  const shown = a.picks.filter((p) => all || p.level === filter);
+  const byEvent = groupBy(shown, (p) => String(p.eventId));
+  // Con "Todos" se ven todos los partidos analizados (también los que no tuvieron
+  // ninguna apuesta); con un nivel, solo los que tienen mercados de ese nivel.
+  const events = Object.entries(a.events || {})
+    .map(([id, ev]) => ({ ...ev, id }))
+    .filter((ev) => (sport === 'todos' || ev.sport === sport) && (all || byEvent.has(ev.id)));
+  const groups = bySportAndLeague(events);
+  const opts = { all, marketsOff: s.marketsOff || [] };
   root.append(
     groups.length
-      ? h('div', { class: 'match-cards' }, groups.map((picks) => matchCard(picks, a.events[picks[0].eventId], a.method)))
+      ? h(
+          'div',
+          { class: 'sport-groups' },
+          groups.map((g) =>
+            h(
+              'section',
+              { class: 'sport-group' },
+              h('h3', { class: 'grp-sport' }, `${sportOf(g.sport).icon} ${sportOf(g.sport).name}`, h('span', { class: 'note' }, ` ${g.leagues.reduce((n, l) => n + l.events.length, 0)} partidos`)),
+              g.leagues.map((l) =>
+                h(
+                  'div',
+                  { class: 'league-group' },
+                  h('h4', { class: 'grp-league' }, l.name, h('span', { class: 'note' }, ` · ${l.events.length}`)),
+                  h('div', { class: 'match-cards' }, l.events.map((ev) => matchCard(byEvent.get(ev.id) || [], ev, a.method, opts))),
+                ),
+              ),
+            ),
+          ),
+        )
       : a.picks.length
-        ? h('div', { class: 'note' }, `Sin mercados de nivel ${LEVEL_NAME[filter]?.toLowerCase()} en este análisis.`)
+        ? h('div', { class: 'note' }, `Sin mercados ${all ? '' : `de nivel ${LEVEL_NAME[filter]?.toLowerCase()} `}${sport === 'todos' ? '' : `de ${sportOf(sport).name.toLowerCase()} `}en este análisis.`)
         : null,
   );
   root.append(

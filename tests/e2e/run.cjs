@@ -287,18 +287,33 @@ async function withoutExtension(browser, errors) {
       levels.some((c) => / alta$/.test(c)) && levels.some((c) => c.includes('baja')) && combos.length > 0 && matchCards.length > 0,
       `${matchCards.length} partidos · ${levels.length} mercados · ${combos.length} combinadas`,
     );
+    // Por deporte y, dentro, por liga (en orden alfabético).
+    const sportHeads = await page.$$eval('#tab-analisis .grp-sport', (els) => els.map((e) => e.firstChild.textContent.trim()));
+    const leagueHeads = await page.$$eval('#tab-analisis .sport-group', (gs) => gs.map((g) => [...g.querySelectorAll('.grp-league')].map((e) => e.firstChild.textContent.trim())));
+    const sortedOk = leagueHeads.every((ls) => ls.join('|') === [...ls].sort((a, b) => a.localeCompare(b, 'es')).join('|'));
+    check('partidos por deporte y, dentro, por liga en orden', sportHeads[0] === '⚽ Fútbol' && sportHeads.length >= 2 && sortedOk && leagueHeads[0].length >= 2, `${sportHeads.join(', ')} · ${leagueHeads.map((l) => l.join(' / ')).join(' || ')}`);
+    // Cada partido de fútbol con los 8 mercados de la lista (con su apuesta o el motivo por el que no hay).
+    const footballRows = await page.$$eval('#tab-analisis .sport-group:first-child .match-card', (cards) => cards.map((c) => [...c.children].filter((e) => e.classList.contains('mrow')).length));
+    const missing = await page.$$eval('#tab-analisis .mrow.missing .meta', (els) => els.map((e) => e.textContent));
+    check('cada partido de fútbol muestra los 8 mercados de la lista', footballRows.length > 0 && footballRows.every((n) => n === 8), footballRows.join(', '));
+    check('los mercados sin apuesta dicen por qué', missing.length > 0 && missing.every((t) => /línea \.5|datos suficientes/.test(t)), [...new Set(missing)].join(' | '));
+    await page.click('#tab-analisis .segmented.sports button:has-text("Básquet")');
+    const onlyBasket = await page.$$eval('#tab-analisis .grp-sport', (els) => els.map((e) => e.firstChild.textContent.trim()));
+    check('el filtro por deporte muestra solo ese deporte', onlyBasket.join() === '🏀 Básquet', onlyBasket.join(', '));
+    await page.screenshot({ path: path.join(OUT, '2b-analisis-basquet.png'), fullPage: false });
+    await page.click('#tab-analisis .segmented.sports button:has-text("Todos")');
     const playerRows = await page.$$eval('.match-card h4', (els) => els.map((e) => e.textContent));
     check('los mercados de jugador van aparte en su partido', playerRows.some((t) => /^Jugadores \(\d+\)$/.test(t)), playerRows.join(' | '));
-    await page.click('#tab-analisis .segmented button:has-text("Baja")');
+    await page.click('#tab-analisis .segmented.levels:not(.sports) button:has-text("Baja")');
     const onlyLow = await page.$$eval('#tab-analisis .mrow', (rows) => rows.map((c) => c.className));
     check('el filtro por nivel muestra solo ese nivel', onlyLow.length > 0 && onlyLow.every((c) => c.includes('baja')), `${onlyLow.length} filas`);
-    await page.click('#tab-analisis .segmented button:has-text("Todos")');
+    await page.click('#tab-analisis .segmented.levels:not(.sports) button:has-text("Todos")');
     const comboText = await page.$$eval('.card.combo .odds', (els) => els.map((e) => Number(e.textContent)));
     check('las combinadas alcanzan la cuota objetivo', comboText.length > 0 && comboText.every((o) => o >= 5), comboText.join(', '));
     await page.screenshot({ path: path.join(OUT, '2-analisis.png'), fullPage: true });
     await page.click('text=Copiar picks');
     const copied = await page.evaluate(() => navigator.clipboard.readText());
-    check('copia los picks como texto', / vs /.test(copied) && copied.includes('@') && /\((Alta|Moderada-alta|Moderada|Baja)\)/.test(copied), copied.split('\n').slice(0, 4).join(' | '));
+    check('copia los picks como texto, por deporte y liga', / vs /.test(copied) && copied.includes('@') && /\((Alta|Moderada-alta|Moderada|Baja)\)/.test(copied) && copied.includes('⚽ Fútbol') && /\n— /.test(copied), copied.split('\n').slice(0, 5).join(' | '));
 
     // 3) Historial
     await page.click('.tabs button[data-tab="historial"]');
@@ -320,6 +335,17 @@ async function withoutExtension(browser, errors) {
     await page.waitForSelector('.day-body .status-pill.won, .day-body .status-pill.lost');
     const pills = await page.$$eval('.day-body .status-pill', (els) => els.map((e) => e.textContent));
     check('marca ganadas y perdidas', pills.includes('Ganada') && pills.includes('Perdida') && !pills.includes('Pendiente'), `${pills.length} apuestas`);
+    // Detalle del día por deporte y liga, con filtro por deporte.
+    const [histSports, histLeagues] = await page.$eval('.day-body .analysis-block', (b) => [
+      [...b.querySelectorAll('.grp-sport')].map((e) => e.textContent.trim()),
+      [...b.querySelector('.hist-sport').querySelectorAll('.grp-league')].map((e) => e.textContent.trim()),
+    ]);
+    check('el detalle del día va por deporte y liga', histSports[0] === '⚽ Fútbol' && histSports.length >= 2 && histLeagues.length >= 2 && histLeagues.join('|') === [...histLeagues].sort((a, b) => a.localeCompare(b, 'es')).join('|'), `${histSports.join(', ')} · ${histLeagues.join(' / ')}`);
+    await page.click('#tab-historial .segmented.sports button:has-text("Béisbol")');
+    const histBaseball = await page.$$eval('.day-body .grp-sport', (els) => [...new Set(els.map((e) => e.textContent.trim()))]);
+    check('el detalle del día se filtra por deporte', histBaseball.join() === '⚾ Béisbol', histBaseball.join(', '));
+    await page.screenshot({ path: path.join(OUT, '3e-historial-beisbol.png'), fullPage: false });
+    await page.click('#tab-historial .segmented.sports button:has-text("Todos")');
     const table = await page.textContent('.panel table');
     check('calcula aciertos y ganancia por nivel', /%/.test(table), table.replace(/\s+/g, ' ').slice(0, 160));
     const netPanel = await page.textContent('.panel:has(h3:text-is("Redes especializadas"))');
@@ -370,6 +396,11 @@ async function withoutExtension(browser, errors) {
     });
     check('el filtro por nivel cabe en el celular', levelsFit);
     await (await page.$('#tab-analisis .segmented.levels')).screenshot({ path: path.join(OUT, '4b-celular-niveles.png') });
+    const sportsFit = await page.$eval('#tab-analisis .segmented.sports', (el) => el.getBoundingClientRect().right <= window.innerWidth + 1 && el.scrollWidth <= el.clientWidth + 1);
+    check('el filtro por deporte cabe en el celular', sportsFit);
+    await (await page.$('#tab-analisis .segmented.sports')).screenshot({ path: path.join(OUT, '4d-celular-deportes.png') });
+    await page.$eval('#tab-analisis .league-group', (el) => el.scrollIntoView());
+    await page.screenshot({ path: path.join(OUT, '4e-celular-partido.png'), fullPage: false });
     const analysisOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     check('sin desplazamiento horizontal en el análisis (celular)', !analysisOverflow);
     await page.click('.tabs button[data-tab="historial"]');

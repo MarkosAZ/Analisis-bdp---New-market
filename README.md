@@ -85,16 +85,21 @@ historial de resultados. Funciona en el **celular y en la PC**:
   resultados de su mercado y mejora en partidos que no usó para entrenar
   (validación en el tiempo: cada tramo reciente se predice con lo aprendido
   antes; la mejora debe ser de al menos 1 % y no explicarse por azar); mientras
-  tanto, su mercado queda con la probabilidad estadística. Aprenden de un
-  resultado por mercado de cada partido (el lado más probable); en las de
-  jugador, hasta 8 jugadores por partido en cada red. Se reentrenan al
+  tanto, su mercado queda con la probabilidad estadística. Aprenden de la
+  apuesta de cada mercado de cada partido (el lado más probable, también si no
+  tiene valor o su probabilidad es muy alta); en las de jugador, hasta 8
+  jugadores por partido en cada red. Se reentrenan al
   actualizar resultados; el Historial muestra el estado de cada una, agrupadas
   por deporte.
 - **Todos los mercados de cada partido con su nivel de confianza**: alta
   (≥ 80 %), moderada-alta (70–80 %), moderada (60–70 %) y **baja** (menos de
-  60 %), con la mejor cuota entre Apuesta Total y Betano. La pestaña Análisis
-  muestra cada partido con sus mercados (los de jugador aparte) y un filtro por
-  nivel.
+  60 %), con la mejor cuota entre Apuesta Total y Betano. Cada mercado tiene su
+  apuesta aunque no tenga valor o su cuota sea muy baja; si no se pudo apostar,
+  el partido lo muestra igual con el motivo (ninguna casa tiene línea .5, o
+  faltan datos de los equipos). La pestaña Análisis muestra los partidos **por
+  deporte y, dentro, por liga** (los de jugador aparte en su partido), con un
+  filtro por nivel y otro por deporte; el detalle de cada día del Historial va
+  en el mismo orden y también se filtra por deporte.
 - **Combinadas** de cuota 5 o más (y 10 o más) en una misma casa, con la mayor
   probabilidad estimada posible.
 - **Ambos análisis**: hace el estadístico y el de red neuronal con los mismos
@@ -112,7 +117,8 @@ historial de resultados. Funciona en el **celular y en la PC**:
   y método, cuenta una sola vez; una apuesta cuyo dato no publica ninguna
   fuente queda nula a los 4 días.
 
-Los niveles, la cuota mínima, las cuotas objetivo de las combinadas, **cuáles
+Los niveles, la cuota mínima de las selecciones de las combinadas, las cuotas
+objetivo de las combinadas, **cuáles
 de los mercados analizados pueden salir como pick** (también los de jugador),
 si se abre la página de cada partido en Betano y el token de GitHub se cambian
 en **⚙ Ajustes**.

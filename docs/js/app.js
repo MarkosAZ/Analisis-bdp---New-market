@@ -55,6 +55,7 @@ const app = {
     analyses: { estadistico: null, red_neuronal: null }, // último análisis de cada método
     analysisView: 'estadistico', // método que se ve en la pestaña Análisis
     levelFilter: 'todos', // nivel de confianza que se ve en la pestaña Análisis
+    sportFilter: 'todos', // deporte que se ve en Análisis y en el detalle de cada día del Historial
     histMethod: 'ambos', // detalle de cada día en Historial: 'ambos' o un método
     index: null,
     network: null,
@@ -301,6 +302,11 @@ app.setLevelFilter = (level) => {
   render();
 };
 
+app.setSportFilter = (sport) => {
+  app.state.sportFilter = sport;
+  render();
+};
+
 app.setAnalysisView = (method) => {
   app.state.analysisView = method;
   render();
@@ -308,7 +314,7 @@ app.setAnalysisView = (method) => {
 
 app.copyAnalysis = async () => {
   try {
-    await navigator.clipboard.writeText(analysisText(app.state.analyses[app.state.analysisView], app.state.levelFilter));
+    await navigator.clipboard.writeText(analysisText(app.state.analyses[app.state.analysisView], app.state.levelFilter, app.state.sportFilter));
     toast('Picks copiados');
   } catch {
     toast('No se pudo copiar');

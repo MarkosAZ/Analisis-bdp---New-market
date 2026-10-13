@@ -258,8 +258,8 @@ test('del análisis al historial: picks, combinadas, filas de entrenamiento y re
   assert.ok(stored.picks.every((p) => p.status === 'pending' && p.match && p.odds > 1));
   for (const k of stored.combos) assert.ok(k.legs.every((l) => l.market && l.match));
   const rows = trainingRows(result);
-  // Una fila por mercado de cada partido (la más probable entre 50 % y 97 %).
-  const useful = all.filter((c) => c.pBase >= 0.5 && c.pBase <= 0.97);
+  // Una fila por mercado de cada partido (la más probable, como el pick de ese mercado).
+  const useful = all.filter((c) => Number.isFinite(c.pBase));
   assert.equal(rows.length, new Set(useful.map((c) => `${c.eventId}|${c.market}`)).size);
   assert.equal(new Set(rows.map((r) => r.key)).size, rows.length);
   for (const r of rows) {

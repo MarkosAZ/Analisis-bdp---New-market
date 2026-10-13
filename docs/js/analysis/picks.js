@@ -63,7 +63,7 @@ export const DEFAULT_SETTINGS = {
   alta: 0.8, // probabilidad mínima para "alta"
   moderadaAlta: 0.7,
   moderada: 0.6,
-  minOdds: 1.15, // no se recomiendan cuotas más bajas (ganancia casi nula)
+  minOdds: 1.15, // combinadas: no entran selecciones con cuota más baja (ganancia casi nula)
   comboTargets: [5, 10], // cuota mínima de cada combinada
   comboMinProb: 0.7, // probabilidad mínima de cada selección de una combinada
   comboMaxLegs: 8,
@@ -86,8 +86,10 @@ const marketOrder = (c) => {
 };
 
 // Todos los mercados de cada partido: por cada uno (y cada jugador), la
-// selección más probable de su línea con su nivel de confianza, también Baja.
-// Si su mejor cuota queda debajo de la mínima, ese mercado no sale.
+// selección más probable de su línea con su nivel de confianza, también Baja,
+// aunque no tenga valor o su cuota sea muy baja: cada mercado tiene su apuesta
+// (y su resultado alimenta la red de ese mercado). La cuota mínima solo cuenta
+// en las combinadas.
 export function selectPicks(candidates, s = DEFAULT_SETTINGS) {
   const picks = [];
   for (const list of groupBy(
@@ -95,7 +97,6 @@ export function selectPicks(candidates, s = DEFAULT_SETTINGS) {
     (c) => `${c.eventId}|${c.market}`,
   ).values()) {
     const best = list.reduce((a, b) => (b.p > a.p || (b.p === a.p && b.best.price > a.best.price) ? b : a));
-    if (best.best.price < s.minOdds) continue;
     picks.push({ ...best, level: levelOf(best.p, s) });
   }
   return picks.sort((a, b) => (a.start || 0) - (b.start || 0) || String(a.eventId).localeCompare(String(b.eventId)) || marketOrder(a) - marketOrder(b) || b.p - a.p);

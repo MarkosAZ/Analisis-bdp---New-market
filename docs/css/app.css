@@ -286,3 +286,18 @@ dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }
 @media (max-width: 720px) {
   .nets-table .net-gain-sm { display: block; }
 }
+
+/* Análisis e Historial: partidos por deporte y, dentro, por liga. */
+.sport-groups { display: grid; gap: 22px; }
+.sport-group { display: grid; gap: 12px; }
+.grp-sport { margin: 0; font-size: 18px; display: flex; align-items: baseline; gap: 6px; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+.league-group { display: grid; gap: 8px; }
+.grp-league { margin: 4px 0 0; font-size: 14px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; overflow-wrap: anywhere; }
+.mrow.missing { border-left-style: dashed; opacity: 0.75; }
+.lvl-badge.none { background: var(--surface-2); color: var(--muted); }
+.segmented.sports { margin-top: 2px; }
+.hist-sport { display: grid; gap: 8px; margin-bottom: 10px; }
+.hist-sport .grp-sport { font-size: 15px; }
+.hist-league { display: grid; gap: 8px; padding-left: 2px; }
+.hist-match { border-left: 3px solid var(--line); padding-left: 10px; display: grid; gap: 4px; }
+.hist-match-head { overflow-wrap: anywhere; }

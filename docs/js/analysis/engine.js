@@ -454,7 +454,11 @@ export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } 
     cand.factors = c.player ? playerFactors(c, cand, chosen, ev) : factorsFor(ev, d, model, cand, chosen);
     out.push(cand);
   }
-  return { model, candidates: out, simulated };
+  // Mercados de la lista con línea .5 en alguna casa pero sin datos para calcularlos
+  // (se muestran en el partido con ese motivo).
+  const done = new Set(out.map((c) => c.market));
+  const noData = [...new Set(items.filter((c) => c.pModel == null && !isPlayerMarket(c.market) && !done.has(c.market)).map((c) => c.market))];
+  return { model, candidates: out, simulated, noData };
 }
 
 // Aplica el método: con red neuronal, la red especializada de cada mercado
@@ -582,6 +586,7 @@ export async function analyzeMany(events, { methods = ['estadistico'], settings 
       markets: new Set(all.map((o) => o.market)).size,
       teamStats: Boolean(details[ev.id]?.teamStats),
       players: Boolean(details[ev.id]?.players),
+      noData: r.noData,
       ...(details[ev.id]?.fsId ? { fsId: details[ev.id].fsId } : {}),
     };
   }

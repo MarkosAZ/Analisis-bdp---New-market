@@ -202,21 +202,21 @@ test('variables casi constantes entran como 0 y los valores raros se recortan', 
 
 // ---- Filas de entrenamiento ----
 
-test('filas: una por mercado (el lado más probable), sin los dos lados de la línea', () => {
+test('filas: una por mercado (el lado más probable, como el pick), sin los dos lados de la línea', () => {
   const c = (eventId, market, sel, line, pBase) => ({ eventId, market, sel, line, pBase, key: `${market}|${sel}|${line ?? ''}` });
   const rows = rowCandidates([
     c(1, 'OU', 'over', 2.5, 0.62),
     c(1, 'OU', 'under', 2.5, 0.38),
     c(1, 'OU', 'over', 3.5, 0.41),
     c(1, 'OU', 'under', 3.5, 0.59),
-    c(1, 'BTTS', 'yes', null, 0.98), // fuera de la zona útil
+    c(1, 'BTTS', 'yes', null, 0.98), // muy probable: también alimenta la red
     c(1, 'BTTS', 'no', null, 0.02),
     c(2, 'OU', 'over', 2.5, 0.45),
     c(2, 'OU', 'under', 2.5, 0.55),
   ]);
   assert.deepEqual(
     rows.map((r) => `${r.eventId}|${r.market}|${r.sel}|${r.line}`).sort(),
-    ['1|OU|over|2.5', '2|OU|under|2.5'],
+    ['1|BTTS|yes|null', '1|OU|over|2.5', '2|OU|under|2.5'],
   );
 });
 
