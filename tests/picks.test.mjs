@@ -9,26 +9,35 @@ test('niveles de confianza', () => {
   assert.equal(levelOf(0.85), 'alta');
   assert.equal(levelOf(0.75), 'moderada_alta');
   assert.equal(levelOf(0.65), 'moderada');
-  assert.equal(levelOf(0.55), null);
+  assert.equal(levelOf(0.55), 'baja');
 });
 
-test('un pick por partido y nivel, el de mejor valor esperado', () => {
+test('todos los mercados de cada partido, cada uno con su nivel (también Baja)', () => {
   const picks = selectPicks([
-    cand(1, 'OU|over|0.5', 0.95, 1.05), // cuota demasiado baja
-    cand(1, 'OU.corners|over|8.5', 0.86, 1.25),
-    cand(1, 'BTTS|yes|', 0.82, 1.35),
-    cand(1, 'OU|over|1.5', 0.74, 1.4),
-    cand(1, '1X2|home|', 0.9, 1.6), // fuera de la lista de mercados
+    cand(1, 'OU|over|2.5', 0.82, 1.85),
+    cand(1, 'OU|under|2.5', 0.18, 1.95),
+    cand(1, 'OU.corners|over|9.5', 0.74, 1.88),
+    cand(1, 'OU.corners|under|9.5', 0.26, 1.88),
+    cand(1, 'BTTS|yes|', 0.45, 1.9),
+    cand(1, 'BTTS|no|', 0.55, 1.9),
+    cand(1, 'OU.cards|over|0.5', 0.97, 1.02), // su mejor cuota está debajo de la mínima: no sale
+    cand(1, 'OU.cards|under|0.5', 0.03, 12),
     cand(2, 'HCP|home|-4.5', 0.62, 1.7, undefined, 'basketball'),
+    cand(2, 'HCP|away|-4.5', 0.38, 2.1, undefined, 'basketball'),
+    cand(2, 'OU.pl_pts#LeBron James|over|24.5', 0.71, 1.87, undefined, 'basketball'),
+    cand(2, 'OU.pl_pts#LeBron James|under|24.5', 0.29, 1.87, undefined, 'basketball'),
   ]);
-  assert.deepEqual(
-    picks.map((p) => [p.eventId, p.key, p.level]),
-    [
-      [1, 'BTTS|yes|', 'alta'],
-      [1, 'OU|over|1.5', 'moderada_alta'],
-      [2, 'HCP|home|-4.5', 'moderada'],
-    ],
-  );
+  const got = picks.map((p) => [p.eventId, p.key, p.level]);
+  for (const x of [
+    [1, 'OU|over|2.5', 'alta'],
+    [1, 'OU.corners|over|9.5', 'moderada_alta'],
+    [1, 'BTTS|no|', 'baja'],
+    [2, 'HCP|home|-4.5', 'moderada'],
+    [2, 'OU.pl_pts#LeBron James|over|24.5', 'moderada_alta'],
+  ])
+    assert.ok(got.some((g) => g.join() === x.join()), `falta ${x.join()}`);
+  assert.ok(!got.some((g) => g[1].startsWith('OU.cards')), 'cuota debajo de la mínima');
+  assert.equal(new Set(picks.map((p) => `${p.eventId}|${p.market}`)).size, picks.length, 'un pick por mercado');
 });
 
 function bruteForce(options, target, maxLegs) {
@@ -78,16 +87,29 @@ test('combinadas por casa, cuota objetivo y sin repetir partido', () => {
 });
 
 test('los ajustes eligen cuáles de los mercados de la lista pueden salir en picks y combinadas', async () => {
-  const { MARKETS, marketGroupOf } = await import('../docs/js/analysis/picks.js');
-  assert.equal(marketGroupOf('corners'), 'estadisticas');
+  const { MARKETS, marketKey, acceptsOffer } = await import('../docs/js/analysis/picks.js');
   assert.equal(new Set(MARKETS.map((m) => m.id)).size, MARKETS.length);
-  assert.deepEqual(DEFAULT_SETTINGS.markets, MARKETS.map((m) => m.id));
+  assert.ok(MARKETS.every((m) => m.net), 'cada mercado tiene su red especializada');
+  assert.deepEqual(DEFAULT_SETTINGS.marketsOff, []);
+  assert.equal(marketKey('basketball', 'OU.pl_reb#Jayson Tatum'), 'basketball:OU.player');
+  assert.equal(marketKey('football', 'OU.corners@h1'), 'football:OU.corners@h1');
+  // Líneas imposibles para el mercado: son de otro mercado mal leído.
+  assert.ok(acceptsOffer('basketball', 'OU', 220.5) && !acceptsOffer('basketball', 'OU', 24.5));
+  assert.ok(acceptsOffer('basketball', 'OU.pl_pts#X', 24.5) && !acceptsOffer('football', 'OU.pl_pts#X', 24.5));
+  // "Ambos anotan 2+" (BTTS#2) no es "Ambos equipos anotan".
+  assert.equal(acceptsOffer('football', 'BTTS#2', null), false);
+  assert.equal(acceptsOffer('football', 'BTTS', null), true);
+  // Palizas de ligas juveniles o femeninas: el hándicap principal puede pasar de 45.
+  assert.ok(acceptsOffer('basketball', 'HCP', -48.5));
   const list = [cand(1, 'OU.corners|over|8.5', 0.85, 1.4), cand(1, 'BTTS|yes|', 0.82, 1.3), cand(2, 'OU|over|1.5', 0.8, 1.35)];
-  assert.equal(selectPicks(list).find((x) => x.eventId === 1).key, 'OU.corners|over|8.5');
-  const s = { ...DEFAULT_SETTINGS, markets: DEFAULT_SETTINGS.markets.filter((id) => id !== 'football:OU.corners') };
-  assert.equal(selectPicks(list, s).find((x) => x.eventId === 1).key, 'BTTS|yes|');
+  assert.equal(selectPicks(list).length, 3);
+  const s = { ...DEFAULT_SETTINGS, marketsOff: ['football:OU.corners'] };
+  assert.deepEqual(selectPicks(list, s).map((p) => p.key).sort(), ['BTTS|yes|', 'OU|over|1.5']);
   for (const k of buildCombos(list, { ...s, comboTargets: [1.5] })) assert.ok(k.legs.every((l) => !l.key.includes('corners')));
-  // El mismo mercado en otro deporte es otro mercado: el Más/Menos de fútbol no apaga el de básquet.
-  const off = { ...DEFAULT_SETTINGS, markets: DEFAULT_SETTINGS.markets.filter((id) => id !== 'football:OU') };
+  // El mismo mercado en otro deporte es otro mercado: apagar los goles no apaga el total del básquet.
+  const off = { ...DEFAULT_SETTINGS, marketsOff: ['football:OU'] };
   assert.equal(selectPicks([cand(3, 'OU|over|214.5', 0.7, 1.9, undefined, 'basketball'), cand(4, 'OU|over|2.5', 0.7, 1.9)], off).map((p) => p.eventId).join(), '3');
+  // Apagar los de jugador.
+  const noPlayers = { ...DEFAULT_SETTINGS, marketsOff: ['basketball:OU.player'] };
+  assert.equal(selectPicks([cand(5, 'OU.pl_pts#X|over|20.5', 0.7, 1.9, undefined, 'basketball')], noPlayers).length, 0);
 });

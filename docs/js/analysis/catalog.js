@@ -319,11 +319,169 @@ function teamOf(name) {
   return null;
 }
 
+// ---- Más/Menos de jugador (básquet) ----
+// Spec: { t: 'OU', stat: 'pl_pts', scope: 'ft', team: null, n: 'LeBron James' } → "OU.pl_pts#LeBron James".
+
+export const PLAYER_STAT_CODES = [
+  'pl_pts', 'pl_reb', 'pl_ast', 'pl_3pm', 'pl_stl', 'pl_blk', 'pl_tov', 'pl_oreb', 'pl_dreb', 'pl_ftm', 'pl_2pm', 'pl_pra', 'pl_pr', 'pl_pa', 'pl_ra', 'pl_sb',
+];
+export const isPlayerStat = (stat) => typeof stat === 'string' && stat.startsWith('pl_');
+
+// Frase de la estadística (sin tildes, minúsculas) con su "Total de" / "totales". Lo combinado y lo específico primero.
+const PL_AND = '(?:\\s*[,+&/]\\s*(?:y\\s+)?|\\s+y\\s+|\\s+)';
+const PLAYER_STATS = [
+  [`puntos${PL_AND}rebotes${PL_AND}asistencias`, 'pl_pra'],
+  [`puntos${PL_AND}rebotes`, 'pl_pr'],
+  [`puntos${PL_AND}asistencias`, 'pl_pa'],
+  [`rebotes${PL_AND}asistencias`, 'pl_ra'],
+  [`(?:robos|recuperaciones)${PL_AND}(?:tapones|bloqueos|tapas)`, 'pl_sb'],
+  ['(?:tiros|lanzamientos|canastas) de (?:tres|3)(?: puntos)?(?: anotad[oa]s)?|triples(?: anotados)?', 'pl_3pm'],
+  ['(?:tiros|lanzamientos|canastas) de (?:dos|2)(?: puntos)?(?: anotad[oa]s)?', 'pl_2pm'],
+  ['(?:tiros|lanzamientos) libres(?: anotados)?', 'pl_ftm'],
+  ['rebotes ofensivos', 'pl_oreb'],
+  ['rebotes defensivos', 'pl_dreb'],
+  ['rebotes', 'pl_reb'],
+  ['asistencias', 'pl_ast'],
+  ['robos(?: de balon)?|recuperaciones', 'pl_stl'],
+  ['tapones|bloqueos|tapas', 'pl_blk'],
+  ['perdidas(?: de balon)?|turnovers', 'pl_tov'],
+  ['puntos', 'pl_pts'],
+].map(([re, code]) => [
+  new RegExp(`(?<![a-z0-9])(?:(?:total(?:es)?|cantidad|numero) de\\s+|total\\s+)?(?:${re})(?:\\s+(?:totales|total|anotados|del jugador|de jugador))*(?![a-z0-9])`),
+  code,
+]);
+
+// Relleno que no es parte del nombre: "(incl. prórroga)", "Más/Menos", "del jugador".
+const PLAYER_FILLER = /\((?=[^)]*\b(?:incl|prorroga|extra|suplementario|ot)\b)[^)]*\)|\bincl(?:uye|uida|uido)?\.?\s+(?:la\s+)?(?:prorroga|tiempo extra|tiempo suplementario)\b|\bmas\s*\/\s*menos\b|\bmas\s+o\s+menos\b|\bover\s*\/\s*under\b|\bo\/u\b|\b(?:del|de)\s+jugador\b|\bjugador\b/g;
+const PLAYER_LINE = /\(?(?<![\w.])\d+[.,]\d+(?![\w.])\)?/g;
+// Lo que no puede estar en el nombre de un jugador (periodos, equipos, otros mercados, cifras).
+const NOT_NAME_WORDS = [
+  'local visitante equipos? partidos? periodos? cuartos? tiempos? mitad medio primer[oa]? segund[oa] tercer[oa]? total(?:es)? mas menos over under',
+  'ganador gana resultado handicap margen rango carrera impar par way prorroga extra suplementario incl h2h double triple mejor mayor anotador',
+  'empate cada ambos todos exact[oa]s? juegos? puntos? rebotes asistencias tiros triples robos tapones perdidas balon libres anotad[oa]s jugador(?:es)?',
+  'bocina forma ultimo oportunidad apuesta sets? innings? entradas? carreras goles? corners? tarjetas minutos? asiatico alternativ[oa]s? lineas?',
+  'especial(?:es)? combinad[oa]s? cuotas?',
+  // Otras estadísticas que no son Más/Menos de lo anotado: intentos, puntos en la pintura, de la banca...
+  'intentad[oa]s? intentos? lanzad[oa]s? pintura banca banquillo titulares suplentes contraataques?',
+].join(' ');
+const NOT_NAME = new RegExp(`\\d|[[\\]{}|~/&+=<>?!%#*@]|\\b(?:${NOT_NAME_WORDS.split(' ').join('|')})\\b`);
+
+// Texto como pares [carácter original, carácter sin tildes y en minúsculas] (para recortar el original).
+const pairsOf = (s) =>
+  Array.from(String(s ?? ''), (ch) => {
+    const f = ch.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[̀-ͯ]/g, '');
+    return [ch, f.length === 1 ? f : '?'];
+  });
+const foldOf = (chars) => chars.map((c) => c[1]).join('');
+const textOf = (chars) => chars.map((c) => c[0]).join('');
+// Borra (con espacios) las partes que coinciden con re (global) sobre el texto sin tildes.
+function cutOut(chars, re) {
+  const drop = new Set();
+  for (const m of foldOf(chars).matchAll(re)) for (let i = m.index; i < m.index + m[0].length; i++) drop.add(i);
+  return chars.map((c, i) => (drop.has(i) ? [' ', ' '] : c));
+}
+
+// ¿El texto es solo el nombre de uno de los equipos (o "Local"/"Visitante")?
+function isTeamName(text, home = '', away = '') {
+  const words = localize(text, home, away).split(' ').filter((w) => w.length > 1 && !STOP.has(w));
+  return words.length > 0 && (words.every((w) => w === 'local') || words.every((w) => w === 'visitante'));
+}
+
+const trimName = (s) => s.replace(/\s+/g, ' ').replace(/^[\s,.\-–—]+|[\s,\-–—]+$/g, '');
+function validName(name, ctx) {
+  const n = trimName(name);
+  if (!n || !/\p{L}.*\p{L}/u.test(n) || n.split(' ').length > 6) return null;
+  const folded = foldOf(pairsOf(n));
+  // Dos jugadores juntos ("LeBron James y Jayson Tatum"): no es el Más/Menos de uno.
+  if (NOT_NAME.test(folded) || /\s(?:y|o|vs|v)\s/.test(folded) || isTeamName(n, ctx.home, ctx.away)) return null;
+  return n;
+}
+
+// ¿Entre las palabras del mercado queda un nombre propio? ("1er Periodo - LeBron James", "H2H LeBron James").
+const CONNECTORS = new Set('a al con de del el en la las los o por que un una y'.split(' '));
+function hasPlayerAmong(text, ctx) {
+  const words = text.split(/\s+/).filter((w) => {
+    const f = foldOf(pairsOf(w));
+    return f && !CONNECTORS.has(f) && !NOT_NAME.test(f);
+  });
+  // Al menos una palabra de 3+ letras: "Carrera a X Puntos (Punto X)" no tiene jugador.
+  const name = words.length >= 2 && words.every((w) => /^\p{Lu}/u.test(w)) && words.some((w) => /\p{L}{3}/u.test(w));
+  return name && !isTeamName(words.join(' '), ctx.home, ctx.away);
+}
+
+// Resto del nombre del mercado sin la estadística → { kind: 'name', name } | { kind: 'empty' } | { kind: 'other' }.
+// Si junto al nombre hay un periodo u otra cosa ("1er Periodo - Total de Puntos X") es 'other-player'.
+function playerOfRest(rest, ctx) {
+  const parts = rest.split(/\s+[-–—]+\s+|[:|()·;]/).map(trimName).filter(Boolean);
+  if (!parts.length) return { kind: 'empty' };
+  let named = parts.filter((p) => !isTeamName(p, ctx.home, ctx.away));
+  if (!named.length) return { kind: 'other' };
+  // Siglas aparte junto al nombre ("LeBron James (LAL)"): son del equipo, no del jugador.
+  if (named.length > 1 && named.some((p) => !/^\p{Lu}{2,4}$/u.test(p))) named = named.filter((p) => !/^\p{Lu}{2,4}$/u.test(p));
+  const whole = validName(named.join(' '), ctx);
+  if (whole) return { kind: 'name', name: whole };
+  return hasPlayerAmong(named.join(' '), ctx) ? { kind: 'other-player' } : { kind: 'other' };
+}
+
+// Selección "Más de 24.5" (sin nombre) o "LeBron James Más de 24.5" (con nombre). null si no es Más/Menos.
+function playerSelection(raw, fallbackLine) {
+  const ok = (o) => o && (o.sel === 'over' || o.sel === 'under') && Number.isFinite(o.line);
+  const whole = ouOf(raw, fallbackLine);
+  if (ok(whole)) return { name: null, sel: whole.sel, line: whole.line };
+  const chars = pairsOf(raw);
+  const m = foldOf(chars).match(/(^|\s)(?:mas|menos|over|under)\b/);
+  if (!m || m.index + m[1].length === 0) return null;
+  const at = m.index + m[1].length;
+  const o = ouOf(textOf(chars.slice(at)), fallbackLine);
+  return ok(o) ? { name: textOf(chars.slice(0, at)), sel: o.sel, line: o.line } : null;
+}
+
+// Más/Menos de un jugador: "Total de Puntos LeBron James", "LeBron James Total de Puntos, Rebotes y
+// Asistencias", o "Puntos del jugador" con selecciones "LeBron James Más de 24.5". El nombre sale del
+// texto original (con mayúsculas y tildes). Devuelve lo mismo que parseMarket, o null si no es de jugador.
+function parsePlayerMarket(rawName, selections, ctx) {
+  const raw = String(rawName ?? '').replace(/\s+/g, ' ').trim();
+  if (/[[\]]/.test(raw)) return null; // nombres de prueba con "[Jugador]"
+  let chars = pairsOf(raw);
+  const fold = foldOf(chars);
+  let stat = null;
+  for (const [re, code] of PLAYER_STATS) {
+    const m = fold.match(re);
+    if (!m) continue;
+    stat = code;
+    chars = chars.map((c, i) => (i >= m.index && i < m.index + m[0].length ? [' ', ' '] : c));
+    break;
+  }
+  if (!stat) return null;
+  chars = cutOut(chars, PLAYER_FILLER);
+  let nameLine = NaN;
+  for (const m of foldOf(chars).matchAll(PLAYER_LINE)) nameLine = num(m[0]);
+  chars = cutOut(chars, PLAYER_LINE);
+  const who = playerOfRest(textOf(chars), ctx);
+  if (who.kind === 'other') return null;
+  if (who.kind === 'other-player') return unsupported('player'); // de un periodo o similar: no se modela
+  const sels = selections
+    .map((s) => ({ raw: s.name, price: Number(s.price), line: s.line != null ? Number(s.line) : NaN }))
+    .filter((s) => s.price > 1);
+  if (who.kind === 'name' && !sels.length) return null;
+  const out = [];
+  for (const s of sels) {
+    const o = playerSelection(s.raw, Number.isFinite(s.line) ? s.line : nameLine);
+    if (!o) continue;
+    const n = who.kind === 'name' ? who.name : o.name && validName(o.name, ctx);
+    if (!n) continue;
+    out.push({ spec: { t: 'OU', stat, scope: 'ft', team: null, n }, sel: o.sel, line: o.line, price: s.price, label: s.raw });
+  }
+  // Con el jugador en el nombre no se cae a otro tipo (sería el total del partido).
+  if (!out.length) return who.kind === 'name' ? unsupported('player') : null;
+  return finish(out, ctx.sport);
+}
+
 // ---- Reglas por tipo de mercado ----
 
 const unsupported = (kind) => ({ unsupported: kind, reason: UNSUPPORTED[kind] });
 
-const PLAYER = /\[jugador|jugador\]|(?<!ambos )jugadores|goleador|anotar en cualquier momento|anotador|en cualquier momento|triplete|ultimo en marcar|recibir una tarjeta|recibe una tarjeta roja|jugador que|el jugador|anota desde fuera|consigue una blanqueada|\bh2h\b|mas puntos en el partido|mas rebotes en el partido|mas asistencias en un partido|mas tiros de 3 puntos anotados|mejor anotador|jonrones|ponches|cualquiera\/o|combinados \d\+ touchdown|encuentros \(|\[ross|\[jamie/;
+const PLAYER = /\[jugador|jugador\]|(?<!ambos )jugadores|goleador|anotar en cualquier momento|anotador|en cualquier momento|triplete|ultimo en marcar|recibir una tarjeta|recibe una tarjeta roja|jugador que|el jugador|anota desde fuera|consigue una blanqueada|\bh2h\b|double[- ]double|triple[- ]double|mas puntos en el partido|mas rebotes en el partido|mas asistencias en un partido|mas tiros de 3 puntos anotados|mejor anotador|jonrones|ponches|cualquiera\/o|combinados \d\+ touchdown|encuentros \(|\[ross|\[jamie/;
 const OUTRIGHT = /campeon|ganador absoluto|termina en el podio|vuelta mas rapida|termina entre|final con puntos|auto ganador|auto que hace|parada en boxes|ultimo clasificado|a clasificar|pilotos clasificados|coche de seguridad|bandera roja|primer piloto|retiro del primer|ganador de la clasificacion|primera posicion/;
 const SPECIAL = /forma de anotacion|forma del (primer|ultimo) punto|forma de la primera anotacion|que ocurrira primero|bocina|resultado del 1er drive|conversion exitosa|seguridad anotada|equipos especiales|cualquiera de los arqueros|ganador de la ronda|ronda de pistolas|carrera a rondas|tiempo extra \(mapa|cantidad de sets para superar|ganador de puntos \(punto|forma del triunfo|apuesta de ronda|por ko|por decision|llegara la lucha|en que minuto|ronda ganadora|especiales del partido|equipo que falla un penal|dos penales|ambos equipos ganan un penal|primer offside|primer ace|primera falta doble|carrera a 2|forma de anotacion|carrera a x puntos|carrera a \d+ puntos|resultado exacto de las rondas|total de rounds|total rounds|rondas.*(mma)|primera mitad \(mapa|primer tiempo \(mapa|segundo tiempo \(mapa|fin tiempo reg\. \(mapa|fin tiempo reg \(mapa|ganador de la primera mitad|\[local\/visitante\]/;
 
@@ -388,6 +546,10 @@ export function parseMarket(rawName, selections = [], ctx = {}) {
   const name = localize(rawName, ctx.home, ctx.away);
   if (/super ?cuota|supercuota|boost|mejorada|cuota aumentada/.test(name)) return null;
   if (OUTRIGHT.test(name) || ['cricket', 'cycling', 'motorsport'].includes(sport) || (sport === 'snooker' && !sideLike(selections, ctx))) return unsupported('outright');
+  if (sport === 'basketball') {
+    const pl = parsePlayerMarket(rawName, selections, ctx);
+    if (pl) return pl;
+  }
   if (PLAYER.test(name)) return unsupported('player');
   if (SPECIAL.test(name)) return unsupported('special');
   const sels = selections
@@ -1023,6 +1185,11 @@ export const STAT_NAME = {
   pass_tds: 'touchdowns de pase', rush_tds: 'touchdowns de carrera', pass_yds: 'yardas de pase', rush_yds: 'yardas de carrera',
   total_yds: 'yardas totales', hits: 'hits', scoreless_inn: 'entradas sin carreras', tied_inn: 'entradas empatadas',
   innings_won: 'entradas ganadas', both_scored_inn: 'entradas en que anotan ambos', duration: 'minutos de juego',
+  // De jugador (básquet).
+  pl_pts: 'puntos', pl_reb: 'rebotes', pl_ast: 'asistencias', pl_3pm: 'triples anotados', pl_stl: 'robos', pl_blk: 'tapones',
+  pl_tov: 'pérdidas', pl_oreb: 'rebotes ofensivos', pl_dreb: 'rebotes defensivos', pl_ftm: 'tiros libres anotados',
+  pl_2pm: 'tiros de 2 anotados', pl_pra: 'puntos + rebotes + asistencias', pl_pr: 'puntos + rebotes', pl_pa: 'puntos + asistencias',
+  pl_ra: 'rebotes + asistencias', pl_sb: 'robos + tapones',
 };
 const ORDINAL = ['1.er', '2.º', '3.er', '4.º', '5.º', '6.º', '7.º', '8.º', '9.º'];
 const ORDINAL_F = ['1.ª', '2.ª', '3.ª', '4.ª', '5.ª', '6.ª', '7.ª', '8.ª', '9.ª'];
@@ -1082,7 +1249,9 @@ export function labelOf(market, sel, line, sport, names = {}) {
       text = { '1X': `${home} o empate`, X2: `Empate o ${away}`, 12: `${home} o ${away} (sin empate)` }[s];
       break;
     case 'OU':
-      text = `${s === 'over' ? 'Más' : 'Menos'} de ${line} ${what}${of}`;
+      // De jugador: "LeBron James: Más de 24.5 puntos".
+      if (isPlayerStat(spec.stat) && spec.n != null) text = `${spec.n}: ${s === 'over' ? 'Más' : 'Menos'} de ${line} ${what}`;
+      else text = `${s === 'over' ? 'Más' : 'Menos'} de ${line} ${what}${of}`;
       break;
     case 'OU3':
       text = s === 'exact' ? `Exactamente ${line} ${what}${of}` : `${s === 'over' ? 'Más' : 'Menos'} de ${line} ${what}${of}`;

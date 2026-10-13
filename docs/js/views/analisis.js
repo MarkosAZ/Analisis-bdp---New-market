@@ -1,15 +1,19 @@
 // Pestaña "Análisis": el último análisis estadístico y el último con red
-// neuronal, comparados y cada uno con sus picks por nivel y combinadas.
+// neuronal, comparados. Cada partido muestra todos sus mercados con su nivel de
+// confianza (también Baja); los de jugador van aparte; después, las combinadas.
 import { MIN_SAMPLES } from '../analysis/neural.js';
-import { BOOKMAKERS, LEVELS } from '../analysis/picks.js';
+import { NETWORKS } from '../analysis/networks.js';
+import { BOOKMAKERS, isPlayerMarket, LEVELS, marketInfo } from '../analysis/picks.js';
 import { sportOf } from '../sports.js';
-import { fmtDateTime, fmtTime, h, pct } from '../util.js';
+import { fmtDateTime, fmtTime, groupBy, h, pct } from '../util.js';
 
-const SOURCE_NAMES = { sofascore: 'Sofascore', flashscore: 'Flashscore', apuestatotal: 'Apuesta Total', betano: 'Betano', understat: 'Understat', simulacion: 'Simulación', noticias: 'Noticias' };
+const SOURCE_NAMES = { sofascore: 'Sofascore', flashscore: 'Flashscore', apuestatotal: 'Apuesta Total', betano: 'Betano', understat: 'Understat', jugadores: 'Jugadores', simulacion: 'Simulación', noticias: 'Noticias' };
 const UNITS = { simulacion: 'selecciones', noticias: 'noticias' };
+const LEVEL_NAME = Object.fromEntries(LEVELS.map((l) => [l.id, l.name]));
 const TITLES = {
   simulacion: 'Primer tiempo del básquet: estimado simulando el partido con lo esperado del modelo',
   noticias: 'Noticias de Flashscore, ESPN y FotMob: solo las usa la red neuronal',
+  jugadores: 'Últimos partidos de cada jugador (ESPN en la NBA y la WNBA; Sofascore en las demás ligas) para los Más/Menos de jugador de Betano',
 };
 const MODE = { 'direct-api': 'directo', direct: 'directo', tab: 'pestaña', navigate: 'navegando' };
 const PRICE_SHORT = { apuestatotal: 'AT', betano: 'Betano', sofascore: 'Sofascore' };
@@ -34,31 +38,46 @@ function sourceChip(id, s) {
   return h('span', { class: 'chip ok', title }, `${SOURCE_NAMES[id]}${extra}${s.published ? ' (publicadas)' : ''}`);
 }
 
-function pickCard(p, ev, method) {
-  const sport = sportOf(p.sport);
+// Una fila por mercado: selección, cuota, probabilidad, nivel y (al abrir) los datos.
+function marketRow(p, method) {
   const others = Object.entries(p.prices || {})
     .filter(([src]) => src !== p.best.source)
     .map(([src, price]) => `${PRICE_SHORT[src] || src} ${price.toFixed(2)}`);
+  const name = isPlayerMarket(p.market) ? 'Jugador' : marketInfo(p.sport, p.market)?.name || p.market;
+  const nn = method === 'red_neuronal' && Math.abs(p.p - p.pBase) >= 0.005;
   return h(
     'div',
-    { class: `card ${p.level}` },
-    h('div', { class: 'meta' }, `${sport.icon} ${ev?.league || ''} · ${fmtTime(p.start)}`),
-    h('div', {}, ev ? `${ev.home} vs ${ev.away}` : ''),
-    h('div', { class: 'pick' }, p.label),
+    { class: `mrow ${p.level}` },
+    h('div', { class: 'mrow-head' }, h('span', {}, name), h('span', { class: `lvl-badge ${p.level}` }, LEVEL_NAME[p.level])),
     h(
       'div',
-      { class: 'nums' },
+      { class: 'mrow-pick' },
+      h('b', {}, p.label),
       h('span', { class: 'odds' }, p.best.price.toFixed(2)),
       h('span', { class: 'meta' }, BOOKMAKERS[p.best.source]),
       h('span', { class: 'prob' }, `Prob. ${pct(p.p)}`),
       p.ev > 0.01 ? h('span', { class: 'value' }, `+${Math.round(p.ev * 100)}% de valor`) : null,
     ),
     h('div', { class: 'meter' }, h('span', { style: `width:${Math.round(p.p * 100)}%` })),
-    method === 'red_neuronal' && Math.abs(p.p - p.pBase) >= 0.005
-      ? h('div', { class: 'meta' }, `Estadístico ${pct(p.pBase)} → red neuronal ${pct(p.p)}`)
+    nn ? h('div', { class: 'meta' }, `Estadístico ${pct(p.pBase)} → ${p.net || 'red'} ${pct(p.p)}`) : null,
+    p.factors?.length || others.length
+      ? h('details', {}, h('summary', {}, 'Datos'), h('ul', {}, [...(p.factors || []), ...(others.length ? [`Otras cuotas: ${others.join(' · ')}`] : [])].map((f) => h('li', {}, f))))
       : null,
-    others.length ? h('div', { class: 'meta' }, `Otras cuotas: ${others.join(' · ')}`) : null,
-    p.factors?.length ? h('ul', {}, p.factors.map((f) => h('li', {}, f))) : null,
+  );
+}
+
+// Tarjeta de un partido con todos sus mercados (los de jugador, ordenados por probabilidad).
+function matchCard(picks, ev, method) {
+  const sport = sportOf(picks[0].sport);
+  const team = picks.filter((p) => !isPlayerMarket(p.market));
+  const players = picks.filter((p) => isPlayerMarket(p.market)).sort((a, b) => b.p - a.p);
+  return h(
+    'div',
+    { class: 'match-card' },
+    h('div', { class: 'meta' }, `${sport.icon} ${ev?.league || ''} · ${fmtTime(picks[0].start)}`),
+    h('div', { class: 'teams' }, ev ? `${ev.home} vs ${ev.away}` : ''),
+    team.map((p) => marketRow(p, method)),
+    players.length ? [h('h4', {}, `Jugadores (${players.length})`), ...players.map((p) => marketRow(p, method))] : null,
   );
 }
 
@@ -88,17 +107,13 @@ function comboCard(k, analysis) {
   );
 }
 
-// Texto para copiar y compartir (WhatsApp, notas...).
-export function analysisText(a) {
+// Texto para copiar y compartir (WhatsApp, notas...): por partido, cada mercado con su nivel.
+export function analysisText(a, filter = 'todos') {
   const lines = [`${methodTitle(a.method)} · ${a.date}`];
-  for (const level of LEVELS) {
-    const picks = a.picks.filter((p) => p.level === level.id);
-    if (!picks.length) continue;
-    lines.push('', `Confianza ${level.name.toLowerCase()}`);
-    for (const p of picks) {
-      const ev = a.events[p.eventId];
-      lines.push(`• ${ev.home} vs ${ev.away} (${fmtTime(p.start)}): ${p.label} @ ${p.best.price.toFixed(2)} ${BOOKMAKERS[p.best.source]} · ${pct(p.p)}`);
-    }
+  for (const picks of groupBy(a.picks.filter((p) => filter === 'todos' || p.level === filter), (p) => p.eventId).values()) {
+    const ev = a.events[picks[0].eventId];
+    lines.push('', `${ev.home} vs ${ev.away} (${fmtTime(picks[0].start)})`);
+    for (const p of picks) lines.push(`• ${p.label} @ ${p.best.price.toFixed(2)} ${BOOKMAKERS[p.best.source]} · ${pct(p.p)} (${LEVEL_NAME[p.level]})`);
   }
   if (a.combos.length) {
     lines.push('', 'Combinadas');
@@ -152,7 +167,7 @@ function comparison(app) {
       sameRun
         ? `Mismos partidos (${fmtDateTime(Date.parse(est.created))}). Coinciden ${both} picks; ${ke.size - both} solo en el estadístico y ${kr.size - both} solo en la red neuronal.`
         : `Hechos por separado: estadístico ${fmtDateTime(Date.parse(est.created))}, red neuronal ${fmtDateTime(Date.parse(rn.created))}.`,
-      net && !net.trained ? ` La red neuronal todavía no corrige (${net.samples || 0} de ${MIN_SAMPLES} resultados): por ahora sus probabilidades son las del estadístico.` : '',
+      net ? ` Redes especializadas que corrigen: ${net.trained || 0} de ${net.total || NETWORKS.length}; en los demás mercados la red neuronal da lo mismo que el estadístico.` : '',
     ),
   );
 }
@@ -211,6 +226,33 @@ export function renderAnalisis(root, app) {
   renderMethod(root, app, a);
 }
 
+// Filtro por nivel: Todos, Alta, Moderada-alta, Moderada o Baja (con cuántos hay de cada uno).
+function levelFilter(app, a) {
+  const current = app.state.levelFilter || 'todos';
+  const s = a.settings;
+  const ranges = { alta: `≥ ${pct(s.alta)}`, moderada_alta: `${pct(s.moderadaAlta)}–${pct(s.alta)}`, moderada: `${pct(s.moderada)}–${pct(s.moderadaAlta)}`, baja: `< ${pct(s.moderada)}` };
+  const btn = (id, name, n, title) => h('button', { class: id === current ? 'active' : '', title, onclick: () => app.setLevelFilter(id) }, name, h('span', { class: 'n' }, ` ${n}`));
+  return h(
+    'div',
+    { class: 'segmented levels', role: 'group', 'aria-label': 'Nivel de confianza a mostrar' },
+    btn('todos', 'Todos', a.picks.length, 'Todos los mercados'),
+    LEVELS.map((l) => btn(l.id, l.name, a.picks.filter((p) => p.level === l.id).length, `Confianza ${l.name.toLowerCase()}: ${ranges[l.id]}`)),
+  );
+}
+
+// Estado de las redes especializadas en un análisis con red neuronal.
+function networksBanner(net) {
+  if (!net?.nets) return h('div', { class: 'banner warn' }, 'Sin redes especializadas cargadas: las probabilidades son las del análisis estadístico.');
+  const trained = NETWORKS.filter((n) => net.nets[n.id]?.trained);
+  return h(
+    'div',
+    { class: `banner${trained.length ? '' : ' warn'}` },
+    trained.length
+      ? `Corrigen ${trained.length} de ${NETWORKS.length} redes especializadas: ${trained.map((n) => n.id).join(', ')}. En los demás mercados la probabilidad es la del análisis estadístico.`
+      : `Ninguna red especializada corrige todavía: cada una necesita ${MIN_SAMPLES} resultados de su mercado y mejorar en partidos que no usó para entrenar. Por ahora las probabilidades son las del análisis estadístico.`,
+  );
+}
+
 function renderMethod(root, app, a) {
   const analyzed = Object.keys(a.events).length;
   const net = a.network;
@@ -224,18 +266,9 @@ function renderMethod(root, app, a) {
       `${analyzed} partidos analizados · ${a.picks.length} picks · ${a.combos.length} combinadas · ${fmtDateTime(Date.parse(a.created))}`,
       a.skipped ? ` · ${a.skipped} omitidos (ya empezaron)` : '',
     ),
-    h('div', { class: 'row' }, ['sofascore', 'flashscore', 'apuestatotal', 'betano', 'understat', 'simulacion', ...(a.method === 'red_neuronal' ? ['noticias'] : [])].map((id) => sourceChip(id, a.sources[id]))),
-    a.method === 'red_neuronal'
-      ? h(
-          'div',
-          { class: `banner${net?.trained ? '' : ' warn'}` },
-          net?.trained
-            ? `Red neuronal entrenada con ${net.samples} resultados: corrige las probabilidades del análisis estadístico.`
-            : (net?.samples || 0) < MIN_SAMPLES
-              ? `La red neuronal aún no tiene suficientes resultados para corregir (${net?.samples || 0} de ${MIN_SAMPLES}). Por ahora da lo mismo que el análisis estadístico; aprende cada vez que actualizas resultados en Historial.`
-              : `Con ${net.samples} resultados la red todavía no mejora al análisis estadístico, así que no corrige nada. Sigue aprendiendo con cada actualización de resultados.`,
-        )
-      : null,
+    h('div', { class: 'row' }, ['sofascore', 'flashscore', 'apuestatotal', 'betano', 'understat', 'jugadores', 'simulacion', ...(a.method === 'red_neuronal' ? ['noticias'] : [])].map((id) => sourceChip(id, a.sources[id]))),
+    levelFilter(app, a),
+    a.method === 'red_neuronal' ? networksBanner(net) : null,
     h(
       'div',
       { class: 'row' },
@@ -254,28 +287,21 @@ function renderMethod(root, app, a) {
       h(
         'div',
         { class: 'banner' },
-        'No hubo selecciones con suficiente probabilidad y cuota. Solo se analiza la línea .5 más pareja de cada mercado de la lista (⚙ Ajustes) y hacen falta al menos 4 partidos con datos de cada equipo. Prueba con más partidos o revisa en Ajustes los mínimos de probabilidad y cuota.',
+        'No hubo mercados para mostrar. Solo se analiza la línea .5 más pareja de cada mercado de la lista (⚙ Ajustes), con cuota de Apuesta Total o Betano, y hacen falta al menos 4 partidos con datos de cada equipo (5 de cada jugador). Prueba con más partidos.',
       ),
     );
   }
-  const colors = { alta: 'var(--alta)', moderada_alta: 'var(--modalta)', moderada: 'var(--mod)' };
   const s = a.settings;
-  const ranges = { alta: `≥ ${pct(s.alta)}`, moderada_alta: `${pct(s.moderadaAlta)}–${pct(s.alta)}`, moderada: `${pct(s.moderada)}–${pct(s.moderadaAlta)}` };
-  for (const level of LEVELS) {
-    const picks = a.picks.filter((p) => p.level === level.id);
-    root.append(
-      h(
-        'div',
-        { class: 'level' },
-        h('span', { class: 'bar', style: `background:${colors[level.id]}` }),
-        h('h3', {}, `Confianza ${level.name.toLowerCase()}`),
-        h('span', { class: 'note' }, `${ranges[level.id]} · ${picks.length}`),
-      ),
-    );
-    root.append(
-      picks.length ? h('div', { class: 'cards' }, picks.map((p) => pickCard(p, a.events[p.eventId], a.method))) : h('div', { class: 'note' }, 'Sin picks en este nivel.'),
-    );
-  }
+  const filter = app.state.levelFilter || 'todos';
+  const shown = a.picks.filter((p) => filter === 'todos' || p.level === filter);
+  const groups = [...groupBy(shown, (p) => p.eventId).values()];
+  root.append(
+    groups.length
+      ? h('div', { class: 'match-cards' }, groups.map((picks) => matchCard(picks, a.events[picks[0].eventId], a.method)))
+      : a.picks.length
+        ? h('div', { class: 'note' }, `Sin mercados de nivel ${LEVEL_NAME[filter]?.toLowerCase()} en este análisis.`)
+        : null,
+  );
   root.append(
     h(
       'div',

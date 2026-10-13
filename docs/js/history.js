@@ -6,27 +6,29 @@
 //   data/historial/index.json         resumen por día
 //   data/historial/AAAA-MM-DD.json    análisis del día con sus picks y combinadas
 //   data/entrenamiento/AAAA-MM.json   selecciones analizadas + resultado real (para la red)
-//   data/modelo/red-neuronal.json     pesos de la red neuronal
+//   data/modelo/redes.json            pesos de las redes especializadas (una por mercado)
 import * as ext from './ext.js';
 import * as provider from './provider.js';
 import * as store from './storage.js';
 import { addDays, groupBy, limaDateOf, limaToday } from './util.js';
-import { FEATURE_VERSION, FEATURES, upgradeFeatures } from './analysis/features.js';
+import { FEATURE_VERSION, upgradeFeatures } from './analysis/features.js';
 import { settle } from './analysis/markets.js';
 import { parseMarketId } from './analysis/catalog.js';
 import { profitOf } from './analysis/outcomes.js';
 import { mergeRecords, recordFromSofascore } from './analysis/records.js';
 import { flashscoreRecords } from './flashscore-link.js';
-import { Corrector, isResult } from './analysis/neural.js';
-import { LEVELS } from './analysis/picks.js';
+import { isResult } from './analysis/neural.js';
+import { NetworkSet } from './analysis/networks.js';
+import { isPlayerMarket, LEVELS } from './analysis/picks.js';
+import { basketballLeague } from './analysis/players.js';
 
 export const INDEX = 'data/historial/index.json';
-export const MODEL = 'data/modelo/red-neuronal.json';
+export const MODEL = 'data/modelo/redes.json';
 export const dayPath = (date) => `data/historial/${date}.json`;
 export const rowsPath = (month) => `data/entrenamiento/${month}.json`;
 
 const METHOD_NAME = { estadistico: 'estadístico', red_neuronal: 'red neuronal' };
-const SUMMARY_VERSION = 2; // resúmenes por método (los anteriores se recalculan)
+const SUMMARY_VERSION = 3; // 3: nivel Baja fuera de los totales (los anteriores se recalculan)
 const GRACE_MS = 2.5 * 3600000; // se consulta el resultado 2,5 h después del inicio
 const CANCEL_FINAL_MS = 48 * 3600000; // aplazado/cancelado: nula tras 48 h
 const NO_DATA_MS = 96 * 3600000; // terminado sin los datos de esa apuesta (p. ej. córners): nula tras 4 días
@@ -86,21 +88,33 @@ export function compactAnalysis(result) {
   };
 }
 
-// Filas para la red: por partido, las selecciones con probabilidad en la zona
-// donde salen picks y combinadas (las de cuota muy alta no aportan), hasta 60.
-const ROWS_PER_EVENT = 60;
-function rowCandidates(candidates) {
+// Filas para la red: una por mercado de cada partido (en los de jugador, por
+// jugador y estadística), la selección más probable según la estadística entre
+// las de la zona útil (50 % a 97 %), como los picks. Los dos lados de una línea,
+// o dos líneas del mismo mercado, son el mismo resultado contado dos veces.
+// Los de jugador son muchos por partido: hasta 40, repartidos entre todas las
+// probabilidades, para que un partido no pese más que los otros en su red.
+const PLAYER_ROWS_PER_EVENT = 40;
+const spread = (list, n) => {
+  if (list.length <= n) return list;
+  const sorted = [...list].sort((a, b) => a.pBase - b.pBase);
+  return Array.from({ length: n }, (_, i) => sorted[Math.floor((i * sorted.length) / n)]);
+};
+export function rowCandidates(candidates) {
   const out = [];
-  for (const list of groupBy(candidates, (c) => c.eventId).values()) {
-    const useful = list.filter((c) => c.pBase >= 0.4 && c.pBase <= 0.97);
-    out.push(...(useful.length > ROWS_PER_EVENT ? useful.sort((a, b) => b.pBase - a.pBase).slice(0, ROWS_PER_EVENT) : useful));
+  const useful = candidates.filter((c) => Number.isFinite(c.pBase) && c.pBase >= 0.5 && c.pBase <= 0.97);
+  for (const list of groupBy(useful, (c) => c.eventId).values()) {
+    const best = [...groupBy(list, (c) => c.market).values()].map((same) =>
+      same.reduce((a, b) => (b.pBase > a.pBase || (b.pBase === a.pBase && `${b.sel}|${b.line}` < `${a.sel}|${a.line}`) ? b : a)),
+    );
+    out.push(...best.filter((c) => !isPlayerMarket(c.market)), ...spread(best.filter((c) => isPlayerMarket(c.market)), PLAYER_ROWS_PER_EVENT));
   }
   return out;
 }
 
 export function trainingRows(result) {
   return rowCandidates(result.candidates).map((c) => ({
-    key: `${c.eventId}|${c.key}`,
+    key: `${c.eventId}|${c.market}`,
     date: result.date,
     eventId: c.eventId,
     url: result.events[c.eventId]?.url || null,
@@ -125,11 +139,13 @@ async function readRows(month) {
   return file;
 }
 
-function mergeRows(oldRows = [], newRows = []) {
+// Una fila por clave: la del último análisis mientras no tenga resultado (la
+// selección o la línea pueden cambiar); con resultado ya no se toca.
+export function mergeRows(oldRows = [], newRows = []) {
   const map = new Map(oldRows.map((r) => [r.key, r]));
   for (const r of newRows) {
     const old = map.get(r.key);
-    map.set(r.key, old && old.y != null ? { ...r, y: old.y } : r);
+    if (!old || old.y == null) map.set(r.key, r);
   }
   return [...map.values()];
 }
@@ -187,6 +203,8 @@ export function needsRecord(market) {
 
 const comboKey = (k) => `${k.source}|${k.legs.map((l) => `${l.eventId}|${l.key}`).sort().join(',')}`;
 
+const pickMarket = (p) => `${p.eventId}|${p.market ?? String(p.key).split('|')[0]}`;
+
 // Picks y combinadas de cada método sin repetir: si el mismo pick sale en
 // varios análisis del día, cuenta una sola vez (el del análisis más reciente).
 export function latestByMethod(day) {
@@ -195,6 +213,10 @@ export function latestByMethod(day) {
   for (const a of list) {
     if (!out.has(a.method)) out.set(a.method, { picks: new Map(), combos: new Map() });
     const m = out.get(a.method);
+    // Un mercado del partido cuenta una vez: el último análisis reemplaza lo
+    // que dijeron los anteriores aunque haya elegido otro lado u otra línea.
+    const markets = new Set(a.picks.map(pickMarket));
+    for (const [k, p] of m.picks) if (markets.has(pickMarket(p))) m.picks.delete(k);
     for (const p of a.picks) m.picks.set(`${p.eventId}|${p.key}`, p);
     for (const k of a.combos || []) m.combos.set(comboKey(k), k);
   }
@@ -203,16 +225,18 @@ export function latestByMethod(day) {
 
 const methodStats = () => ({ ...emptyStats(), byLevel: {}, combos: emptyStats() });
 
-// Resumen de un día: por método (methods) y la suma de ambos.
+// Resumen de un día: por método (methods) y la suma de ambos. Los picks de
+// nivel Baja tienen su fila (byLevel.baja) pero no entran en los totales.
 export function daySummary(day) {
   const out = { ...emptyStats(), v: SUMMARY_VERSION, byLevel: {}, byMethod: {}, combos: emptyStats(), methods: {} };
   for (const [method, { picks, combos }] of latestByMethod(day)) {
     const m = (out.methods[method] = methodStats());
     for (const p of picks.values()) {
-      addResult(m, p.status, p.odds);
       addResult((m.byLevel[p.level] ||= emptyStats()), p.status, p.odds);
-      addResult(out, p.status, p.odds);
       addResult((out.byLevel[p.level] ||= emptyStats()), p.status, p.odds);
+      if (p.level === 'baja') continue;
+      addResult(m, p.status, p.odds);
+      addResult(out, p.status, p.odds);
     }
     for (const k of combos.values()) {
       addResult(m.combos, k.status, k.odds);
@@ -221,7 +245,7 @@ export function daySummary(day) {
     const { byLevel: _levels, combos: _combos, ...plain } = m;
     out.byMethod[method] = plain;
   }
-  out.pendingAll = out.pending + out.combos.pending;
+  out.pendingAll = out.pending + out.combos.pending + (out.byLevel.baja?.pending || 0);
   return out;
 }
 
@@ -385,6 +409,36 @@ export async function updateResults({ onProgress = () => {} } = {}) {
         if (due(leg) && needsRecord(leg.market)) detailIds.add(leg.eventId);
       }
   for (const { file } of rowFiles) for (const r of file.rows) if (r.y == null && needsRecord(r.market)) (detailIds.add(r.eventId), sports.set(r.eventId, r.sport));
+  // Partidos con apuestas de jugador (necesitan las estadísticas de cada jugador)
+  // y el resumen guardado de cada partido (liga, país, equipos) para buscarlos.
+  const playerIds = new Set();
+  const eventInfo = new Map();
+  for (const day of dayFiles)
+    for (const a of day.analyses) {
+      for (const [id, e] of Object.entries(a.events || {})) eventInfo.set(String(id), e);
+      for (const leg of [...a.picks, ...(a.combos || []).flatMap((k) => k.legs)]) if (due(leg) && isPlayerMarket(leg.market)) playerIds.add(leg.eventId);
+    }
+  for (const { file } of rowFiles) for (const r of file.rows) if (r.y == null && isPlayerMarket(r.market) && r.start < now - GRACE_MS) playerIds.add(r.eventId);
+  // Liga de ESPN (NBA, WNBA) del partido: sus jugadores se liquidan con ESPN.
+  const espnLeague = (id) => {
+    const info = eventInfo.get(String(id));
+    return info ? basketballLeague({ tournament: { name: info.league }, category: { name: info.country } }) : null;
+  };
+  // Agrega las estadísticas de los jugadores (de un partido terminado) al
+  // registro. Sin marcador conocido el partido no se da por terminado: así solo
+  // se liquidan las de jugador y las demás esperan su resultado.
+  const attachPlayers = (id, players, boxScore = null) => {
+    const res = results[id] || {};
+    const score = res.score || boxScore || null;
+    const final = score ? [score.home, score.away] : null;
+    const base = res.record || { sport: sports.get(id) };
+    results[id] = {
+      ...res,
+      score,
+      ...(score ? { state: res.state || 'finalizado' } : {}),
+      record: { ...base, state: 'finalizado', ...(final && !base.final ? { final } : {}), players },
+    };
+  };
   // Partidos automáticos (Flashscore): resultados publicados cada 2 horas.
   const auto = list.filter(provider.isAuto);
   const starts = new Map();
@@ -413,11 +467,13 @@ export async function updateResults({ onProgress = () => {} } = {}) {
     onProgress(`Sofascore: resultados ${Math.min(i + 10, sofa.length)} de ${sofa.length}`, 0.1 + (0.6 * i) / Math.max(1, sofa.length));
     const chunk = sofa.slice(i, i + 10);
     const detail = chunk.filter((id) => detailIds.has(id));
-    const r = await ext.call('sofascore', 'getEventResults', { ids: chunk, urls: Object.fromEntries(chunk.map((id) => [id, urls[id]])), detail }, { timeout: 300000 });
+    const players = chunk.filter((id) => playerIds.has(id) && !espnLeague(id));
+    const r = await ext.call('sofascore', 'getEventResults', { ids: chunk, urls: Object.fromEntries(chunk.map((id) => [id, urls[id]])), detail, players }, { timeout: 300000 });
     for (const [id, res] of Object.entries(r.items || {})) {
-      const { raw, ...rest } = res;
+      const { raw, players: box, ...rest } = res;
       results[id] = rest;
       if (raw) results[id].record = recordFromSofascore({ sport: sports.get(id), ...raw });
+      if (box && rest.state === 'finalizado') attachPlayers(id, box);
     }
   }
   // Con la extensión: registros de Flashscore de los partidos de Sofascore que
@@ -437,6 +493,23 @@ export async function updateResults({ onProgress = () => {} } = {}) {
     const fsRec = { ...fsRecords[id], state: res.state === 'finalizado' ? 'finalizado' : fsRecords[id].state };
     results[id] = { ...res, state: res.state || fsRec.state, record: mergeRecords(res.record || null, fsRec) };
     if (!results[id].record.final && res.score) results[id].record.final = [res.score.home, res.score.away];
+  }
+  // NBA y WNBA: estadísticas de los jugadores de ESPN (con la extensión) si no
+  // vinieron en lo publicado por GitHub Actions (a Sofascore no se le piden: el
+  // modelo de estas ligas usa los partidos de ESPN).
+  if (ext.available()) {
+    for (const id of playerIds) {
+      if (results[id]?.record?.players) continue;
+      const league = espnLeague(id);
+      if (!league) continue;
+      const info = eventInfo.get(String(id));
+      try {
+        const box = await ext.call('espn', 'getBoxScore', { league, home: info.home, away: info.away, start: info.start }, { timeout: 60000 });
+        if (box?.state === 'finalizado' && box.players) attachPlayers(id, box.players, box.score);
+      } catch {
+        // se reintenta en la próxima actualización
+      }
+    }
   }
 
   onProgress('Liquidando apuestas', 0.75);
@@ -482,21 +555,21 @@ export async function updateResults({ onProgress = () => {} } = {}) {
 
   let network = null;
   if (newRows) {
-    onProgress('Reentrenando la red neuronal', 0.85);
+    onProgress('Reentrenando las redes especializadas', 0.85);
     network = await trainNetwork();
   }
   onProgress('Listo', 1);
-  return { checked: list.length, resolved, newRows, skipped, network: network?.meta || null };
+  return { checked: list.length, resolved, newRows, skipped, network: network?.summary() || null };
 }
 
-// ---- Red neuronal ----
+// ---- Redes especializadas ----
 
 export async function loadNetwork() {
-  const saved = await store.read(MODEL).catch(() => null);
-  // Una red guardada con otras variables no se usa (se reentrena con las filas actualizadas).
-  return saved && saved.featureVersion === FEATURE_VERSION && saved.inputs === FEATURES.length ? Corrector.fromJSON(saved) : new Corrector({ inputs: FEATURES.length });
+  return NetworkSet.fromJSON(await store.read(MODEL).catch(() => null));
 }
 
+// Reentrena todas las redes, cada una con los resultados de sus mercados (solo
+// filas de la versión actual de variables).
 export async function trainNetwork() {
   const rows = [];
   for (const month of monthsBack(6)) {
@@ -507,10 +580,10 @@ export async function trainNetwork() {
       if (x) rows.push({ ...r, x });
     }
   }
-  const net = new Corrector({ inputs: FEATURES.length });
-  net.train(rows.map((r) => ({ x: r.x, pBase: r.pBase, y: r.y, start: r.start })));
-  await store.write(MODEL, net.toJSON(), `Red neuronal: reentrenada con ${net.meta.samples} resultados`);
-  return net;
+  const set = NetworkSet.train(rows);
+  const s = set.summary();
+  await store.write(MODEL, set.toJSON(), `Redes especializadas: ${s.trained} de ${s.total} corrigen (${s.samples} resultados)`);
+  return set;
 }
 
 // ---- Subir lo guardado en el navegador a GitHub ----

@@ -166,8 +166,8 @@ async function withoutExtension(browser, errors) {
   await page.waitForSelector('.chip:has-text("Guardado en el historial")', { timeout: 30000 });
   const summary = await page.textContent('#tab-analisis .summary');
   check('analiza con estadísticas y cuotas publicadas', summary.includes('3 partidos analizados') && /Flashscore · 3 partidos/.test(summary) && /Apuesta Total · 3 partidos \(publicadas\)/.test(summary), summary.slice(0, 200));
-  const cards = await page.$$('#tab-analisis .card');
-  check('hay picks con datos automáticos', cards.length > 0, `${cards.length} tarjetas`);
+  const cards = await page.$$('#tab-analisis .mrow');
+  check('hay picks con datos automáticos', cards.length > 0, `${cards.length} mercados`);
   check('guarda el análisis en GitHub', repo.has(`docs/data/historial/${DAY}.json`) && repo.has('docs/data/historial/index.json'), [...repo.keys()].join(', '));
   const saved = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).analyses.map((a) => a.method);
   check('"Ambos" guarda los dos análisis por separado', saved.sort().join() === 'estadistico,red_neuronal', saved.join(', '));
@@ -203,7 +203,7 @@ async function withoutExtension(browser, errors) {
   check('el detalle del día se filtra por método', (await page.$$('.day-body .method-tag.estadistico')).length === 0 && (await page.$$('.day-body .method-tag.red_neuronal')).length === 1);
   // Aciertos del día por nivel de confianza: en la cabecera y en la tabla del día abierto.
   const levelChips = await page.$$eval('.day-line .chip.lvl', (els) => els.map((e) => e.textContent.trim()));
-  check('cada día cuenta los aciertos por nivel', levelChips.length > 0 && levelChips.every((t) => /^(Alta|Mod-alta|Moderada|Combinadas) \d+\/\d+/.test(t)), levelChips.join(' | '));
+  check('cada día cuenta los aciertos por nivel', levelChips.length > 0 && levelChips.every((t) => /^(Alta|Mod-alta|Moderada|Baja|Combinadas) \d+\/\d+/.test(t)), levelChips.join(' | '));
   const dayTable = await page.textContent('.day-body .day-table');
   check('el día abierto muestra la tabla por nivel', /Red neuronal: aciertos del día por nivel/.test(dayTable) && /Total picks/.test(dayTable), dayTable.replace(/\s+/g, ' ').slice(0, 160));
   await page.screenshot({ path: path.join(OUT, '8-celular-historial.png'), fullPage: false });
@@ -273,22 +273,32 @@ async function withoutExtension(browser, errors) {
     });
     const LIST = ['OU', 'BTTS', 'OU.corners', 'OU.cards', 'OU.shots_on', 'OU.shots', 'OU.corners@h1', 'HCP', 'HCP@h1', 'OU@h1', 'ML'];
     check(
-      'solo analiza los mercados de la lista (goles, córners, tarjetas, tiros, hándicap, ganador)',
-      ['OU', 'OU.corners', 'OU.cards', 'OU.shots_on', 'HCP', 'ML'].every((m) => rowMarkets.includes(m)) && rowMarkets.every((m) => LIST.includes(m)),
+      'solo analiza los mercados de la lista (goles, córners, tarjetas, tiros, hándicap, ganador, jugador)',
+      ['OU', 'OU.corners', 'OU.cards', 'OU.shots_on', 'HCP', 'ML'].every((m) => rowMarkets.includes(m)) && rowMarkets.every((m) => LIST.includes(m) || /^OU\.pl_/.test(m)),
       rowMarkets.join(' '),
     );
-    const levels = await page.$$eval('#tab-analisis .card', (cards) => cards.map((c) => c.className));
+    check('analiza los Más/Menos de jugador de Betano con los datos de ESPN', rowMarkets.some((m) => m.startsWith('OU.pl_pts#LeBron James')) && rowMarkets.some((m) => m.startsWith('OU.pl_pra#')), rowMarkets.filter((m) => m.startsWith('OU.pl_')).join(' '));
+    check('"Double-double" no se analiza como Más/Menos', !rowMarkets.some((m) => /double/i.test(m)));
+    const levels = await page.$$eval('#tab-analisis .mrow', (rows) => rows.map((c) => c.className));
+    const combos = await page.$$('#tab-analisis .card.combo');
+    const matchCards = await page.$$('#tab-analisis .match-card');
     check(
-      'hay picks por nivel y combinadas',
-      levels.some((c) => c.includes('alta')) && levels.some((c) => c.includes('combo')),
-      `${levels.length} tarjetas`,
+      'cada partido con todos sus mercados y su nivel (también Baja), y combinadas',
+      levels.some((c) => / alta$/.test(c)) && levels.some((c) => c.includes('baja')) && combos.length > 0 && matchCards.length > 0,
+      `${matchCards.length} partidos · ${levels.length} mercados · ${combos.length} combinadas`,
     );
+    const playerRows = await page.$$eval('.match-card h4', (els) => els.map((e) => e.textContent));
+    check('los mercados de jugador van aparte en su partido', playerRows.some((t) => /^Jugadores \(\d+\)$/.test(t)), playerRows.join(' | '));
+    await page.click('#tab-analisis .segmented button:has-text("Baja")');
+    const onlyLow = await page.$$eval('#tab-analisis .mrow', (rows) => rows.map((c) => c.className));
+    check('el filtro por nivel muestra solo ese nivel', onlyLow.length > 0 && onlyLow.every((c) => c.includes('baja')), `${onlyLow.length} filas`);
+    await page.click('#tab-analisis .segmented button:has-text("Todos")');
     const comboText = await page.$$eval('.card.combo .odds', (els) => els.map((e) => Number(e.textContent)));
     check('las combinadas alcanzan la cuota objetivo', comboText.length > 0 && comboText.every((o) => o >= 5), comboText.join(', '));
     await page.screenshot({ path: path.join(OUT, '2-analisis.png'), fullPage: true });
     await page.click('text=Copiar picks');
     const copied = await page.evaluate(() => navigator.clipboard.readText());
-    check('copia los picks como texto', copied.includes('Confianza') && copied.includes('@'), copied.split('\n').slice(0, 3).join(' | '));
+    check('copia los picks como texto', / vs /.test(copied) && copied.includes('@') && /\((Alta|Moderada-alta|Moderada|Baja)\)/.test(copied), copied.split('\n').slice(0, 4).join(' | '));
 
     // 3) Historial
     await page.click('.tabs button[data-tab="historial"]');
@@ -312,15 +322,19 @@ async function withoutExtension(browser, errors) {
     check('marca ganadas y perdidas', pills.includes('Ganada') && pills.includes('Perdida') && !pills.includes('Pendiente'), `${pills.length} apuestas`);
     const table = await page.textContent('.panel table');
     check('calcula aciertos y ganancia por nivel', /%/.test(table), table.replace(/\s+/g, ' ').slice(0, 160));
-    const netPanel = await page.textContent('.panel:has(h3:text-is("Entrenamiento de la red neuronal"))');
-    check('la red neuronal registra los resultados para aprender', /Faltan resultados: [1-9]\d* de 200/.test(netPanel), netPanel.replace(/\s+/g, ' ').slice(0, 200));
+    const netPanel = await page.textContent('.panel:has(h3:text-is("Redes especializadas"))');
+    check(
+      'las redes especializadas registran los resultados de su mercado',
+      ['Football_Goals_Model', 'Football_Corners_Model', 'Basketball_PlayerProps_Model', 'Baseball_Totals_Model'].every((id) => netPanel.includes(id)) && /[1-9]\d*\/200/.test(netPanel),
+      netPanel.replace(/\s+/g, ' ').slice(0, 260),
+    );
     await page.screenshot({ path: path.join(OUT, '3-historial.png'), fullPage: true });
 
     // 5) Análisis con red neuronal
     await page.click('#run-nn');
     await page.waitForSelector('#tab-analisis .summary h2:has-text("red neuronal")', { timeout: 60000 });
     const nnBanner = await page.textContent('#tab-analisis .summary .banner');
-    check('el análisis con red neuronal explica su estado', /[1-9]\d* de 200/.test(nnBanner), nnBanner.slice(0, 160));
+    check('el análisis con red neuronal explica el estado de las redes especializadas', /Ninguna red especializada corrige|Corrigen \d+ de \d+ redes/.test(nnBanner), nnBanner.slice(0, 160));
     const nnSummary = await page.textContent('#tab-analisis .summary');
     check('la red neuronal usa noticias de Flashscore, ESPN y FotMob', /Noticias · \d+ noticias/.test(nnSummary), nnSummary.match(/Noticias[^A-Z]*/)?.[0]);
     const compare = await page.textContent('#tab-analisis .compare');
@@ -341,7 +355,18 @@ async function withoutExtension(browser, errors) {
 
     // 6) Celular
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.click('.tabs button[data-tab="analisis"]');
+    await page.waitForSelector('#tab-analisis .segmented.levels');
     await page.screenshot({ path: path.join(OUT, '4-celular-analisis.png'), fullPage: false });
+    const levelsFit = await page.evaluate(() => {
+      const el = document.querySelector('#tab-analisis .segmented.levels');
+      const r = el.getBoundingClientRect();
+      return r.right <= window.innerWidth + 1 && el.scrollWidth <= el.clientWidth + 1;
+    });
+    check('el filtro por nivel cabe en el celular', levelsFit);
+    await (await page.$('#tab-analisis .segmented.levels')).screenshot({ path: path.join(OUT, '4b-celular-niveles.png') });
+    const analysisOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    check('sin desplazamiento horizontal en el análisis (celular)', !analysisOverflow);
     await page.click('.tabs button[data-tab="partidos"]');
     await page.screenshot({ path: path.join(OUT, '5-celular-partidos.png'), fullPage: false });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);

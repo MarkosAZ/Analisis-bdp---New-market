@@ -20,8 +20,13 @@ historial de resultados. Funciona en el **celular y en la PC**:
   - Fútbol: goles totales Más/Menos, ambos equipos anotan, Más/Menos córners,
     total de tarjetas, tiros al arco, remates totales y córners del primer tiempo
     (siempre el total del partido, no los de cada equipo).
-  - Básquet: total de puntos, hándicap, y hándicap y total de puntos del primer
-    tiempo. Los Más/Menos de jugador quedan para una segunda etapa.
+  - Básquet: total de puntos, hándicap, hándicap y total de puntos del primer
+    tiempo y los **Más/Menos de jugador** (puntos, rebotes, asistencias, triples,
+    robos, tapones, pérdidas, rebotes ofensivos y defensivos, tiros libres, tiros
+    de 2 y los combinados P+R+A, P+R, P+A, R+A y robos+tapones). Apuesta Total
+    no ofrece mercados de jugador: sus cuotas son de **Betano** (con la extensión,
+    en la PC). Los últimos partidos de cada jugador salen de **ESPN** en la NBA y
+    la WNBA y de **Sofascore** en las demás ligas.
   - Béisbol: ganador, hándicap (run line) y total de carreras.
 - **Una línea por mercado**: solo líneas .5 (sin enteras ni asiáticas, así solo
   hay dos resultados posibles y nunca devolución) y, en cada casa por separado,
@@ -34,15 +39,29 @@ historial de resultados. Funciona en el **celular y en la PC**:
   básquet: modelo de puntos; córners, tarjetas y tiros: promedios de cada equipo
   (lo que hace y lo que le permite el rival); primer tiempo del básquet: partido
   simulado miles de veces. Hacen falta al menos 4 partidos con datos de cada
-  equipo. La probabilidad que dan las cuotas se muestra solo como referencia.
-- **Análisis con red neuronal** (Sofascore, Flashscore **y noticias** de
-  Flashscore, ESPN y FotMob): corrige las probabilidades del análisis
-  estadístico con lo que aprende de los resultados reales; además de los datos
-  del partido usa las noticias de cada equipo (menciones, lesiones/sanciones y
-  tono). Se reentrena cada vez que actualizas resultados y solo corrige cuando
-  mejora en partidos que no usó para entrenar (necesita al menos 200 resultados).
-- **Picks por nivel de confianza**: alta (≥ 80 %), moderada-alta (70–80 %) y
-  moderada (60–70 %), con la mejor cuota entre Apuesta Total y Betano.
+  equipo. Jugadores: sus últimos 10 partidos (los más recientes pesan más; al
+  menos 5 jugados). Si figura como baja, no se analiza. La probabilidad que dan
+  las cuotas se muestra solo como referencia.
+- **Análisis con red neuronal**: **redes especializadas**, una por tipo de
+  mercado: `Football_Goals_Model`, `Football_BTTS_Model`,
+  `Football_Corners_Model`, `Football_Cards_Model`, `Football_Shots_Model`,
+  `Basketball_Totals_Model`, `Basketball_Handicap_Model`,
+  `Basketball_PlayerProps_Model`, `Baseball_Winner_Model`,
+  `Baseball_RunLine_Model` y `Baseball_Totals_Model`. Cada una aprende solo de
+  los resultados de sus mercados (con los datos del partido, la distancia de la
+  línea a lo esperado y las noticias de Flashscore, ESPN y FotMob) y corrige la
+  probabilidad estadística solo cuando tiene 200 resultados de su mercado y
+  mejora en partidos que no usó para entrenar (validación en el tiempo: cada
+  tramo reciente se predice con lo aprendido antes; la mejora debe ser de al
+  menos 1 % y no explicarse por azar); mientras tanto, sus mercados quedan con
+  la probabilidad estadística. Aprenden de un resultado por mercado de cada
+  partido (el lado más probable; hasta 40 de jugador por partido). Se
+  reentrenan al actualizar resultados.
+- **Todos los mercados de cada partido con su nivel de confianza**: alta
+  (≥ 80 %), moderada-alta (70–80 %), moderada (60–70 %) y **baja** (menos de
+  60 %), con la mejor cuota entre Apuesta Total y Betano. La pestaña Análisis
+  muestra cada partido con sus mercados (los de jugador aparte) y un filtro por
+  nivel.
 - **Combinadas** de cuota 5 o más (y 10 o más) en una misma casa, con la mayor
   probabilidad estimada posible.
 - **Ambos análisis**: hace el estadístico y el de red neuronal con los mismos
@@ -52,15 +71,18 @@ historial de resultados. Funciona en el **celular y en la PC**:
   separado**: el botón *Actualizar resultados* los marca como ganados o
   perdidos (o medio ganados/perdidos en líneas asiáticas) y calcula aciertos,
   ganancia y ROI por nivel y de las combinadas para el análisis estadístico y
-  para el de red neuronal. Se liquidan con el registro completo del partido
-  (marcador por periodo, goles con minuto, tarjetas y estadísticas de
-  Flashscore y Sofascore). Si un mismo pick sale en dos análisis del mismo día
+  para el de red neuronal. El nivel Baja tiene su propia fila y no se suma al
+  total. Se liquidan con el registro completo del partido (marcador por
+  periodo, goles con minuto, tarjetas y estadísticas de Flashscore y Sofascore;
+  las de jugador, con su estadística en el partido: ESPN o Sofascore; si no
+  jugó, la apuesta queda nula). Si un mismo pick sale en dos análisis del mismo día
   y método, cuenta una sola vez; una apuesta cuyo dato no publica ninguna
   fuente queda nula a los 4 días.
 
 Los niveles, la cuota mínima, las cuotas objetivo de las combinadas, **cuáles
-de los mercados analizados pueden salir como pick**, si se abre la página de
-cada partido en Betano y el token de GitHub se cambian en **⚙ Ajustes**.
+de los mercados analizados pueden salir como pick** (también los de jugador),
+si se abre la página de cada partido en Betano y el token de GitHub se cambian
+en **⚙ Ajustes**.
 
 ## Cómo se usa
 
@@ -119,6 +141,8 @@ docs/                 página web (GitHub Pages)
     outcomes.js       liquida cualquier mercado con el registro del partido
     simulate.js       simula partidos (primer tiempo del básquet)
     stats.js          córners, tarjetas y tiros con los promedios de cada equipo
+    players.js        Más/Menos de jugador: modelo, nombres y liquidación
+    networks.js       redes especializadas (una por tipo de mercado)
     records.js        registro del partido con datos de Flashscore y Sofascore
     teamstats.js      estadísticas promedio de cada equipo
     news.js           señales de las noticias para la red neuronal
@@ -127,7 +151,7 @@ docs/                 página web (GitHub Pages)
   js/data-format.js   formato compacto de esos datos
   js/github.js        guardar en GitHub con el token del navegador
   js/history.js       guardar, liquidar resultados, entrenar la red
-  data/               historial y red neuronal (cuando se guarda en GitHub)
+  data/               historial y redes especializadas (cuando se guarda en GitHub)
 extension/            extensión de Chrome (Sofascore, Betano) y conectores de las fuentes
 scripts/              recolección de datos y prueba de las fuentes (GitHub Actions)
 tests/                pruebas unitarias y de punta a punta

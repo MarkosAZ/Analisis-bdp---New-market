@@ -9,12 +9,13 @@
 //                                   días) para liquidar las apuestas; los partidos
 //                                   analizados (docs/data/historial) llevan además
 //                                   el registro completo: incidencias (goles con
-//                                   minuto, tarjetas) y estadísticas (córners...)
+//                                   minuto, tarjetas) y estadísticas (córners...);
+//                                   en la NBA y la WNBA, también los jugadores (ESPN)
 // Uso: node scripts/collect-data.mjs [salida] (por defecto "site")
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getH2H, getMatchFeeds, getNews as flashscoreNews, getSportDay, SPORT_IDS } from '../extension/sources/flashscore.js';
-import { getAllNews as espnNews } from '../extension/sources/espn.js';
+import { getAllNews as espnNews, getBoxScore } from '../extension/sources/espn.js';
 import { getNews as fotmobNews } from '../extension/sources/fotmob.js';
 import { compactNews } from '../docs/js/analysis/news.js';
 import { getEventList, getMarkets } from '../extension/sources/apuestatotal.js';
@@ -31,6 +32,7 @@ import { teamStatsFrom } from '../docs/js/analysis/teamstats.js';
 const OUT = path.resolve(process.argv[2] || 'site', 'data/fuente');
 const CACHE = path.resolve('.cache/h2h-v3'); // subir la versión si cambia getH2H
 const DETAIL_CACHE = path.resolve('.cache/detalle-v1'); // feeds de partidos terminados (no cambian)
+const PLAYERS_CACHE = path.resolve('.cache/jugadores-v1'); // jugadores de partidos terminados de ESPN (no cambian)
 const HISTORY = path.resolve('docs/data/historial');
 // Deportes con estadísticas por partido en Flashscore (para los mercados de estadísticas).
 const STAT_SPORTS = new Set(['football', 'basketball', 'ice-hockey', 'tennis', 'baseball', 'american-football', 'handball', 'rugby']);
@@ -105,6 +107,35 @@ async function feedsCached(fsId, kinds) {
   return cached;
 }
 
+// Jugadores de un partido de básquet terminado (box score de ESPN; se prueba la
+// NBA y luego la WNBA): { [nombre]: fila } o null. Queda en caché en disco (un
+// partido terminado no cambia), también si no es de esas ligas, salvo que ESPN
+// haya fallado (se reintenta en la próxima corrida).
+let espnErrors = 0;
+async function espnPlayers(ev) {
+  const file = path.join(PLAYERS_CACHE, `${String(ev.id).replace(/[^\w.-]/g, '_')}.json`);
+  try {
+    return JSON.parse(await fs.readFile(file, 'utf8')).players;
+  } catch {
+    // sin caché
+  }
+  let failed = false;
+  for (const league of ['nba', 'wnba']) {
+    try {
+      const box = await getBoxScore({ league, home: ev.home.name, away: ev.away.name, start: ev.start, maxAgeMs: Infinity });
+      if (!box) continue;
+      if (box.state !== 'finalizado') return null;
+      if (box.players) await writeJson(file, { at: Date.now(), league, players: box.players });
+      return box.players;
+    } catch {
+      espnErrors++;
+      failed = true;
+    }
+  }
+  if (!failed) await writeJson(file, { at: Date.now(), league: null, players: null });
+  return null;
+}
+
 // Partidos analizados en los últimos días (del historial del repositorio):
 // id -> { sport, start, home, away }.
 async function analyzedEvents(days) {
@@ -149,6 +180,7 @@ async function pruneCache(dir, days = 30) {
 async function main() {
   const today = limaToday();
   await pruneCache(DETAIL_CACHE);
+  await pruneCache(PLAYERS_CACHE);
   const started = Date.now();
   const sports = Object.keys(SPORT_IDS).filter((s) => ACTIVE_SPORTS.includes(s)); // solo fútbol, básquet y béisbol
   const upcoming = {}; // fecha -> deporte -> partidos
@@ -299,31 +331,45 @@ async function main() {
     }
   }
   let records = 0;
+  let withPlayers = 0;
   await pool(
     wanted.filter((w) => w.ev.state === 'finalizado'),
     async ({ key, date, ev }) => {
+      const final = ev.score ? [ev.score.home, ev.score.away] : null;
+      let per = null;
+      let record = null;
       try {
+        per = ev.fsRow ? periodsFromRow(ev.fsRow, ev.sport) : null;
         const kinds = ev.sport === 'tennis' ? ['st', 'sui', 'mh'] : ['st', 'sui'];
         const f = await feedsCached(ev.id, kinds);
-        if (f.sui == null && f.st == null) return;
-        const record = recordFromFlashscore({
-          sport: ev.sport,
-          state: ev.state,
-          final: ev.score ? [ev.score.home, ev.score.away] : null,
-          per: ev.fsRow ? periodsFromRow(ev.fsRow, ev.sport) : null,
-          incidents: f.sui ? parseFsIncidents(f.sui, ev.sport) : null,
-          stats: f.st ? parseFsStats(f.st, ev.sport) : null,
-          games: f.mh ? parseFsGames(f.mh) : null,
-        });
-        (results[date] ||= {})[key] = compactResult(ev, { per: record.per || null, record });
-        records++;
+        if (f.sui != null || f.st != null) {
+          record = recordFromFlashscore({
+            sport: ev.sport,
+            state: ev.state,
+            final,
+            per,
+            incidents: f.sui ? parseFsIncidents(f.sui, ev.sport) : null,
+            stats: f.st ? parseFsStats(f.st, ev.sport) : null,
+            games: f.mh ? parseFsGames(f.mh) : null,
+          });
+        }
       } catch (e) {
         log(`Registro ${key}: ${e.message}`);
       }
+      // Básquet: estadísticas de los jugadores (Más/Menos de jugador). Sin registro
+      // de Flashscore se crea uno con el marcador.
+      const players = ev.sport === 'basketball' ? await espnPlayers(ev) : null;
+      if (players) {
+        record = { ...(record || recordFromFlashscore({ sport: ev.sport, state: ev.state, final, per })), players };
+        withPlayers++;
+      }
+      if (!record) return;
+      (results[date] ||= {})[key] = compactResult(ev, { per: record.per || null, record });
+      records++;
     },
     8,
   );
-  log(`Registros completos: ${records} de ${analyzed.size} partidos analizados`);
+  log(`Registros completos: ${records} de ${analyzed.size} partidos analizados (${withPlayers} con jugadores de ESPN, ${espnErrors} errores de ESPN)`);
 
   // 4c) Noticias (solo para la red neuronal): se acumulan 3 días en caché.
   const newsFile = path.resolve('.cache/noticias.json');

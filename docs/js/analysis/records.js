@@ -402,6 +402,8 @@ export function mergeRecords(a, b) {
     out.stats = { ...(b.stats || {}) };
     for (const [code, v] of Object.entries(a.stats || {})) out.stats[code] = { ...(out.stats[code] || {}), ...v };
   }
+  // Jugadores: se juntan los de los dos registros (los de `a` mandan).
+  if (a.players || b.players) out.players = { ...(b.players || {}), ...(a.players || {}) };
   if (a.state !== 'finalizado' && b.state === 'finalizado') out.state = 'finalizado';
   return out;
 }
@@ -409,6 +411,24 @@ export function mergeRecords(a, b) {
 // ---- Formato compacto para publicar ----
 
 const KINDS = ['goal', 'pengoal', 'og', 'pen', 'card', 'red'];
+
+// Jugadores (básquet): { nombre: [min, pts, reb, ast, tpm, stl, blk, tov, oreb, dreb, ftm, fgm] };
+// el que no jugó va como 0 (también se acepta [0]). Los datos que faltan, null.
+const PLAYER_FIELDS = ['min', 'pts', 'reb', 'ast', 'tpm', 'stl', 'blk', 'tov', 'oreb', 'dreb', 'ftm', 'fgm'];
+const r2 = (x) => (x == null || x === '' || !Number.isFinite(Number(x)) ? null : Math.round(Number(x) * 100) / 100);
+export function compactPlayers(players) {
+  const out = {};
+  for (const [name, p] of Object.entries(players || {})) out[name] = !p || p.dnp ? 0 : PLAYER_FIELDS.map((f) => r2(p[f]));
+  return out;
+}
+export function expandPlayers(c) {
+  const out = {};
+  for (const [name, v] of Object.entries(c || {})) {
+    out[name] = Array.isArray(v) && v.length > 1 ? Object.fromEntries(PLAYER_FIELDS.map((f, i) => [f, v[i] ?? null])) : { min: 0, dnp: true };
+  }
+  return out;
+}
+
 export function compactRecord(rec) {
   if (!rec) return null;
   const out = {};
@@ -421,6 +441,7 @@ export function compactRecord(rec) {
   if (rec.stats) out.s = rec.stats;
   if (rec.games?.length) out.g = rec.games.map((x) => `${x.s}${x.w === 'home' ? 1 : 2}${x.srv === 'home' ? 1 : x.srv === 'away' ? 2 : 0}`).join(',');
   if (rec.duration) out.d = rec.duration;
+  if (rec.players && Object.keys(rec.players).length) out.j = compactPlayers(rec.players);
   return out;
 }
 
@@ -438,5 +459,6 @@ export function expandRecord(c, sport, state) {
     rec.games = c.g.split(',').map((x) => ({ s: Number(x[0]), w: x[1] === '1' ? 'home' : 'away', srv: x[2] === '1' ? 'home' : x[2] === '2' ? 'away' : null }));
   }
   if (c.d) rec.duration = c.d;
+  if (c.j) rec.players = expandPlayers(c.j);
   return rec;
 }

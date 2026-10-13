@@ -31,9 +31,11 @@ const LS = {
   },
 };
 
-// Ajustes guardados (sin los grupos de mercados de antes: ahora se elige cada mercado).
+// Ajustes guardados. Antes se guardaban los mercados encendidos (`markets`, sin
+// el de jugador); ahora los apagados, así un mercado nuevo sale encendido.
 function savedSettings() {
-  const { marketGroups, ...saved } = LS.get('bdp:ajustes', {}) || {};
+  const { marketGroups, markets, ...saved } = LS.get('bdp:ajustes', {}) || {};
+  if (Array.isArray(markets) && !saved.marketsOff) saved.marketsOff = MARKETS.filter((m) => m.id !== 'basketball:OU.player' && !markets.includes(m.id)).map((m) => m.id);
   return { ...DEFAULT_SETTINGS, ...saved };
 }
 
@@ -52,6 +54,7 @@ const app = {
     expanded: new Set(),
     analyses: { estadistico: null, red_neuronal: null }, // último análisis de cada método
     analysisView: 'estadistico', // método que se ve en la pestaña Análisis
+    levelFilter: 'todos', // nivel de confianza que se ve en la pestaña Análisis
     histMethod: 'ambos', // detalle de cada día en Historial: 'ambos' o un método
     index: null,
     network: null,
@@ -108,7 +111,7 @@ function chip(cls, text, title) {
 }
 
 // Versión de la extensión con todos los mercados de Betano y Flashscore.
-const EXT_LATEST = '0.4.2';
+const EXT_LATEST = '0.5.0';
 function extOutdated(v) {
   if (!v || /prueba/.test(v)) return false;
   const [a, b] = String(v).split('.').map(Number);
@@ -133,7 +136,7 @@ function renderHeader() {
           ),
       app.extOk
         ? extOutdated(app.extVersion)
-          ? chip('warn', 'Extensión: actualizar', `Conector v${app.extVersion}: actualízalo (versión ${EXT_LATEST}) para leer todos los mercados de Betano y las estadísticas de Flashscore. Ver extension/README.md`)
+          ? chip('warn', 'Extensión: actualizar', `Conector v${app.extVersion}: actualízalo (versión ${EXT_LATEST}) para leer todos los mercados de Betano, las estadísticas de Flashscore y las de los jugadores (ESPN y Sofascore). Ver extension/README.md`)
           : chip('ok', 'Extensión ✓', `Análisis BDP - Conector v${app.extVersion}: suma Sofascore y Betano`)
         : null,
     ].filter(Boolean),
@@ -297,6 +300,11 @@ app.setHistMethod = (method) => {
   render();
 };
 
+app.setLevelFilter = (level) => {
+  app.state.levelFilter = level;
+  render();
+};
+
 app.setAnalysisView = (method) => {
   app.state.analysisView = method;
   render();
@@ -304,7 +312,7 @@ app.setAnalysisView = (method) => {
 
 app.copyAnalysis = async () => {
   try {
-    await navigator.clipboard.writeText(analysisText(app.state.analyses[app.state.analysisView]));
+    await navigator.clipboard.writeText(analysisText(app.state.analyses[app.state.analysisView], app.state.levelFilter));
     toast('Picks copiados');
   } catch {
     toast('No se pudo copiar');
@@ -356,7 +364,7 @@ app.updateResults = async () => {
     await app.reloadHistory();
     const parts = [
       r.checked ? `Resultados: ${r.resolved} apuestas liquidadas` : 'No hay partidos terminados pendientes de liquidar',
-      r.network ? (r.network.reason ? `red neuronal: ${r.network.reason.toLowerCase()}` : `red neuronal reentrenada con ${r.network.samples} resultados`) : '',
+      r.network ? `redes especializadas: ${r.network.trained} de ${r.network.total} corrigen (${r.network.samples} resultados)` : '',
       r.skipped ? `${r.skipped} partidos de Sofascore esperan a la extensión` : '',
     ];
     toast(parts.filter(Boolean).join(' · '), 7000);
@@ -368,10 +376,11 @@ app.updateResults = async () => {
 };
 
 app.retrain = async () => {
-  busy('Reentrenando la red neuronal', 'Leyendo resultados…', 0.3);
+  busy('Reentrenando las redes especializadas', 'Leyendo resultados…', 0.3);
   try {
     app.state.network = await history.trainNetwork();
-    toast(app.state.network.trained ? 'Red neuronal reentrenada' : app.state.network.meta.reason || 'La red aún no mejora al análisis estadístico');
+    const s = app.state.network.summary();
+    toast(s.trained ? `Redes reentrenadas: ${s.trained} de ${s.total} corrigen` : `Redes reentrenadas con ${s.samples} resultados: ninguna corrige todavía (cada una necesita 200 de su mercado)`);
   } catch (e) {
     toast(`No se pudo reentrenar: ${e.message}`, 6000);
   } finally {
@@ -405,7 +414,7 @@ function openSettings() {
   f.comboTargets.value = s.comboTargets.join(', ');
   f.comboMinProb.value = Math.round(s.comboMinProb * 100);
   f.comboMaxLegs.value = s.comboMaxLegs;
-  const on = s.markets || DEFAULT_SETTINGS.markets;
+  const off = s.marketsOff || [];
   const sports = [...new Set(MARKETS.map((m) => m.sport))];
   $('#market-groups').replaceChildren(
     ...sports.map((sport) =>
@@ -414,7 +423,7 @@ function openSettings() {
         { class: 'market-sport' },
         h('b', {}, `${sportOf(sport).icon} ${sportOf(sport).name}`),
         ...MARKETS.filter((m) => m.sport === sport).map((m) =>
-          h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'market', value: m.id, checked: on.includes(m.id) }), ` ${m.name}`),
+          h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'market', value: m.id, checked: !off.includes(m.id) }), ` ${m.name}`),
         ),
       ),
     ),
@@ -484,10 +493,10 @@ function closeSettings(action) {
       comboTargets: targets.length ? targets : DEFAULT_SETTINGS.comboTargets,
       comboMinProb: Number(f.comboMinProb.value) / 100,
       comboMaxLegs: Math.round(Number(f.comboMaxLegs.value)),
-      markets: [...f.querySelectorAll('input[name=market]:checked')].map((x) => x.value),
+      marketsOff: [...f.querySelectorAll('input[name=market]:not(:checked)')].map((x) => x.value),
       betanoAllMarkets: f.betanoAllMarkets.checked,
     };
-    if (!next.markets.length) {
+    if (next.marketsOff.length === MARKETS.length) {
       toast('Elige al menos un mercado para los picks', 6000);
       return;
     }

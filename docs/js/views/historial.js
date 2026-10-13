@@ -1,8 +1,8 @@
 // Pestaña "Historial": seguimiento por separado del análisis estadístico y del
 // de red neuronal (aciertos, ganancia y ROI por nivel y de las combinadas),
-// apuestas guardadas por día y estado de la red neuronal.
+// apuestas guardadas por día y estado de las redes especializadas.
 import { MIN_SAMPLES } from '../analysis/neural.js';
-import { BOOKMAKERS, LEVELS } from '../analysis/picks.js';
+import { BOOKMAKERS, LEVELS, MAIN_LEVELS } from '../analysis/picks.js';
 import { emptyMethodStats, hitRate, roi, totals } from '../history.js';
 import { sportOf } from '../sports.js';
 import { fmtDateTime, fmtDay, fmtTime, h, pct } from '../util.js';
@@ -16,7 +16,16 @@ const METHODS = [
 const SHORT = Object.fromEntries(METHODS.map(([id, , short]) => [id, short]));
 const ZERO = { won: 0, lost: 0, pending: 0, staked: 0, profit: 0 };
 
-const LEVEL_SHORT = { alta: 'Alta', moderada_alta: 'Mod-alta', moderada: 'Moderada' };
+const LEVEL_SHORT = { alta: 'Alta', moderada_alta: 'Mod-alta', moderada: 'Moderada', baja: 'Baja' };
+const LEVEL_COLOR = { alta: 'alta', moderada_alta: 'modalta', moderada: 'mod', baja: 'baja' };
+
+// Filas por nivel: los tres principales, combinadas, total (sin Baja) y Baja aparte.
+const levelRows = (m) => [
+  ...MAIN_LEVELS.map((l) => statsRow(l.name, m.byLevel?.[l.id] || ZERO)),
+  statsRow('Combinadas', m.combos || ZERO),
+  statsRow('Total picks', m, 'total'),
+  statsRow('Baja (aparte)', m.byLevel?.baja || ZERO, 'aparte'),
+];
 
 // Aciertos de un día por nivel de confianza: "Alta 3/4" (acertadas / resueltas).
 function levelChips(m) {
@@ -44,7 +53,7 @@ function dayTables(s, filter) {
         'div',
         { class: 'day-table' },
         h('h4', {}, `${SHORT[id]}: aciertos del día por nivel`),
-        statsTable([...LEVELS.map((l) => statsRow(l.name, m.byLevel?.[l.id] || ZERO)), statsRow('Combinadas', m.combos || ZERO), statsRow('Total picks', m, 'total')]),
+        statsTable(levelRows(m)),
       );
     }),
   );
@@ -100,11 +109,7 @@ function methodPanel(title, m = emptyMethodStats()) {
     'div',
     { class: 'panel' },
     h('h3', {}, title),
-    statsTable([
-      ...LEVELS.map((l) => statsRow(l.name, m.byLevel[l.id] || ZERO)),
-      statsRow('Combinadas', m.combos),
-      statsRow('Total picks', m, 'total'),
-    ]),
+    statsTable(levelRows(m)),
   );
 }
 
@@ -129,39 +134,37 @@ function storageBanner(app) {
   return h('div', { class: 'banner warn' }, h('b', {}, 'Este navegador no permite guardar datos '), '(¿modo incógnito?). Pega tu token de GitHub para guardar en el repositorio. ', settings);
 }
 
+// Estado de cada red especializada: resultados, si corrige y cuánto mejora.
 function networkPanel(app) {
-  const net = app.state.network;
-  const m = net?.meta || {};
-  const body = [];
-  if (net?.trained) {
-    body.push(h('p', {}, `Entrenada con ${m.samples} resultados (${fmtDateTime(Date.parse(m.trainedAt))}).`));
-    if (m.baseLoss != null) {
-      const better = ((m.baseLoss - m.nnLoss) / m.baseLoss) * 100;
-      body.push(
-        h(
-          'p',
-          { class: 'note' },
-          `En los ${m.validation} resultados más recientes (no usados para entrenar), el error de la red es ${better.toFixed(1)}% menor que el del análisis estadístico. Aciertos: ${pct(m.baseAccuracy)} → ${pct(m.nnAccuracy)}.`,
-        ),
-      );
-    }
-  } else {
-    body.push(
-      h(
-        'p',
-        {},
-        m.samples
-          ? m.reason || `Con ${m.samples} resultados todavía no mejora al análisis estadístico; sigue aprendiendo.`
-          : `Aún sin entrenar: necesita al menos ${MIN_SAMPLES} selecciones con resultado.`,
-      ),
+  const list = app.state.network?.status?.() || [];
+  const row = (n) => {
+    const m = n.meta || {};
+    const better = n.trained && m.baseLoss ? ((m.baseLoss - m.nnLoss) / m.baseLoss) * 100 : null;
+    const state = n.trained ? 'Corrige' : n.samples >= MIN_SAMPLES ? 'Aún no mejora' : `${n.samples}/${MIN_SAMPLES}`;
+    return h(
+      'tr',
+      { title: n.markets.join(' · ') },
+      h('td', {}, h('code', {}, n.id), h('div', { class: 'note' }, n.name)),
+      h('td', { class: 'num' }, `${n.samples}`),
+      h('td', { class: n.trained ? 'pos' : '' }, state),
+      h('td', { class: 'num hide-sm' }, better == null ? '–' : `${better.toFixed(1)}%`),
     );
-    body.push(h('p', { class: 'note' }, 'Cada análisis guarda todas las selecciones evaluadas; al actualizar resultados la red se reentrena con ellas.'));
-  }
+  };
   return h(
     'div',
     { class: 'panel' },
-    h('h3', {}, 'Entrenamiento de la red neuronal'),
-    body,
+    h('h3', {}, 'Redes especializadas'),
+    h('p', { class: 'note' }, `Una red por mercado. Cada una empieza a corregir con ${MIN_SAMPLES} resultados de su mercado y solo si mejora en los partidos más recientes, que no usó para entrenar; mientras tanto, sus mercados usan la probabilidad estadística.`),
+    h(
+      'div',
+      { class: 'table-wrap' },
+      h(
+        'table',
+        {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Red'), h('th', { class: 'num' }, 'Resultados'), h('th', {}, 'Estado'), h('th', { class: 'num hide-sm' }, 'Menos error'))),
+        h('tbody', {}, list.map(row)),
+      ),
+    ),
     app.storage.mode !== 'lectura' ? h('button', { class: 'btn small', onclick: () => app.retrain() }, 'Reentrenar ahora') : null,
   );
 }
@@ -204,7 +207,7 @@ function dayBody(day, filter) {
               { class: 'leg-list' },
               a.picks.map((p) =>
                 legLine(p, [
-                  h('span', { class: 'lvl', style: `color:var(--${p.level === 'alta' ? 'alta' : p.level === 'moderada_alta' ? 'modalta' : 'mod'})` }, LEVEL_NAME[p.level]),
+                  h('span', { class: 'lvl', style: `color:var(--${LEVEL_COLOR[p.level] || 'mod'})` }, LEVEL_NAME[p.level]),
                   h('span', { class: 'note' }, `@ ${p.odds.toFixed(2)} ${BOOKMAKERS[p.source]} · ${pct(p.p)}`),
                 ]),
               ),
