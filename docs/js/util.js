@@ -34,6 +34,13 @@ export const fmtDay = (ymd) => {
 };
 
 export const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+// ¿La versión `v` ('0.5.0') es anterior a `latest` ('0.5.1')? Compara mayor, menor y parche.
+export function versionBefore(v, latest) {
+  const have = String(v).split('.').map((x) => parseInt(x, 10) || 0);
+  const want = String(latest).split('.').map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(have.length, want.length); i++) if ((have[i] || 0) !== (want[i] || 0)) return (have[i] || 0) < (want[i] || 0);
+  return false;
+}
 export const logit = (p) => {
   const q = clamp(p, 1e-4, 1 - 1e-4);
   return Math.log(q / (1 - q));

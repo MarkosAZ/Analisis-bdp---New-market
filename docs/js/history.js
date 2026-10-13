@@ -144,6 +144,16 @@ async function readRows(month) {
   return file;
 }
 
+// Filas de jugador pendientes que el último análisis del partido ya no eligió en
+// esa red: se quitan para que el tope por red (PLAYER_ROWS_PER_NETWORK) se cumpla
+// también si el partido se analiza varias veces. Las que tienen resultado se quedan.
+export function dropReplaced(oldRows = [], newRows = []) {
+  const keys = new Set(newRows.map((r) => r.key));
+  const group = (r) => `${r.eventId}|${playerGroup(r)}`;
+  const groups = new Set(newRows.filter((r) => isPlayerMarket(r.market)).map(group));
+  return oldRows.filter((r) => r.y != null || !isPlayerMarket(r.market) || keys.has(r.key) || !groups.has(group(r)));
+}
+
 // Una fila por clave: la del último análisis mientras no tenga resultado (la
 // selección o la línea pueden cambiar); con resultado ya no se toca.
 export function mergeRows(oldRows = [], newRows = []) {
@@ -170,7 +180,7 @@ export async function saveAnalysis(input) {
 
   for (const [month, rows] of groupBy(results.flatMap(trainingRows), (r) => r.date.slice(0, 7))) {
     const file = (await readRows(month)) || { rows: [] };
-    file.rows = mergeRows(file.rows, rows);
+    file.rows = mergeRows(dropReplaced(file.rows, rows), rows);
     await store.write(rowsPath(month), file, `Entrenamiento: selecciones del ${date}`);
   }
   await refreshIndex([day]);
@@ -207,6 +217,16 @@ export function needsRecord(market) {
 }
 
 const comboKey = (k) => `${k.source}|${k.legs.map((l) => `${l.eventId}|${l.key}`).sort().join(',')}`;
+
+// Campos de la fila de jugador que necesita un mercado: 'OU.pl_2pa#X' → ['fga', 'tpa'].
+export const playerFieldsOf = (market) => (PLAYER_STATS[parseMarketId(market)?.stat] || []).map((p) => p.replace(/^-/, ''));
+
+// ¿Los jugadores del registro traen esos campos? (uno guardado antes puede no
+// tener los intentos: entonces se vuelve a pedir el box score).
+export function hasPlayerFields(players, fields = []) {
+  const need = [...fields];
+  return Object.values(players || {}).some((row) => row && !row.dnp && need.every((f) => row[f] != null));
+}
 
 const pickMarket = (p) => `${p.eventId}|${p.market ?? String(p.key).split('|')[0]}`;
 
@@ -420,9 +440,8 @@ export async function updateResults({ onProgress = () => {} } = {}) {
   // Campos de jugador que necesitan las apuestas pendientes de cada partido (p. ej. fga para pl_fga).
   const playerFields = new Map();
   const needFields = (id, market) => {
-    const parts = PLAYER_STATS[parseMarketId(market)?.stat] || [];
     const set = playerFields.get(id) || new Set();
-    for (const p of parts) set.add(p.replace(/^-/, ''));
+    for (const f of playerFieldsOf(market)) set.add(f);
     playerFields.set(id, set);
   };
   const eventInfo = new Map();
@@ -432,11 +451,7 @@ export async function updateResults({ onProgress = () => {} } = {}) {
       for (const leg of [...a.picks, ...(a.combos || []).flatMap((k) => k.legs)]) if (due(leg) && isPlayerMarket(leg.market)) (playerIds.add(leg.eventId), needFields(leg.eventId, leg.market));
     }
   for (const { file } of rowFiles) for (const r of file.rows) if (r.y == null && isPlayerMarket(r.market) && r.start < now - GRACE_MS) (playerIds.add(r.eventId), needFields(r.eventId, r.market));
-  // ¿El registro trae lo que piden sus apuestas? (uno guardado antes puede no tener los intentos).
-  const hasPlayerFields = (id, players) => {
-    const fields = [...(playerFields.get(id) || [])];
-    return Object.values(players || {}).some((row) => row && !row.dnp && fields.every((f) => row[f] != null));
-  };
+
   // Liga de ESPN (NBA, WNBA) del partido: sus jugadores se liquidan con ESPN.
   const espnLeague = (id) => {
     const info = eventInfo.get(String(id));
@@ -517,7 +532,7 @@ export async function updateResults({ onProgress = () => {} } = {}) {
   // modelo de estas ligas usa los partidos de ESPN).
   if (ext.available()) {
     for (const id of playerIds) {
-      if (hasPlayerFields(id, results[id]?.record?.players)) continue;
+      if (hasPlayerFields(results[id]?.record?.players, playerFields.get(id))) continue;
       const league = espnLeague(id);
       if (!league) continue;
       const info = eventInfo.get(String(id));

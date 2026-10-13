@@ -5,7 +5,8 @@ import { Corrector, MIN_SAMPLES } from '../docs/js/analysis/neural.js';
 import { NETWORKS, NetworkSet, networkOf, PLAYER_NETWORKS } from '../docs/js/analysis/networks.js';
 import { MARKETS } from '../docs/js/analysis/picks.js';
 import { rng } from '../docs/js/util.js';
-import { mergeRows, rowCandidates } from '../docs/js/history.js';
+import { dropReplaced, hasPlayerFields, mergeRows, playerFieldsOf, rowCandidates, trainingRows } from '../docs/js/history.js';
+import { versionBefore } from '../docs/js/util.js';
 
 const Z = FEATURES.indexOf('zLine');
 
@@ -253,4 +254,50 @@ test('filas guardadas: la del último análisis hasta tener resultado', () => {
   assert.deepEqual([by['1|OU'].sel, by['1|OU'].line], ['under', 3.5]);
   assert.deepEqual([by['2|OU'].sel, by['2|OU'].y], ['over', 1], 'con resultado no se cambia');
   assert.ok(by['3|OU']);
+});
+
+test('filas: si el partido se vuelve a analizar, el tope de 8 por red se sigue cumpliendo', () => {
+  const cand = (i, pBase, code = 'pl_pts') => ({ eventId: 7, sport: 'basketball', market: `OU.${code}#Jugador ${i}`, key: `OU.${code}#Jugador ${i}|over|10.5`, sel: 'over', line: 10.5, pBase, x: [0], best: { price: 1.8 }, start: 1 });
+  const result = (cands) => ({ date: '2026-10-13', events: { 7: {} }, candidates: cands });
+  const first = trainingRows(result(Array.from({ length: 10 }, (_, i) => cand(i, 0.52 + i * 0.04))));
+  // Más tarde hay 12 jugadores y otras líneas: spread elige otros 8.
+  const later = trainingRows(result(Array.from({ length: 12 }, (_, i) => cand(i, 0.53 + ((i * 7) % 12) * 0.035))));
+  assert.equal(first.length, 8);
+  assert.equal(later.length, 8);
+  // Uno del primer análisis ya tiene resultado: ese se queda (es un dato real).
+  const settled = first.find((r) => !later.some((x) => x.key === r.key));
+  assert.ok(settled, 'el segundo análisis eligió otros jugadores');
+  settled.y = 1;
+  const other = { ...first[0], key: '7|OU.pl_reb#Jugador 0', market: 'OU.pl_reb#Jugador 0' }; // otra red: no se toca
+  const saved = mergeRows(dropReplaced([...first, other], later), later);
+  const points = saved.filter((r) => r.market.startsWith('OU.pl_pts#'));
+  assert.equal(points.filter((r) => r.y == null).length, 8, 'pendientes: solo los 8 del último análisis');
+  assert.ok(points.some((r) => r.key === settled.key && r.y === 1));
+  assert.ok(saved.some((r) => r.key === other.key), 'la red de rebotes no cambia');
+  // Filas de equipo: no se quitan (se reemplazan por clave).
+  const team = { key: '7|OU', eventId: 7, sport: 'basketball', market: 'OU', y: null };
+  assert.equal(dropReplaced([team], later).length, 1);
+});
+
+test('liquidación de jugadores: qué campos pide cada mercado y si el registro los trae', () => {
+  assert.deepEqual(playerFieldsOf('OU.pl_2pa#Jugador'), ['fga', 'tpa']);
+  assert.deepEqual(playerFieldsOf('OU.pl_pra#Jugador'), ['pts', 'reb', 'ast']);
+  assert.deepEqual(playerFieldsOf('OU'), []);
+  const old = { A: { min: 30, pts: 20, fgm: 8, fga: null, tpa: null }, B: { min: 0, dnp: true } };
+  const fresh = { A: { min: 30, pts: 20, fgm: 8, fga: 15, tpa: 4 } };
+  assert.equal(hasPlayerFields(old, ['fga', 'tpa']), false, 'registro sin intentos: se vuelve a pedir');
+  assert.equal(hasPlayerFields(fresh, ['fga', 'tpa']), true);
+  assert.equal(hasPlayerFields(old, ['pts']), true);
+  assert.equal(hasPlayerFields(undefined, ['pts']), false);
+  assert.equal(hasPlayerFields({ B: { min: 0, dnp: true } }, []), false, 'solo jugadores que no jugaron: se vuelve a pedir');
+});
+
+test('versión de la extensión: compara mayor, menor y parche', () => {
+  assert.equal(versionBefore('0.5.0', '0.5.1'), true);
+  assert.equal(versionBefore('0.5', '0.5.1'), true);
+  assert.equal(versionBefore('0.5.1', '0.5.1'), false);
+  assert.equal(versionBefore('0.6', '0.5.1'), false);
+  assert.equal(versionBefore('1.0.0', '0.5.1'), false);
+  assert.equal(versionBefore('0.4.9', '0.5.1'), true);
+  assert.equal(versionBefore('0.5.10', '0.5.9'), false);
 });

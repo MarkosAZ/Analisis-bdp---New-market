@@ -7,7 +7,7 @@ import * as history from './history.js';
 import { analyzeMany } from './analysis/engine.js';
 import { DEFAULT_SETTINGS, MARKETS } from './analysis/picks.js';
 import { isActiveSport, sportOf } from './sports.js';
-import { addDays, h, limaToday } from './util.js';
+import { addDays, h, limaToday, versionBefore } from './util.js';
 import { PartidosView } from './views/partidos.js';
 import { analysisText, renderAnalisis } from './views/analisis.js';
 import { renderHistorial } from './views/historial.js';
@@ -113,13 +113,7 @@ function chip(cls, text, title) {
 // Versión de la extensión con todos los mercados de Betano y Flashscore.
 const EXT_LATEST = '0.5.1';
 // Compara mayor, menor y parche (0.5.0 < 0.5.1: la 0.5.1 trae los intentos de los jugadores).
-function extOutdated(v) {
-  if (!v || /prueba/.test(v)) return false;
-  const have = String(v).split('.').map((x) => Number(x) || 0);
-  const want = EXT_LATEST.split('.').map(Number);
-  for (let i = 0; i < want.length; i++) if ((have[i] || 0) !== want[i]) return (have[i] || 0) < want[i];
-  return false;
-}
+const extOutdated = (v) => Boolean(v) && !/prueba/.test(v) && versionBefore(v, EXT_LATEST);
 
 function renderHeader() {
   const n = app.state.selected.size;
