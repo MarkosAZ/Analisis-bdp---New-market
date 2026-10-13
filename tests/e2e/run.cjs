@@ -271,10 +271,10 @@ async function withoutExtension(browser, errors) {
       for (const p of await st.localPaths()) if (p.includes('entrenamiento')) for (const r of (await st.read(p))?.rows || []) out.add(r.market);
       return [...out];
     });
-    const LIST = ['OU', 'BTTS', 'OU.corners', 'OU.cards', 'OU.shots_on', 'OU.shots', 'OU.corners@h1', 'HCP', 'HCP@h1', 'OU@h1', 'ML'];
+    const LIST = ['OU', 'BTTS', 'OU.corners', 'HCP.corners', 'OU.cards', 'OU.shots_on', 'OU.shots', 'OU.corners@h1', 'HCP', 'HCP@h1', 'OU@h1', 'ML'];
     check(
-      'solo analiza los mercados de la lista (goles, córners, tarjetas, tiros, hándicap, ganador, jugador)',
-      ['OU', 'OU.corners', 'OU.cards', 'OU.shots_on', 'HCP', 'ML'].every((m) => rowMarkets.includes(m)) && rowMarkets.every((m) => LIST.includes(m) || /^OU\.pl_/.test(m)),
+      'solo analiza los mercados de la lista (goles, córners, hándicap de córners, tarjetas, tiros, hándicap, ganador, jugador)',
+      ['OU', 'OU.corners', 'HCP.corners', 'OU.cards', 'OU.shots_on', 'HCP', 'ML'].every((m) => rowMarkets.includes(m)) && rowMarkets.every((m) => LIST.includes(m) || /^OU\.pl_/.test(m)),
       rowMarkets.join(' '),
     );
     check('analiza los Más/Menos de jugador de Betano con los datos de ESPN', rowMarkets.some((m) => m.startsWith('OU.pl_pts#LeBron James')) && rowMarkets.some((m) => m.startsWith('OU.pl_pra#')), rowMarkets.filter((m) => m.startsWith('OU.pl_')).join(' '));
@@ -331,7 +331,7 @@ async function withoutExtension(browser, errors) {
     );
     const netRows = await page.$$eval('.nets-table tbody tr:not(.net-group)', (els) => els.length);
     const netGroups = await page.$$eval('.nets-table tr.net-group th', (els) => els.map((e) => e.firstChild.textContent.trim()));
-    check('35 redes (14 de mercado y 21 de jugador), agrupadas', netRows === 35 && netGroups.join() === 'Fútbol,Básquet,Béisbol,Básquet: jugadores', `${netRows} redes · ${netGroups.join(', ')}`);
+    check('36 redes (15 de mercado y 21 de jugador), agrupadas', netRows === 36 && netGroups.join() === 'Fútbol,Básquet,Béisbol,Básquet: jugadores', `${netRows} redes · ${netGroups.join(', ')}`);
     await page.screenshot({ path: path.join(OUT, '3-historial.png'), fullPage: true });
     await (await page.$('.nets-panel')).screenshot({ path: path.join(OUT, '3d-redes.png') });
 
@@ -339,7 +339,7 @@ async function withoutExtension(browser, errors) {
     await page.click('#run-nn');
     await page.waitForSelector('#tab-analisis .summary h2:has-text("red neuronal")', { timeout: 60000 });
     const nnBanner = await page.textContent('#tab-analisis .summary .banner');
-    check('el análisis con red neuronal explica el estado de las redes especializadas', /Redes especializadas que corrigen: \d+ de 35/.test(nnBanner), nnBanner.slice(0, 160));
+    check('el análisis con red neuronal explica el estado de las redes especializadas', /Redes especializadas que corrigen: \d+ de 36/.test(nnBanner), nnBanner.slice(0, 160));
     const nnSummary = await page.textContent('#tab-analisis .summary');
     check('la red neuronal usa noticias de Flashscore, ESPN y FotMob', /Noticias · \d+ noticias/.test(nnSummary), nnSummary.match(/Noticias[^A-Z]*/)?.[0]);
     const compare = await page.textContent('#tab-analisis .compare');

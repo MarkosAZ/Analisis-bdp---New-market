@@ -1,8 +1,8 @@
 // Mercados de estadísticas de fútbol (córners, tarjetas, tiros al arco,
-// remates): probabilidad del Más/Menos con los promedios de cada equipo en sus
-// últimos partidos (lo que hace y lo que le permite el rival). Cada equipo
-// sigue una binomial negativa (más dispersa que Poisson) con su media; las
-// cuotas no intervienen.
+// remates): probabilidad del Más/Menos y del hándicap con los promedios de cada
+// equipo en sus últimos partidos (lo que hace y lo que le permite el rival).
+// Cada equipo sigue una binomial negativa (más dispersa que Poisson) con su
+// media; las cuotas no intervienen.
 import { FOOTBALL_STATS, statPriors } from './simulate.js';
 
 // Partidos con datos de cada equipo para dar una probabilidad.
@@ -22,12 +22,16 @@ function nbPmf(mean, k, max) {
   return p;
 }
 
-// Más/Menos del total del partido (scope 'ft') o del 1.er tiempo ('h1').
-// spec: catalog.parseMarketId del mercado. Devuelve { p, n, home, away, mean, sd }
-// (n: partidos con datos; home/away: medias usadas; mean/sd: del total) o null si faltan datos.
+// Más/Menos del total (t 'OU') o hándicap (t 'HCP', line = la del local) del
+// partido (scope 'ft') o del 1.er tiempo ('h1'). spec: catalog.parseMarketId del
+// mercado. Devuelve { p, n, home, away, mean, sd } (n: partidos con datos;
+// home/away: medias usadas; mean/sd: del total, o de la diferencia local − visita
+// en el hándicap) o null si faltan datos.
 export function statProbability(sport, teamStats, spec, sel, line) {
   const def = sport === 'football' ? FOOTBALL_STATS[spec?.stat] : null;
-  if (!def || spec.t !== 'OU' || spec.team || !['ft', 'h1'].includes(spec.scope) || !Number.isFinite(line)) return null;
+  if (!def || !['OU', 'HCP'].includes(spec.t) || spec.team || !['ft', 'h1'].includes(spec.scope) || !Number.isFinite(line)) return null;
+  const hcp = spec.t === 'HCP';
+  if (hcp ? !['home', 'away'].includes(sel) : !['over', 'under'].includes(sel)) return null;
   const prior = statPriors(sport, teamStats, { shrink: 3 })[spec.stat];
   if (!prior || prior.n < MIN_MATCHES) return null;
   const share = spec.scope === 'h1' ? def.h1 : 1;
@@ -36,16 +40,18 @@ export function statProbability(sport, teamStats, spec, sel, line) {
   const max = (m) => Math.ceil(m + 8 * Math.sqrt(m * (1 + m / (def.k || 1e9))) + 5);
   const ph = nbPmf(mh, def.k, max(mh));
   const pa = nbPmf(ma, def.k, max(ma));
-  let over = 0;
+  // Más/Menos: total > línea. Hándicap: local + línea > visita (gana el local).
+  let yes = 0;
   let total = 0;
   for (let i = 0; i < ph.length; i++) {
     for (let j = 0; j < pa.length; j++) {
       const w = ph[i] * pa[j];
       total += w;
-      if (i + j > line) over += w;
+      if (hcp ? i - j + line > 0 : i + j > line) yes += w;
     }
   }
-  const pOver = over / total;
+  const pYes = yes / total;
   const variance = (m) => m + (def.k ? (m * m) / def.k : 0);
-  return { p: sel === 'under' ? 1 - pOver : pOver, n: prior.n, home: mh, away: ma, mean: mh + ma, sd: Math.sqrt(variance(mh) + variance(ma)) };
+  const p = sel === 'under' || sel === 'away' ? 1 - pYes : pYes;
+  return { p, n: prior.n, home: mh, away: ma, mean: hcp ? mh - ma : mh + ma, sd: Math.sqrt(variance(mh) + variance(ma)) };
 }

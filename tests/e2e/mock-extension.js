@@ -215,6 +215,8 @@
       { name: 'Resultado Final', selections: [{ name: '1', price: odd(f.h, 1.05) }, { name: 'X', price: odd(f.d, 1.05) }, { name: '2', price: odd(f.a, 1.05) }] },
       { name: 'Total de Córners', selections: [{ name: 'Más de 9.5', price: 1.88 }, { name: 'Menos de 9.5', price: 1.88 }, { name: 'Más de 11.5', price: 2.6 }, { name: 'Menos de 11.5', price: 1.45 }] },
       { name: 'Córners en Primer Tiempo Más/Menos', selections: [{ name: 'Más de 4.5', price: 1.9 }, { name: 'Menos de 4.5', price: 1.85 }] },
+      { name: 'Hándicap de Córners - Dobles', selections: [{ name: `${e.home.name} -1.5`, price: 1.9 }, { name: `${e.away.name} +1.5`, price: 1.86 }, { name: `${e.home.name} +0.5`, price: 1.45 }, { name: `${e.away.name} -0.5`, price: 2.6 }] },
+      { name: 'Hándicap de Córners - Triples', selections: [{ name: `${e.home.name} -2`, price: 2.4 }, { name: 'Empate -2', price: 4.2 }, { name: `${e.away.name} +2`, price: 2.2 }] },
       { name: 'Tiros al Arco', selections: [{ name: 'Más de 8.5', price: 1.87 }, { name: 'Menos de 8.5', price: 1.87 }] },
       { name: 'Remates totales', selections: [{ name: 'Más de 22.5', price: 1.85 }, { name: 'Menos de 22.5', price: 1.9 }] },
       { name: 'Primer Tiempo - Resultado', selections: ['h', 'd', 'a'].map((k, i) => ({ name: ['1', 'X', '2'][i], price: odd(h1[k] / n, 1.06) })) },

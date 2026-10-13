@@ -340,7 +340,8 @@ const DIR = { over: 1, yes: 1, home: 1, under: -1, no: -1, away: -1 };
 // Distancia (en desvíos) entre lo esperado y la línea, a favor de la selección.
 function zFor(c, e, extra) {
   const dir = DIR[c.sel] ?? 0;
-  if (extra?.sd > 0 && c.line != null) return ((extra.mean - c.line) / extra.sd) * dir;
+  // Estadísticas: Más/Menos frente al total esperado; hándicap (línea del local) frente a la diferencia esperada.
+  if (extra?.sd > 0 && c.line != null) return ((c.spec.t === 'HCP' ? extra.mean + c.line : extra.mean - c.line) / extra.sd) * dir;
   if (!e) return 0;
   const half = c.spec.scope === 'h1';
   const total = half ? e.total / 2 : e.total;
