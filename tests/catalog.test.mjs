@@ -165,3 +165,25 @@ test('"1ª parte", "primera parte" y "segunda parte" son mitades, no el partido 
   assert.equal(id('Total de goles - Segunda parte'), 'OU@h2');
   assert.equal(id('Total de goles'), 'OU');
 });
+
+test('Apuesta Total: "disparos" son tiros al arco o remates, nunca goles', () => {
+  const ctx = { sport: 'football', home: 'Arsenal', away: 'Chelsea' };
+  const ou = [{ name: 'Más de 8.5', price: 1.9 }, { name: 'Menos de 8.5', price: 1.9 }];
+  const id = (name) => {
+    const r = parseMarket(name, ou, ctx);
+    return r.unsupported ? `no:${r.unsupported}` : marketId(r.spec);
+  };
+  assert.equal(id('Disparos a puerta totales'), 'OU.shots_on');
+  assert.equal(id('Disparos a puerta'), 'OU.shots_on');
+  assert.equal(id('Total de disparos a puerta'), 'OU.shots_on');
+  assert.equal(id('Disparos totales'), 'OU.shots');
+  assert.equal(id('Total de disparos'), 'OU.shots');
+  assert.equal(id('Arsenal Disparos a puerta'), 'OU.shots_on:home');
+  // Una estadística que no se conoce no se lee como goles.
+  assert.equal(id('Goles esperados'), 'no:special');
+  assert.equal(id('Posesión'), 'no:special');
+  // Los goles siguen igual.
+  assert.equal(id('Total de goles'), 'OU');
+  assert.equal(id('Total de goles asiático'), 'OU');
+  assert.equal(id('1ra mitad: Total de goles'), 'OU@h1');
+});

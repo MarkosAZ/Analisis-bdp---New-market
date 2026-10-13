@@ -195,9 +195,9 @@ const STATS = [
   [/tarjetas? rojas?/, 'reds'],
   [/tarjeta|amonestacion/, 'cards'],
   [/corner|corneres|tiros? de esquina/, 'corners'],
-  [/tiros al arco|remates a puerta|tiros a puerta/, 'shots_on'],
+  [/tiros al arco|remates a puerta|tiros a puerta|remates al arco|disparos (?:a puertas?|al arco)/, 'shots_on'],
   [/tiros a porteria/, 'sog'],
-  [/remates totales|tiros totales/, 'shots'],
+  [/remates totales|tiros totales|disparos totales|total de disparos|total de remates|\bdisparos\b/, 'shots'],
   [/faltas cometidas|\bfaltas\b/, 'fouls'],
   [/offside|fueras? de juego/, 'offsides'],
   [/saques de meta|saques de puerta/, 'goalkicks'],
@@ -257,6 +257,8 @@ const RALLY = new Set(['table-tennis', 'badminton', 'volleyball', 'beach-volley'
 // Deportes en los que el partido no termina empatado (prórroga, entradas extra...).
 export const OT_SPORTS = new Set(['basketball', 'ice-hockey', 'baseball', 'american-football', 'floorball']);
 export const SET_SPORTS = new Set(['tennis', 'volleyball', 'beach-volley', 'table-tennis', 'badminton', 'darts', 'esports', 'snooker']);
+
+const UNKNOWN_FOOTBALL_STAT = /disparo|remate|\btiros?\b|posesion|\bpases?\b|atajada|paradas?\b|\bcentros?\b|regate|despeje|intercepcion|bloqueo|esperados|\bxg\b|asistencia|toques|duelos|recuperacion/;
 
 function statOf(name, sport) {
   for (const [re, code] of STATS) {
@@ -579,6 +581,9 @@ export function parseMarket(rawName, selections = [], ctx = {}) {
   if (!sels.length) return null;
 
   let stat = statOf(name, sport);
+  // Fútbol: una estadística que no se conoce no son goles (p. ej. "Pases totales",
+  // "Posesión", "Goles esperados"); sin esto, su Más/Menos se leería como goles.
+  if (sport === 'football' && stat === 'score' && UNKNOWN_FOOTBALL_STAT.test(name)) return unsupported('special');
   if (NO_DATA_STATS.has(stat)) return unsupported('special');
   if (stat === 'pistol') return unsupported('special');
   let scope = scopeOf(name, sport);
