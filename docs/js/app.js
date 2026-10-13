@@ -112,8 +112,8 @@ function chip(cls, text, title) {
 }
 
 // Versión de la extensión con todos los mercados de Betano y Flashscore.
-const EXT_LATEST = '0.5.1';
-// Compara mayor, menor y parche (0.5.0 < 0.5.1: la 0.5.1 trae los intentos de los jugadores).
+const EXT_LATEST = '0.5.2';
+// Compara mayor, menor y parche (0.5.1 < 0.5.2: la 0.5.2 pide los disparos de Apuesta Total).
 const extOutdated = (v) => Boolean(v) && !/prueba/.test(v) && versionBefore(v, EXT_LATEST);
 
 function renderHeader() {
@@ -133,7 +133,7 @@ function renderHeader() {
           ),
       app.extOk
         ? extOutdated(app.extVersion)
-          ? chip('warn', 'Extensión: actualizar', `Conector v${app.extVersion}: actualízalo (versión ${EXT_LATEST}) para leer todos los mercados de Betano, las estadísticas de Flashscore y las de los jugadores (ESPN y Sofascore). Ver extension/README.md`)
+          ? chip('warn', 'Extensión: actualizar', `Conector v${app.extVersion}: actualízalo (versión ${EXT_LATEST}) para leer todos los mercados de Betano, los disparos de Apuesta Total, las estadísticas de Flashscore y las de los jugadores (ESPN y Sofascore). Ver extension/README.md`)
           : chip('ok', 'Extensión ✓', `Análisis BDP - Conector v${app.extVersion}: suma Sofascore y Betano`)
         : null,
     ].filter(Boolean),

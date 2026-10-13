@@ -31,6 +31,8 @@ Sofascore (cualquier día) y Betano.
 Para actualizarla después de cambios en el repositorio: reemplaza la carpeta y pulsa el
 botón de recargar (↻) de la extensión en `chrome://extensions`. La versión 0.2.0 pide
 permisos nuevos (alarmas y almacenamiento de la extensión, y acceso a `api.github.com`).
+La 0.5.2 pide también los disparos de Apuesta Total ("Disparos a puerta totales" y
+"Disparos totales"), que en la página se ven como tiros al arco y remates totales.
 
 ## Guardar en GitHub (opcional)
 

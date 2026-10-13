@@ -12,9 +12,11 @@ const IDS_PER_REQUEST = 10;
 // oportunidad, total de goles y ambos anotan. Resto: ganador, total y hándicap.
 // Tipos de mercado de Apuesta Total (descubiertos pidiendo ML/OU/HC/QA del 0
 // al 999 para un partido de cada deporte). Se piden todos para cualquier
-// deporte: los que no existen simplemente no vuelven.
+// deporte: los que no existen simplemente no vuelven. Los disparos tienen
+// números más altos: OU121 = "Disparos a puerta totales" (tiros al arco) y
+// OU2083 = "Disparos totales" (remates totales).
 const TYPES_BY_SPORT = {
-  football: 'ML0 ML1 ML2 ML14 ML20 ML39 ML159 ML160 ML235 ML619 OU0 OU1 OU2 OU7 OU10 OU14 OU22 OU52 OU200 OU201 OU249 OU257 OU615 OU619 OU621 HC0 HC1 HC10 HC14 HC157 HC270 HC359 HC619 QA38 QA60 QA61 QA62 QA119 QA144 QA158 QA262 QA272 QA696',
+  football: 'ML0 ML1 ML2 ML14 ML20 ML39 ML159 ML160 ML235 ML619 OU0 OU1 OU2 OU7 OU10 OU14 OU22 OU52 OU200 OU201 OU249 OU257 OU121 OU615 OU619 OU621 OU2083 HC0 HC1 HC10 HC14 HC157 HC270 HC359 HC619 QA38 QA60 QA61 QA62 QA119 QA144 QA158 QA262 QA272 QA696',
   basketball: 'ML0 ML623 ML624 ML625 OU0 OU623 OU624 OU625 OU640 OU641 OU642 OU660 OU677 HC0 HC623 HC625 HC660 QA626 QA630 QA631 QA632 QA633 QA646',
   tennis: 'ML0 ML740 ML741 OU0 OU738 OU743 OU744 HC0 HC738 HC740 HC741 QA60 QA748',
   baseball: 'ML0 ML20 ML362 OU0 OU362 HC0 QA38 QA361',
