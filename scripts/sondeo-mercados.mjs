@@ -1,5 +1,5 @@
-// Sondeo temporal (4): tipos ML/OU/HC/QA del 1000 al 6999 en partidos de fútbol y
-// básquet (los del 0 al 999 ya se probaron): nombres y cómo los lee la página.
+// Sondeo temporal (5): tipos ML/OU/HC/QA del 7000 al 19999 en partidos de fútbol
+// (los del 0 al 6999 ya se probaron): nombres y cómo los lee la página.
 import { getEventList } from '../extension/sources/apuestatotal.js';
 import { offersFromApuestaTotal } from '../docs/js/analysis/markets.js';
 import { marketsOf } from '../docs/js/analysis/picks.js';
@@ -43,9 +43,9 @@ const toMarket = (m) => ({
   })).filter((s) => s.price > 1),
 });
 
-const TYPES = ['OU', 'QA', 'HC', 'ML'].flatMap((p) => Array.from({ length: 6000 }, (_, i) => `${p}${i + 1000}`));
+const TYPES = ['OU', 'QA', 'HC', 'ML'].flatMap((p) => Array.from({ length: 13000 }, (_, i) => `${p}${i + 7000}`));
 const now = Date.now();
-for (const [sport, n] of [['football', 8], ['basketball', 4]]) {
+for (const [sport, n] of [['football', 8]]) {
   const { items } = await getEventList({ sport, from: now, to: now + 48 * 3600000 });
   const events = items.filter((e) => !e.live).sort((a, b) => b.topLeague - a.topLeague || a.leagueOrder - b.leagueOrder || a.start - b.start).slice(0, n);
   console.log(`\n==================== ${sport}: ${events.map((e) => `${e.home} vs ${e.away}`).join(' | ')}`);
