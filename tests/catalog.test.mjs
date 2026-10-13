@@ -208,3 +208,22 @@ test('Apuesta Total: "en ambas mitades" y otros mercados que no son los de la li
   assert.equal(read('Gol anotado en ambos tiempos'), 'SCOREALL@halves');
   assert.equal(read('Ambos equipos anotan'), 'BTTS');
 });
+
+test('Apuesta Total: jugadores de básquet (nombres reales del sondeo de la NBA)', () => {
+  const ctx = { sport: 'basketball', home: 'Detroit Pistons', away: 'Boston Celtics' };
+  const sels = (who, line) => [{ name: `${who} Más de ${line}`, price: 1.84, line: line * 100 }, { name: `${who} Menos de ${line}`, price: 1.79, line: -line * 100 }];
+  const read = (name, s = sels('Cade Cunningham', 14.5)) => {
+    const r = parseMarket(name, s, ctx);
+    return r.unsupported ? `no:${r.unsupported}` : [...new Set(r.outcomes.map((o) => `${o.market} ${o.line}`))].join(', ');
+  };
+  // Combinadas en otro orden que "puntos, rebotes y asistencias".
+  assert.equal(read('Jugador: Total de puntos, asistencias y rebotes'), 'OU.pl_pra#Cade Cunningham 14.5');
+  assert.equal(read('Asistencias y rebotes del jugador (incl. Prórroga)'), 'OU.pl_ra#Cade Cunningham 14.5');
+  assert.equal(read('Puntos y asistencias del jugador (incl. Prórroga)'), 'OU.pl_pa#Cade Cunningham 14.5');
+  assert.equal(read('Puntos y rebotes del jugador (incl. Prórroga)'), 'OU.pl_pr#Cade Cunningham 14.5');
+  // "por jugador" y "Sobrepasa los" no son el nombre del jugador.
+  assert.equal(read('Tiros de 3 puntos anotados por jugador (incl. Prórroga)', sels('Jayson Tatum', 2.5)), 'OU.pl_3pm#Jayson Tatum 2.5');
+  assert.equal(read('Jugador Sobrepasa los Puntos (incl. prórroga)', [{ name: 'Daniel Oturu Más de 9.5', price: 1.46, line: 950 }]), 'OU.pl_pts#Daniel Oturu 9.5');
+  // La línea sale del nombre de la selección, no de QAParam1 (línea × 100).
+  assert.equal(read('Rebotes del jugador (incl. Prórroga)', sels('Jayson Tatum', 8.5)), 'OU.pl_reb#Jayson Tatum 8.5');
+});

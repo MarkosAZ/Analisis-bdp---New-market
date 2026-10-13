@@ -345,12 +345,17 @@ const PL_FIELD = `${PL_SHOT} de campo`;
 // Intentados ("tiros de 3 puntos intentados", "intentos de triples"); anotados ("triples anotados" o solo "triples").
 const plAttempts = (shot) => `${shot}(?:\\s+totales)?\\s+(?:intentad[oa]s|lanzad[oa]s|intentos)|intentos? de\\s+${shot}`;
 const plMade = (shot) => `${shot}(?:\\s+(?:anotad[oa]s|convertid[oa]s|encestad[oa]s))?`;
+// Combinadas en cualquier orden: "Puntos, rebotes y asistencias" o "Total de puntos, asistencias y rebotes".
+const plAnyOrder = (...parts) => {
+  const perms = (list) => (list.length <= 1 ? [list] : list.flatMap((x, i) => perms([...list.slice(0, i), ...list.slice(i + 1)]).map((r) => [x, ...r])));
+  return perms(parts).map((p) => p.join(PL_AND)).join('|');
+};
 const PLAYER_STATS = [
-  [`puntos${PL_AND}rebotes${PL_AND}asistencias`, 'pl_pra'],
-  [`puntos${PL_AND}rebotes`, 'pl_pr'],
-  [`puntos${PL_AND}asistencias`, 'pl_pa'],
-  [`rebotes${PL_AND}asistencias`, 'pl_ra'],
-  [`(?:robos|recuperaciones)${PL_AND}(?:tapones|bloqueos|tapas)`, 'pl_sb'],
+  [plAnyOrder('puntos', 'rebotes', 'asistencias'), 'pl_pra'],
+  [plAnyOrder('puntos', 'rebotes'), 'pl_pr'],
+  [plAnyOrder('puntos', 'asistencias'), 'pl_pa'],
+  [plAnyOrder('rebotes', 'asistencias'), 'pl_ra'],
+  [plAnyOrder('(?:robos|recuperaciones)', '(?:tapones|bloqueos|tapas)'), 'pl_sb'],
   // Los intentos antes que los anotados: "tiros de 3 puntos" es el comienzo de "tiros de 3 puntos intentados".
   [plAttempts(PL_THREES), 'pl_3pa'],
   [plAttempts(PL_TWOS), 'pl_2pa'],
@@ -374,8 +379,9 @@ const PLAYER_STATS = [
   code,
 ]);
 
-// Relleno que no es parte del nombre: "(incl. prórroga)", "Más/Menos", "del jugador".
-const PLAYER_FILLER = /\((?=[^)]*\b(?:incl|prorroga|extra|suplementario|ot)\b)[^)]*\)|\bincl(?:uye|uida|uido)?\.?\s+(?:la\s+)?(?:prorroga|tiempo extra|tiempo suplementario)\b|\bmas\s*\/\s*menos\b|\bmas\s+o\s+menos\b|\bover\s*\/\s*under\b|\bo\/u\b|\b(?:del|de)\s+jugador\b|\bjugador\b/g;
+// Relleno que no es parte del nombre: "(incl. prórroga)", "Más/Menos", "del jugador", "por jugador"
+// ("Tiros de 3 puntos anotados por jugador") y "sobrepasa los" ("Jugador Sobrepasa los Puntos": solo Más de).
+const PLAYER_FILLER = /\((?=[^)]*\b(?:incl|prorroga|extra|suplementario|ot)\b)[^)]*\)|\bincl(?:uye|uida|uido)?\.?\s+(?:la\s+)?(?:prorroga|tiempo extra|tiempo suplementario)\b|\bmas\s*\/\s*menos\b|\bmas\s+o\s+menos\b|\bover\s*\/\s*under\b|\bo\/u\b|\b(?:del|de|por)\s+jugador\b|\bjugador\b|\bsobrepasa(?:\s+(?:los|las))?\b/g;
 const PLAYER_LINE = /\(?(?<![\w.])\d+[.,]\d+(?![\w.])\)?/g;
 // Lo que no puede estar en el nombre de un jugador (periodos, equipos, otros mercados, cifras).
 const NOT_NAME_WORDS = [
