@@ -141,6 +141,39 @@ test('córners, tarjetas, tiros al arco y remates: con los promedios de cada equ
   assert.equal(analyzeEvent(ev, details, list, {}).candidates.length, 0);
 });
 
+// Hándicap de córners (Betano "Hándicap de Córners - Dobles"): la diferencia de
+// córners con los promedios de cada equipo; el de tres opciones (con empate) no.
+test('hándicap de córners: línea .5 más pareja y probabilidad con los promedios', () => {
+  const hcp = [
+    { name: 'Hándicap de Córners - Dobles', selections: [
+      { name: 'Belgium -1.5', price: 1.86 }, { name: 'Türkiye +1.5', price: 1.9 },
+      { name: 'Belgium -3.5', price: 2.6 }, { name: 'Türkiye +3.5', price: 1.45 },
+      { name: 'Belgium -2', price: 2.1 }, { name: 'Türkiye +2', price: 1.7 },
+    ] },
+    { name: 'Hándicap de Córners - Triples', selections: [{ name: 'Belgium -2', price: 2.4 }, { name: 'Empate -2', price: 4.2 }, { name: 'Türkiye +2', price: 2.2 }] },
+  ];
+  const list = offersFromBetano(hcp, { home: 'Belgium', away: 'Türkiye' }, ev);
+  const { candidates } = analyzeEvent(ev, { ...details, teamStats }, list, {});
+  const by = byKey(candidates);
+  // Solo la línea .5 más pareja (−1.5: 1.86 / 1.90); ni la entera (−2) ni la de tres opciones.
+  assert.deepEqual(Object.keys(by).sort(), ['HCP.corners|away|-1.5', 'HCP.corners|home|-1.5']);
+  const home = by['HCP.corners|home|-1.5'];
+  const away = by['HCP.corners|away|-1.5'];
+  assert.equal(home.via, 'estadísticas');
+  assert.ok(Math.abs(home.p + away.p - 1) < 1e-9);
+  // El local promedia 6.8 córners y el rival recibe 5.9: ganar por 2 o más es lo probable.
+  assert.ok(home.p > 0.55 && home.p < 0.7, `${home.p}`);
+  assert.equal(home.label, 'Belgium -1.5 (hándicap de córners)');
+  // La distancia a lo esperado va a favor del local (diferencia esperada ≈ 2.9 > 1.5).
+  const z = FEATURES.indexOf('zLine');
+  assert.ok(home.x[z] > 0 && away.x[z] < 0, `${home.x[z]} ${away.x[z]}`);
+  // Con un local de más córners sube la probabilidad del local.
+  const more = { home: { ...teamStats.home, corners: { for: 8.5, against: 3.6, n: 8 } }, away: teamStats.away };
+  assert.ok(byKey(analyzeEvent(ev, { ...details, teamStats: more }, list, {}).candidates)['HCP.corners|home|-1.5'].p > home.p);
+  assert.ok(marketsOf('football').has('HCP.corners'));
+  assert.ok(!marketsOf('football').has('HCP3.corners'));
+});
+
 const basketEv = { ...ev, id: 201, sport: 'basketball', home: { id: 5, name: 'Lakers' }, away: { id: 6, name: 'Celtics' } };
 const basketDetails = {
   lastHome: last([[118, 104], [112, 109], [121, 99], [108, 111], [115, 102], [119, 107], [110, 104], [123, 112]]),

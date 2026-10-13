@@ -23,6 +23,7 @@ export const MARKETS = [
   { sport: 'football', market: 'OU', name: 'Goles totales Más/Menos', range: [0.5, 7.5], net: 'Football_Goals_Model' },
   { sport: 'football', market: 'BTTS', name: 'Ambos equipos anotan', net: 'Football_BTTS_Model' },
   { sport: 'football', market: 'OU.corners', name: 'Más/Menos córners', range: [3.5, 18.5], net: 'Football_Corners_Model' },
+  { sport: 'football', market: 'HCP.corners', name: 'Hándicap de córners', range: [-9.5, 9.5], net: 'Football_CornersHandicap_Model' },
   { sport: 'football', market: 'OU.cards', name: 'Total de tarjetas', range: [0.5, 12.5], net: 'Football_Cards_Model' },
   { sport: 'football', market: 'OU.shots_on', name: 'Tiros al arco', range: [2.5, 22.5], net: 'Football_ShotsOnTarget_Model' },
   { sport: 'football', market: 'OU.shots', name: 'Remates totales', range: [8.5, 45.5], net: 'Football_Shots_Model' },

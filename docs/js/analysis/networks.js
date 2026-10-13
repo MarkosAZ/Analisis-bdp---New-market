@@ -16,6 +16,7 @@ const NAMES = {
   Football_Goals_Model: 'Fútbol: goles totales',
   Football_BTTS_Model: 'Fútbol: ambos anotan',
   Football_Corners_Model: 'Fútbol: córners',
+  Football_CornersHandicap_Model: 'Fútbol: hándicap de córners',
   Football_Cards_Model: 'Fútbol: tarjetas',
   Football_ShotsOnTarget_Model: 'Fútbol: tiros al arco',
   Football_Shots_Model: 'Fútbol: remates totales',

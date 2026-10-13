@@ -22,11 +22,12 @@ function rows(n, sport, market, seed = 3) {
   });
 }
 
-// Redes pedidas: una por mercado de la lista (14) y una por estadística de jugador (21).
+// Redes pedidas: una por mercado de la lista (15) y una por estadística de jugador (21).
 const TEAM_NETS = {
   'football:OU': 'Football_Goals_Model',
   'football:BTTS': 'Football_BTTS_Model',
   'football:OU.corners': 'Football_Corners_Model',
+  'football:HCP.corners': 'Football_CornersHandicap_Model',
   'football:OU.cards': 'Football_Cards_Model',
   'football:OU.shots_on': 'Football_ShotsOnTarget_Model',
   'football:OU.shots': 'Football_Shots_Model',
@@ -65,7 +66,7 @@ const PLAYER_NETS = {
 
 test('una red por mercado y una por estadística de jugador, sin mezclar mercados', () => {
   const ids = NETWORKS.map((n) => n.id);
-  assert.equal(NETWORKS.length, 35);
+  assert.equal(NETWORKS.length, 36);
   assert.deepEqual(ids, [...Object.values(TEAM_NETS), ...Object.values(PLAYER_NETS)], 'las de mercado en el orden de MARKETS y después las de jugador');
   assert.equal(new Set(ids).size, ids.length);
   assert.ok(NETWORKS.every((n) => n.name && n.sport && ['Fútbol', 'Básquet', 'Básquet: jugadores', 'Béisbol'].includes(n.group) && n.markets.length === 1), 'cada red corrige un solo mercado');
@@ -148,7 +149,7 @@ test('mercados parecidos no comparten red: cada una aprende solo de su mercado',
   assert.equal(set.predict(c('football', 'OU.corners@h1')), 0.5, 'el primer tiempo queda con la estadística');
   assert.ok(set.predict(c('basketball', 'OU.pl_pts#LeBron James')) > 0.6, 'la de puntos corrige a cualquier jugador');
   assert.equal(set.predict(c('basketball', 'OU.pl_reb#LeBron James')), 0.5, 'la de rebotes todavía no');
-  assert.equal(set.summary().total, 35);
+  assert.equal(set.summary().total, 36);
 });
 
 test('pesos guardados: se ignoran las redes que ya no existen y las que mezclaban mercados', () => {
@@ -161,7 +162,7 @@ test('pesos guardados: se ignoran las redes que ya no existen y las que mezclaba
   assert.deepEqual(ok(NetworkSet.fromJSON(saved(2))), ['Football_Goals_Model', 'Football_Corners_Model']);
   const loaded = NetworkSet.fromJSON(saved(2));
   assert.equal(loaded.nets.Basketball_PlayerProps_Model, undefined, 'la red de todos los jugadores juntos ya no existe');
-  assert.equal(loaded.status().length, 35, 'las que faltan quedan sin entrenar');
+  assert.equal(loaded.status().length, 36, 'las que faltan quedan sin entrenar');
   assert.equal(loaded.predict({ sport: 'basketball', market: 'OU.pl_pts#X', x: new Array(FEATURES.length).fill(0), pBase: 0.6 }), 0.6);
 });
 

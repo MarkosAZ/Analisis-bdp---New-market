@@ -18,6 +18,7 @@ historial de resultados. Funciona en el **celular y en la PC**:
     de cada partido) y los de Apuesta Total en vivo.
 - **Mercados analizados** (solo estos):
   - Fútbol: goles totales Más/Menos, ambos equipos anotan, Más/Menos córners,
+    **hándicap de córners** (el de dos opciones; el de tres, con empate, no),
     total de tarjetas, tiros al arco, remates totales y córners del primer tiempo
     (siempre el total del partido, no los de cada equipo).
   - Básquet: total de puntos, hándicap, hándicap y total de puntos del primer
@@ -37,17 +38,19 @@ historial de resultados. Funciona en el **celular y en la PC**:
 - **Análisis estadístico** (datos de Sofascore y Flashscore, sin noticias): la
   probabilidad sale **solo de la estadística**, las cuotas no la cambian. Goles,
   ambos marcan y béisbol: modelo de Poisson con la forma reciente, H2H y xG;
-  básquet: modelo de puntos; córners, tarjetas y tiros: promedios de cada equipo
-  (lo que hace y lo que le permite el rival); primer tiempo del básquet: partido
+  básquet: modelo de puntos; córners (total y hándicap), tarjetas y tiros:
+  promedios de cada equipo (lo que hace y lo que le permite el rival); primer
+  tiempo del básquet: partido
   simulado miles de veces. Hacen falta al menos 4 partidos con datos de cada
   equipo. Jugadores: sus últimos 10 partidos (los más recientes pesan más; al
   menos 5 jugados). Si figura como baja, no se analiza. La probabilidad que dan
   las cuotas se muestra solo como referencia.
-- **Análisis con red neuronal**: **35 redes especializadas** y ninguna mezcla
+- **Análisis con red neuronal**: **36 redes especializadas** y ninguna mezcla
   mercados (los córners del primer tiempo no aprenden de los del partido, ni los
   tiros al arco de los remates, ni los rebotes de un jugador de sus puntos):
-  - Una por mercado de la lista (14): `Football_Goals_Model` (goles totales),
+  - Una por mercado de la lista (15): `Football_Goals_Model` (goles totales),
     `Football_BTTS_Model` (ambos anotan), `Football_Corners_Model` (córners),
+    `Football_CornersHandicap_Model` (hándicap de córners),
     `Football_Cards_Model` (tarjetas), `Football_ShotsOnTarget_Model` (tiros al
     arco), `Football_Shots_Model` (remates totales), `Football_CornersH1_Model`
     (córners del primer tiempo), `Basketball_Totals_Model` (total de puntos),

@@ -138,3 +138,30 @@ test('ganador con entradas extra, entradas extra Sí/No y puntos de tarjetas', (
   assert.equal(parse('Puntos de Tarjetas', ['Más de 45.5', 'Menos de 45.5']).unsupported, 'special');
   assert.deepEqual(keysOf(parse('Tarjetas Totales Más/Menos', ['Más de 4.5', 'Menos de 4.5'])), ['OU.cards|over|4.5', 'OU.cards|under|4.5']);
 });
+
+test('hándicap de córners de Betano: el de dos opciones sí, el de tres (con empate) aparte', () => {
+  const ctx = { sport: 'football', home: 'Barcelona', away: 'Real Madrid' };
+  const parse = (name, sels) => parseMarket(name, sels.map((n) => ({ name: n, price: 1.9 })), ctx);
+  const dobles = parse('Hándicap de Córners - Dobles', ['Barcelona -1.5', 'Real Madrid +1.5']);
+  assert.deepEqual(dobles.outcomes.map((o) => [o.market, o.sel, o.line]), [['HCP.corners', 'home', -1.5], ['HCP.corners', 'away', -1.5]]);
+  assert.equal(parse('Hándicap de Córners - Triples', ['Barcelona -2', 'Empate -2', 'Real Madrid +2']).outcomes[0].market, 'HCP3.corners');
+  assert.equal(parse('Primer Tiempo Hándicap de Córners', ['Barcelona -0.5', 'Real Madrid +0.5']).outcomes[0].market, 'HCP.corners@h1');
+  // Liquidación con los córners del partido (7 a 4).
+  const rec = { sport: 'football', state: 'finalizado', final: [1, 0], stats: { corners: { ft: [7, 4] } } };
+  assert.equal(evaluate('HCP.corners', 'home', -1.5, rec), 'won');
+  assert.equal(evaluate('HCP.corners', 'home', -3.5, rec), 'lost');
+  assert.equal(evaluate('HCP.corners', 'away', -3.5, rec), 'won');
+  assert.equal(evaluate('HCP.corners', 'home', -1.5, { ...rec, stats: {} }), null, 'sin córners: pendiente');
+});
+
+test('"1ª parte", "primera parte" y "segunda parte" son mitades, no el partido completo', () => {
+  const ctx = { sport: 'football', home: 'Barcelona', away: 'Real Madrid' };
+  const ou = [{ name: 'Más de 1.5', price: 1.9 }, { name: 'Menos de 1.5', price: 1.9 }];
+  const id = (name) => marketId(parseMarket(name, ou, ctx).spec);
+  assert.equal(id('Total de goles - 1ª parte'), 'OU@h1');
+  assert.equal(id('Total de goles - Primera parte'), 'OU@h1');
+  assert.equal(id('Total de córners - 1a parte'), 'OU.corners@h1');
+  assert.equal(id('Total de goles - 2ª parte'), 'OU@h2');
+  assert.equal(id('Total de goles - Segunda parte'), 'OU@h2');
+  assert.equal(id('Total de goles'), 'OU');
+});
