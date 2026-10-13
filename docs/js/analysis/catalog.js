@@ -258,7 +258,7 @@ const RALLY = new Set(['table-tennis', 'badminton', 'volleyball', 'beach-volley'
 export const OT_SPORTS = new Set(['basketball', 'ice-hockey', 'baseball', 'american-football', 'floorball']);
 export const SET_SPORTS = new Set(['tennis', 'volleyball', 'beach-volley', 'table-tennis', 'badminton', 'darts', 'esports', 'snooker']);
 
-const UNKNOWN_FOOTBALL_STAT = /disparo|remate|\btiros?\b|posesion|\bpases?\b|atajada|paradas?\b|\bcentros?\b|regate|despeje|intercepcion|bloqueo|esperados|\bxg\b|asistencia|toques|duelos|recuperacion/;
+const UNKNOWN_FOOTBALL_STAT = /disparo|remate|\btiros?\b|posesion|\bpases?\b|atajada|paradas?\b|\bcentros?\b|regate|despeje|intercepcion|bloqueo|esperados|\bxg\b|asistencia|toques|duelos|recuperacion|\bentradas\b/;
 
 function statOf(name, sport) {
   for (const [re, code] of STATS) {
@@ -566,7 +566,8 @@ function typeFromName(name, sport) {
 // Devuelve { spec, outcomes: [{ sel, line, price, label }] }, o { unsupported, reason }, o null (ignorar).
 export function parseMarket(rawName, selections = [], ctx = {}) {
   const sport = ctx.sport || 'football';
-  const name = localize(rawName, ctx.home, ctx.away);
+  // Apuesta Total dice "en ambas mitades" donde Betano dice "en ambos tiempos".
+  const name = localize(rawName, ctx.home, ctx.away).replace(/\b(?:ambas|las dos) mitades\b/g, 'ambos tiempos').replace(/\bcada mitad\b/g, 'cada tiempo');
   if (/super ?cuota|supercuota|boost|mejorada|cuota aumentada/.test(name)) return null;
   if (OUTRIGHT.test(name) || ['cricket', 'cycling', 'motorsport'].includes(sport) || (sport === 'snooker' && !sideLike(selections, ctx))) return unsupported('outright');
   if (sport === 'basketball') {
@@ -589,6 +590,11 @@ export function parseMarket(rawName, selections = [], ctx = {}) {
   let scope = scopeOf(name, sport);
   const team = teamOf(name);
   let type = typeFromName(name, sport);
+  // "En ambos tiempos / en cada tiempo": solo los tipos que lo entienden (gana, anota
+  // o Más/Menos en cada tiempo). Los demás no son el mercado del partido: p. ej.
+  // "Ambos equipos anotan en ambas mitades" no es "Ambos equipos anotan", ni
+  // "Tarjetas mostradas en ambas mitades" es "Más de 0.5 tarjetas".
+  if (/\b(?:ambos|cada) tiempos?\b/.test(name) && !['WINALL', 'SCOREALL', 'ALLPER'].includes(type)) return unsupported('special');
   const nameLine = numbers(name.replace(/\d{1,2}:\d{2}/g, '')).filter((x) => !Number.isInteger(x) || /\(\d+\.?\d*\)|mas de \d|menos \d/.test(name)).pop();
 
   // Por las selecciones, si el nombre no lo dijo.

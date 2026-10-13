@@ -187,3 +187,24 @@ test('Apuesta Total: "disparos" son tiros al arco o remates, nunca goles', () =>
   assert.equal(id('Total de goles asiático'), 'OU');
   assert.equal(id('1ra mitad: Total de goles'), 'OU@h1');
 });
+
+test('Apuesta Total: "en ambas mitades" y otros mercados que no son los de la lista', () => {
+  const ctx = { sport: 'football', home: 'Viking', away: 'Bayern München' };
+  const yn = [{ name: 'Sí', price: 1.49 }, { name: 'No', price: 2.36 }];
+  const read = (name, sels = yn) => {
+    const r = parseMarket(name, sels, ctx);
+    return r.unsupported ? `no:${r.unsupported}` : r.outcomes.map((o) => o.market)[0];
+  };
+  // Nombres reales del sondeo de Apuesta Total: antes se leían como "Más/Menos 0.5 tarjetas",
+  // "Más/Menos 0.5 goles", "Ambos equipos anotan" o goles del equipo.
+  assert.equal(read('Tarjetas mostradas en ambas mitades'), 'no:special');
+  assert.equal(read('Ambas mitades menos de 1.5'), 'no:special');
+  assert.equal(read('Ambas mitades más de 0.5'), 'no:special');
+  assert.equal(read('Ambos equipos anotan en ambas mitades'), 'no:special');
+  assert.equal(read('Viking: Anotará en ambas mitades'), 'no:special');
+  assert.equal(read('Viking: Total de entradas del equipo', [{ name: 'Más de 17.5', price: 2.05 }, { name: 'Menos de 17.5', price: 1.77 }]), 'no:special');
+  assert.equal(read('1ra Mitad: Disparos a puerta', [{ name: 'Más de 5.5', price: 2.17 }, { name: 'Menos de 5.5', price: 1.69 }]), 'OU.shots_on@h1');
+  // Los de "ambos tiempos" que sí se entienden siguen igual.
+  assert.equal(read('Gol anotado en ambos tiempos'), 'SCOREALL@halves');
+  assert.equal(read('Ambos equipos anotan'), 'BTTS');
+});
