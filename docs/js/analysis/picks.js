@@ -16,20 +16,22 @@ export const MAIN_LEVELS = LEVELS.filter((l) => l.id !== 'baja');
 // cuotas (markets.balancedLines). market: identificador del catálogo ('OU.player'
 // reúne los Más/Menos de jugador: OU.pl_pts#Nombre, OU.pl_reb#Nombre...).
 // range: líneas posibles; las de fuera son de otro mercado mal leído (p. ej. los
-// 24.5 puntos de un jugador no son el total del partido). net: red especializada.
+// 24.5 puntos de un jugador no son el total del partido). net: su red especializada,
+// una por mercado (el primer tiempo no comparte red con el partido completo). Los
+// de jugador no tienen una sola: hay una red por estadística (networks.PLAYER_NETWORKS).
 export const MARKETS = [
   { sport: 'football', market: 'OU', name: 'Goles totales Más/Menos', range: [0.5, 7.5], net: 'Football_Goals_Model' },
   { sport: 'football', market: 'BTTS', name: 'Ambos equipos anotan', net: 'Football_BTTS_Model' },
   { sport: 'football', market: 'OU.corners', name: 'Más/Menos córners', range: [3.5, 18.5], net: 'Football_Corners_Model' },
   { sport: 'football', market: 'OU.cards', name: 'Total de tarjetas', range: [0.5, 12.5], net: 'Football_Cards_Model' },
-  { sport: 'football', market: 'OU.shots_on', name: 'Tiros al arco', range: [2.5, 22.5], net: 'Football_Shots_Model' },
+  { sport: 'football', market: 'OU.shots_on', name: 'Tiros al arco', range: [2.5, 22.5], net: 'Football_ShotsOnTarget_Model' },
   { sport: 'football', market: 'OU.shots', name: 'Remates totales', range: [8.5, 45.5], net: 'Football_Shots_Model' },
-  { sport: 'football', market: 'OU.corners@h1', name: 'Córners en el primer tiempo Más/Menos', range: [0.5, 10.5], net: 'Football_Corners_Model' },
+  { sport: 'football', market: 'OU.corners@h1', name: 'Córners en el primer tiempo Más/Menos', range: [0.5, 10.5], net: 'Football_CornersH1_Model' },
   { sport: 'basketball', market: 'OU', name: 'Total de puntos', range: [80.5, 300.5], net: 'Basketball_Totals_Model' },
   { sport: 'basketball', market: 'HCP', name: 'Hándicap', range: [-75.5, 75.5], net: 'Basketball_Handicap_Model' },
-  { sport: 'basketball', market: 'OU.player', name: 'Jugador: Más/Menos (puntos, rebotes, asistencias, triples...)', range: [0.5, 80.5], net: 'Basketball_PlayerProps_Model' },
-  { sport: 'basketball', market: 'HCP@h1', name: 'Primer tiempo: hándicap', range: [-40.5, 40.5], net: 'Basketball_Handicap_Model' },
-  { sport: 'basketball', market: 'OU@h1', name: 'Primer tiempo: total de puntos', range: [40.5, 160.5], net: 'Basketball_Totals_Model' },
+  { sport: 'basketball', market: 'OU.player', name: 'Jugador: Más/Menos (puntos, rebotes, asistencias, triples...)', range: [0.5, 80.5], net: null },
+  { sport: 'basketball', market: 'HCP@h1', name: 'Primer tiempo: hándicap', range: [-40.5, 40.5], net: 'Basketball_HandicapH1_Model' },
+  { sport: 'basketball', market: 'OU@h1', name: 'Primer tiempo: total de puntos', range: [40.5, 160.5], net: 'Basketball_TotalsH1_Model' },
   { sport: 'baseball', market: 'ML', name: 'Ganador', net: 'Baseball_Winner_Model' },
   { sport: 'baseball', market: 'HCP', name: 'Hándicap (run line)', range: [-5.5, 5.5], net: 'Baseball_RunLine_Model' },
   { sport: 'baseball', market: 'OU', name: 'Total de carreras', range: [3.5, 22.5], net: 'Baseball_Totals_Model' },

@@ -240,16 +240,22 @@ function levelFilter(app, a) {
   );
 }
 
-// Estado de las redes especializadas en un análisis con red neuronal.
+// Estado de las redes especializadas en un análisis con red neuronal (el resumen
+// guardado con el análisis: las redes que había cuando se hizo).
 function networksBanner(net) {
   if (!net?.nets) return h('div', { class: 'banner warn' }, 'Sin redes especializadas cargadas: las probabilidades son las del análisis estadístico.');
-  const trained = NETWORKS.filter((n) => net.nets[n.id]?.trained);
+  const order = new Map(NETWORKS.map((n, i) => [n.id, i]));
+  const trained = Object.keys(net.nets)
+    .filter((id) => net.nets[id]?.trained)
+    .sort((a, b) => (order.get(a) ?? order.size) - (order.get(b) ?? order.size));
+  const total = net.total || Object.keys(net.nets).length || NETWORKS.length;
   return h(
     'div',
-    { class: `banner${trained.length ? '' : ' warn'}` },
+    { class: `banner nets-banner${trained.length ? '' : ' warn'}` },
+    `Redes especializadas que corrigen: ${trained.length} de ${total}`,
     trained.length
-      ? `Corrigen ${trained.length} de ${NETWORKS.length} redes especializadas: ${trained.map((n) => n.id).join(', ')}. En los demás mercados la probabilidad es la del análisis estadístico.`
-      : `Ninguna red especializada corrige todavía: cada una necesita ${MIN_SAMPLES} resultados de su mercado y mejorar en partidos que no usó para entrenar. Por ahora las probabilidades son las del análisis estadístico.`,
+      ? ` (${trained.join(', ')}). En los demás mercados la probabilidad es la del análisis estadístico.`
+      : `. Cada una necesita ${MIN_SAMPLES} resultados de su mercado y mejorar en partidos que no usó para entrenar; por ahora las probabilidades son las del análisis estadístico.`,
   );
 }
 

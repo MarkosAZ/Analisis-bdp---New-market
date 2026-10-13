@@ -6,6 +6,7 @@
 import { clamp, mean, sum } from '../util.js';
 
 // Campos del partido que suma cada estadística (con '-' delante se restan).
+// fga/tpa/fta: tiros de campo, triples y tiros libres intentados.
 export const PLAYER_STATS = {
   pl_pts: ['pts'],
   pl_reb: ['reb'],
@@ -23,22 +24,34 @@ export const PLAYER_STATS = {
   pl_pa: ['pts', 'ast'],
   pl_ra: ['reb', 'ast'],
   pl_sb: ['stl', 'blk'],
+  pl_fgm: ['fgm'],
+  pl_fga: ['fga'],
+  pl_3pa: ['tpa'],
+  pl_2pa: ['fga', '-tpa'],
+  pl_fta: ['fta'],
 };
+
+// Intentos y sus anotados: si los anotados superan a los intentos el dato está mal.
+const MADE_OF = { fga: 'fgm', tpa: 'tpm', fta: 'ftm' };
 
 const toNum = (x) => (x == null || x === '' || !Number.isFinite(Number(x)) ? null : Number(x));
 
-// Valor de una estadística en la fila de un partido, o null si falta alguna parte.
+// Valor de una estadística en la fila de un partido, o null si falta alguna parte
+// (un partido sin el dato no cuenta como 0) o si los datos se contradicen.
 export function statValue(row, code) {
   const parts = PLAYER_STATS[code];
   if (!row || !parts || row.dnp) return null;
   let v = 0;
   for (const part of parts) {
     const neg = part.startsWith('-');
-    const x = toNum(row[neg ? part.slice(1) : part]);
-    if (x == null) return null;
+    const field = neg ? part.slice(1) : part;
+    const x = toNum(row[field]);
+    if (x == null || x < 0) return null;
+    const made = MADE_OF[field] ? toNum(row[MADE_OF[field]]) : null;
+    if (made != null && made > x) return null;
     v += neg ? -x : x;
   }
-  return v;
+  return v < 0 ? null : v;
 }
 
 // ---- Nombres ----

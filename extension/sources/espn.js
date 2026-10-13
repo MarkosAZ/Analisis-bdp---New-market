@@ -77,9 +77,10 @@ export async function getMatches({ league = 'per.1', date } = {}) {
 
 export const BASKETBALL_LEAGUES = ['nba', 'wnba'];
 
-const PLAYER_FIELDS = ['min', 'pts', 'reb', 'ast', 'tpm', 'stl', 'blk', 'tov', 'oreb', 'dreb', 'ftm', 'fgm'];
+// fga/tpa/fta: tiros de campo, triples y tiros libres intentados.
+const PLAYER_FIELDS = ['min', 'pts', 'reb', 'ast', 'tpm', 'stl', 'blk', 'tov', 'oreb', 'dreb', 'ftm', 'fgm', 'fga', 'tpa', 'fta'];
 // Columna de cada dato en el box score: por `keys` y, de respaldo, por `names`/`labels`.
-// Los "x-y" son anotados-intentados (se usa el primero).
+// Los "x-y" son anotados-intentados: los anotados son el primer número.
 const BOX_COLUMNS = {
   min: ['minutes', 'MIN'],
   pts: ['points', 'PTS'],
@@ -93,7 +94,12 @@ const BOX_COLUMNS = {
   dreb: ['defensiveRebounds', 'DREB'],
   ftm: ['freeThrowsMade-freeThrowsAttempted', 'freeThrowsMade', 'FT', 'FTM'],
   fgm: ['fieldGoalsMade-fieldGoalsAttempted', 'fieldGoalsMade', 'FG', 'FGM'],
+  // Intentos con columna propia; si no la hay, el segundo número del "x-y" de sus anotados.
+  fga: ['fieldGoalsAttempted', 'FGA'],
+  tpa: ['threePointFieldGoalsAttempted', '3PA'],
+  fta: ['freeThrowsAttempted', 'FTA'],
 };
+const MADE_OF = { fga: 'fgm', tpa: 'tpm', fta: 'ftm' };
 
 const toMs = (v) => (typeof v === 'number' ? (v < 1e12 ? v * 1000 : v) : v ? Date.parse(v) : NaN);
 const limaYmd = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(new Date(ms)); // AAAA-MM-DD
@@ -113,16 +119,19 @@ function columnIndex(block, alts) {
   return -1;
 }
 
-// "15" → 15, "3-12" → 3, "34:30" (minutos) → 34.5, "--" o vacío → null.
-function boxNumber(raw, field) {
+// "15" → 15, "3-12" → 3 (con second: 12; "15" con second → null), "34:30" (minutos) → 34.5,
+// "--" o vacío → null.
+function boxNumber(raw, field, second = false) {
   const s = String(raw ?? '').trim();
   const clock = field === 'min' && s.match(/^(\d+):(\d{1,2})$/);
   if (clock) return Math.round((Number(clock[1]) + Number(clock[2]) / 60) * 100) / 100;
-  const m = s.match(/^(\d+(?:\.\d+)?)(?:-\d+)?$/);
-  return m ? Number(m[1]) : null;
+  const m = s.match(/^(\d+(?:\.\d+)?)(?:-(\d+))?$/);
+  if (!m) return null;
+  if (!second) return Number(m[1]);
+  return m[2] != null ? Number(m[2]) : null;
 }
 
-// Fila normalizada de un jugador: { min, pts, ..., fgm } o { min: 0, dnp: true }
+// Fila normalizada de un jugador: { min, pts, ..., fgm, fga, tpa, fta } o { min: 0, dnp: true }
 // (no jugó: didNotPlay, sin estadísticas, o 0 minutos sin ningún dato).
 function athleteRow(a, cols) {
   if (a.didNotPlay || !a.stats?.length) return { min: 0, dnp: true };
@@ -130,7 +139,13 @@ function athleteRow(a, cols) {
   // +/- sí entró a la cancha, y la casa liquida la apuesta.
   if (a.stats.every((v) => /^(?:[+-]?0+(?:-0+)?|--?|)$/.test(String(v ?? '').trim()))) return { min: 0, dnp: true };
   const row = {};
-  for (const f of PLAYER_FIELDS) row[f] = cols[f] >= 0 ? boxNumber(a.stats[cols[f]], f) : null;
+  for (const f of PLAYER_FIELDS) {
+    const made = MADE_OF[f];
+    if (cols[f] >= 0) row[f] = boxNumber(a.stats[cols[f]], f);
+    else row[f] = made && cols[made] >= 0 ? boxNumber(a.stats[cols[made]], made, true) : null;
+    // Menos intentos que anotados: dato roto, mejor sin dato.
+    if (made && row[f] != null && row[made] != null && row[f] < row[made]) row[f] = null;
+  }
   return row;
 }
 

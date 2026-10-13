@@ -123,18 +123,47 @@ const SUMMARY = {
   injuries: [],
 };
 
-test('box score de ESPN: filas por clave, "x-y" anotados, DNP y 0 minutos', () => {
+test('box score de ESPN: filas por clave, "x-y" anotados-intentados, DNP y 0 minutos', () => {
   const p = playersFromSummary(SUMMARY);
   assert.deepEqual(Object.keys(p), ['Daniel Gafford', 'Kyrie Irving', 'Dereck Lively II', 'Brandon Williams', 'Alperen Şengün', 'Amen Thompson', 'Fred VanVleet']);
-  assert.deepEqual(p['Daniel Gafford'], { min: 15, pts: 9, reb: 4, ast: 0, tpm: 0, stl: 0, blk: 0, tov: 1, oreb: 2, dreb: 2, ftm: 3, fgm: 3 });
-  assert.deepEqual(p['Kyrie Irving'], { min: 36, pts: 28, reb: 5, ast: 7, tpm: 4, stl: 2, blk: 0, tov: 3, oreb: 1, dreb: 4, ftm: 4, fgm: 10 });
+  assert.deepEqual(p['Daniel Gafford'], { min: 15, pts: 9, reb: 4, ast: 0, tpm: 0, stl: 0, blk: 0, tov: 1, oreb: 2, dreb: 2, ftm: 3, fgm: 3, fga: 3, tpa: 0, fta: 3 });
+  assert.deepEqual(p['Kyrie Irving'], { min: 36, pts: 28, reb: 5, ast: 7, tpm: 4, stl: 2, blk: 0, tov: 3, oreb: 1, dreb: 4, ftm: 4, fgm: 10, fga: 20, tpa: 9, fta: 4 });
   assert.deepEqual(p['Dereck Lively II'], { min: 0, dnp: true }, 'didNotPlay');
   assert.deepEqual(p['Brandon Williams'], { min: 0, dnp: true }, '0 minutos y nada más');
   // Columnas en otro orden, minutos "mm:ss" y un dato que falta ("--").
-  assert.deepEqual(p['Alperen Şengün'], { min: 34.5, pts: 22, reb: 12, ast: 6, tpm: 1, stl: 1, blk: 2, tov: 4, oreb: 3, dreb: 9, ftm: 3, fgm: 9 });
+  assert.deepEqual(p['Alperen Şengün'], { min: 34.5, pts: 22, reb: 12, ast: 6, tpm: 1, stl: 1, blk: 2, tov: 4, oreb: 3, dreb: 9, ftm: 3, fgm: 9, fga: 17, tpa: 3, fta: 4 });
   assert.equal(p['Amen Thompson'].blk, null);
   assert.equal(p['Amen Thompson'].fgm, 6);
+  assert.equal(p['Amen Thompson'].fga, 10);
   assert.deepEqual(p['Fred VanVleet'], { min: 0, dnp: true });
+});
+
+test('box score de ESPN: intentos del "x-y", de columnas propias o sin dato', () => {
+  // "9-15": 9 anotados y 15 intentados.
+  const one = (stats, keys = KEYS, names) => {
+    const b = { names: names || keys.map((k) => NAMES[KEYS.indexOf(k)] ?? k), keys, athletes: [athlete('1', 'X Y', 'X. Y', stats)] };
+    return playersFromSummary({ boxscore: { players: [{ team: { id: '6' }, statistics: [b] }] } })['X Y'];
+  };
+  const r = one(line(KEYS, stat(30, 21, '9-15', '2-6', '1-2', 5, 3, 1, 0, 0, 1, 4)));
+  assert.deepEqual([r.fgm, r.fga, r.tpm, r.tpa, r.ftm, r.fta], [9, 15, 2, 6, 1, 2]);
+  // "0-4": no metió ninguno en 4 intentos.
+  const miss = one(line(KEYS, stat(12, 0, '0-4', '0-3', '0-0', 1, 0, 0, 0, 0, 0, 1)));
+  assert.deepEqual([miss.fgm, miss.fga, miss.tpm, miss.tpa, miss.ftm, miss.fta], [0, 4, 0, 3, 0, 0]);
+  // Columnas aparte de anotados e intentados (FGM / FGA, 3PM / 3PA, FTM / FTA).
+  const keys = ['minutes', 'points', 'fieldGoalsMade', 'fieldGoalsAttempted', 'threePointFieldGoalsMade', 'threePointFieldGoalsAttempted', 'freeThrowsMade', 'freeThrowsAttempted'];
+  const names = ['MIN', 'PTS', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA'];
+  const own = one(['28', '17', '7', '13', '1', '4', '2', '3'], keys, names);
+  assert.deepEqual([own.fgm, own.fga, own.tpm, own.tpa, own.ftm, own.fta], [7, 13, 1, 4, 2, 3]);
+  // Solo con nombres (sin claves).
+  const nameBlock = { names, athletes: [athlete('2', 'A B', 'A. B', ['28', '17', '7', '13', '1', '4', '2', '3'])] };
+  const byName = playersFromSummary({ boxscore: { players: [{ team: { id: '6' }, statistics: [nameBlock] }] } })['A B'];
+  assert.deepEqual([byName.fga, byName.tpa, byName.fta], [13, 4, 3]);
+  // Solo anotados (un número, sin columna de intentos): los intentos quedan sin dato, no en 0.
+  const made = one(['28', '17', '7', '1', '2'], ['minutes', 'points', 'fieldGoalsMade', 'threePointFieldGoalsMade', 'freeThrowsMade'], ['MIN', 'PTS', 'FGM', '3PM', 'FTM']);
+  assert.deepEqual([made.fgm, made.fga, made.tpm, made.tpa, made.ftm, made.fta], [7, null, 1, null, 2, null]);
+  // "--" o intentos menores que anotados (dato roto): sin dato.
+  const broken = one(line(KEYS, { ...stat(30, 21, '--', '5-3', '1-2', 5, 3, 1, 0, 0, 1, 4) }));
+  assert.deepEqual([broken.fgm, broken.fga, broken.tpm, broken.tpa, broken.fta], [null, null, 5, null, 2]);
 });
 
 test('box score de ESPN: un equipo y resúmenes vacíos o raros', () => {
@@ -154,7 +183,7 @@ test('box score de ESPN: un equipo y resúmenes vacíos o raros', () => {
   assert.deepEqual(boxFromSummary({ boxscore: { players: [{ team: { id: '6' }, statistics: [] }] } }), { 6: [] });
   // Solo con `names` (sin `keys`) también se ubican las columnas.
   const onlyNames = { boxscore: { players: [{ team: { id: '6' }, statistics: [{ names: NAMES, athletes: [athlete('1', 'X Y', 'X. Y', ['20', '11', '4-8', '1-2', '2-2', '3', '2', '1', '0', '1', '1', '2', '1', '0'])] }] }] } };
-  assert.deepEqual(playersFromSummary(onlyNames)['X Y'], { min: 20, pts: 11, reb: 3, ast: 2, tpm: 1, stl: 0, blk: 1, tov: 1, oreb: 1, dreb: 2, ftm: 2, fgm: 4 });
+  assert.deepEqual(playersFromSummary(onlyNames)['X Y'], { min: 20, pts: 11, reb: 3, ast: 2, tpm: 1, stl: 0, blk: 1, tov: 1, oreb: 1, dreb: 2, ftm: 2, fgm: 4, fga: 8, tpa: 2, fta: 2 });
 });
 
 test('bajas del partido por jugar: Out y suspensión sí; Day-To-Day no', () => {
@@ -302,7 +331,9 @@ test('últimos partidos de un equipo: solo los jugados, orden por minutos y baja
       [100, 30, 10],
     ],
   );
-  assert.deepEqual(Object.keys(r.players[0].games[0]), ['start', 'min', 'pts', 'reb', 'ast', 'tpm', 'stl', 'blk', 'tov', 'oreb', 'dreb', 'ftm', 'fgm']);
+  assert.deepEqual(Object.keys(r.players[0].games[0]), ['start', 'min', 'pts', 'reb', 'ast', 'tpm', 'stl', 'blk', 'tov', 'oreb', 'dreb', 'ftm', 'fgm', 'fga', 'tpa', 'fta']);
+  // La fila no trae intentos: quedan null (no 0).
+  assert.deepEqual([r.players[0].games[0].fga, r.players[0].games[0].tpa, r.players[0].games[0].fta], [null, null, null]);
   assert.deepEqual(teamLogs([], '6'), { teamGames: 0, players: [] });
 });
 
@@ -419,7 +450,11 @@ test('getPlayerLogs: pretemporada + temporada regular anterior, box scores y baj
     [Date.parse('2026-10-11T00:00Z'), Date.parse('2026-10-08T00:00Z'), Date.parse('2026-04-12T23:30Z')],
     'pretemporada primero, luego la regular 2026; nada posterior al partido',
   );
-  assert.deepEqual(gafford.games[0], { start: Date.parse('2026-10-11T00:00Z'), min: 20, pts: 10, reb: 7, ast: 1, tpm: 0, stl: 0, blk: 2, tov: 1, oreb: 3, dreb: 4, ftm: 0, fgm: 5 });
+  assert.deepEqual(gafford.games[0], {
+    start: Date.parse('2026-10-11T00:00Z'), min: 20, pts: 10, reb: 7, ast: 1, tpm: 0, stl: 0, blk: 2, tov: 1, oreb: 3, dreb: 4, ftm: 0, fgm: 5, fga: 6, tpa: 0, fta: 1,
+  });
+  // Şengün: "9-15" → 9 anotados y 15 intentados en cada partido.
+  assert.deepEqual([r.home.players[0].games[0].fgm, r.home.players[0].games[0].fga], [9, 15]);
   assert.equal(r.away.players[0].games[0].pts, 21, 'Kyrie en el partido más reciente (k = 1)');
   // Rockets: un box score falló (se omite) y VanVleet de baja por nombre.
   assert.equal(r.home.team, 'Houston Rockets');
@@ -522,17 +557,34 @@ test('registro compacto con jugadores: ida y vuelta, DNP como 0 o [0]', () => {
   const players = { ...playersFromSummary(SUMMARY), 'Sofa Player': { min: 23.456789, pts: 7, reb: null, ast: 1, tpm: 1, stl: 0, blk: 0, tov: 2, oreb: null, dreb: null, ftm: 0, fgm: 3 } };
   const rec = { sport: 'basketball', state: 'finalizado', final: [110, 102], per: [[30, 25], [28, 27], [26, 25], [26, 25]], nReg: 4, players };
   const c = JSON.parse(JSON.stringify(compactRecord(rec)));
-  assert.deepEqual(c.j['Daniel Gafford'], [15, 9, 4, 0, 0, 0, 0, 1, 2, 2, 3, 3]);
+  // [min, pts, reb, ast, tpm, stl, blk, tov, oreb, dreb, ftm, fgm, fga, tpa, fta]
+  assert.deepEqual(c.j['Daniel Gafford'], [15, 9, 4, 0, 0, 0, 0, 1, 2, 2, 3, 3, 3, 0, 3]);
+  assert.deepEqual(c.j['Kyrie Irving'], [36, 28, 5, 7, 4, 2, 0, 3, 1, 4, 4, 10, 20, 9, 4]);
+  assert.deepEqual(c.j['Sofa Player'], [23.46, 7, null, 1, 1, 0, 0, 2, null, null, 0, 3], 'sin intentos: los null del final no se escriben');
   assert.equal(c.j['Dereck Lively II'], 0);
   assert.equal(c.j['Brandon Williams'], 0);
   const back = expandRecord(c, 'basketball', 'finalizado');
   assert.deepEqual(back.players['Daniel Gafford'], players['Daniel Gafford']);
+  assert.deepEqual(back.players['Kyrie Irving'], players['Kyrie Irving']);
   assert.deepEqual(back.players['Alperen Şengün'], players['Alperen Şengün']);
   assert.deepEqual(back.players['Fred VanVleet'], { min: 0, dnp: true });
-  assert.deepEqual(back.players['Sofa Player'], { ...players['Sofa Player'], min: 23.46 });
+  assert.deepEqual(back.players['Sofa Player'], { ...players['Sofa Player'], min: 23.46, fga: null, tpa: null, fta: null });
   assert.deepEqual(back.per, rec.per);
   // [0] también es "no jugó".
   assert.deepEqual(expandRecord({ j: { X: [0], Y: 0 } }, 'basketball', 'finalizado').players, { X: { min: 0, dnp: true }, Y: { min: 0, dnp: true } });
+  // Registros publicados antes de los intentos (12 campos) se siguen leyendo: intentos null.
+  const before = expandRecord({ j: { 'Kyrie Irving': [36, 28, 5, 7, 4, 2, 0, 3, 1, 4, 4, 10], Corto: [20, 8] } }, 'basketball', 'finalizado').players;
+  assert.deepEqual(before['Kyrie Irving'], { min: 36, pts: 28, reb: 5, ast: 7, tpm: 4, stl: 2, blk: 0, tov: 3, oreb: 1, dreb: 4, ftm: 4, fgm: 10, fga: null, tpa: null, fta: null });
+  assert.deepEqual(before.Corto, {
+    min: 20, pts: 8, reb: null, ast: null, tpm: null, stl: null, blk: null, tov: null, oreb: null, dreb: null, ftm: null, fgm: null, fga: null, tpa: null, fta: null,
+  });
+  // Solo algunos intentos: se guarda hasta el último con dato.
+  const some = compactRecord({ players: { Z: { min: 30, pts: 10, fga: 12 } } }).j.Z;
+  assert.deepEqual(some, [30, 10, null, null, null, null, null, null, null, null, null, null, 12]);
+  assert.deepEqual(expandRecord({ j: { Z: some } }).players.Z.fga, 12);
+  // Sin ningún dato además de los minutos: igual son 2 valores (uno solo es "no jugó").
+  assert.deepEqual(compactRecord({ players: { W: { min: 3 } } }).j.W, [3, null]);
+  assert.deepEqual(expandRecord({ j: { W: [3, null] } }).players.W.dnp, undefined);
   // Registros viejos (sin jugadores) siguen igual.
   const old = expandRecord({ f: [2, 1], s: { corners: { ft: [5, 3] } } }, 'football', 'finalizado');
   assert.equal('players' in old, false);
@@ -547,6 +599,6 @@ test('resultado publicado con jugadores (sin registro de Flashscore)', () => {
   assert.equal(raw[3], null, 'sin periodos');
   const res = expandResult(raw, 'basketball');
   assert.deepEqual(res.record.final, [110, 102]);
-  assert.deepEqual(res.record.players['Kyrie Irving'], { min: 36, pts: 28, reb: 5, ast: 7, tpm: 4, stl: 2, blk: 0, tov: 3, oreb: 1, dreb: 4, ftm: 4, fgm: 10 });
+  assert.deepEqual(res.record.players['Kyrie Irving'], { min: 36, pts: 28, reb: 5, ast: 7, tpm: 4, stl: 2, blk: 0, tov: 3, oreb: 1, dreb: 4, ftm: 4, fgm: 10, fga: 20, tpa: 9, fta: 4 });
   assert.deepEqual(res.record.players['Dereck Lively II'], { min: 0, dnp: true });
 });

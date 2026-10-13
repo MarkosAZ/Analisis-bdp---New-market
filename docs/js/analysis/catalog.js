@@ -211,6 +211,9 @@ const STATS = [
   [/powerplay/, 'ppg'],
   [/shorthanded/, 'shg'],
   [/porteria vacia/, 'eng'],
+  // Básquet: intentos y tiros de campo (no son los triples, dobles o libres anotados).
+  [/\b(?:tiros|lanzamientos|triples)\b.*\b(?:intentad[oa]s|intentos)\b|\bintentos de (?:tiros|lanzamientos|triples)\b/, 'shot_att'],
+  [/\b(?:tiros|lanzamientos|canastas) de campo\b|\btiros anotados\b/, 'fg'],
   [/tiros de tres|triples|tiros de 3/, 'threes'],
   [/tiros de 2|tiros de dos/, 'twos'],
   [/tiros libres|lanzamientos libres/, 'ftm'],
@@ -246,7 +249,7 @@ const STATS = [
 
 // Estadísticas que no trae Flashscore (no se pueden liquidar). Los puntos de
 // tarjetas (amarilla 10, roja 25) no son la cantidad de tarjetas.
-const NO_DATA_STATS = new Set(['rush_att', 'receptions', 'singles', 'doubles', 'checkout', 'card_points']);
+const NO_DATA_STATS = new Set(['rush_att', 'receptions', 'singles', 'doubles', 'checkout', 'card_points', 'shot_att', 'fg']);
 
 // Deportes en los que "puntos" no es el marcador sino los puntos de los sets.
 const RALLY = new Set(['table-tennis', 'badminton', 'volleyball', 'beach-volley']);
@@ -261,6 +264,7 @@ function statOf(name, sport) {
     if (code === 'games' && sport !== 'tennis') continue;
     if (code === 'ast' && sport === 'football') continue; // asistencias de jugador
     if (code === 'doubles' && sport !== 'baseball') continue;
+    if ((code === 'shot_att' || code === 'fg') && sport !== 'basketball') continue;
     if (code === 'rounds' && sport === 'esports' && /rondas? de pistola|ronda ganadora/.test(name)) return 'pistol';
     if (code === 'maps') return 'score';
     return code;
@@ -324,20 +328,37 @@ function teamOf(name) {
 
 export const PLAYER_STAT_CODES = [
   'pl_pts', 'pl_reb', 'pl_ast', 'pl_3pm', 'pl_stl', 'pl_blk', 'pl_tov', 'pl_oreb', 'pl_dreb', 'pl_ftm', 'pl_2pm', 'pl_pra', 'pl_pr', 'pl_pa', 'pl_ra', 'pl_sb',
+  'pl_fgm', 'pl_fga', 'pl_3pa', 'pl_2pa', 'pl_fta',
 ];
 export const isPlayerStat = (stat) => typeof stat === 'string' && stat.startsWith('pl_');
 
 // Frase de la estadística (sin tildes, minúsculas) con su "Total de" / "totales". Lo combinado y lo específico primero.
 const PL_AND = '(?:\\s*[,+&/]\\s*(?:y\\s+)?|\\s+y\\s+|\\s+)';
+// Tiros: "tiros de 3 puntos", "lanzamientos de dos", "triples", "tiros libres", "tiros de campo".
+const PL_SHOT = '(?:tiros?|lanzamientos?|canastas?)';
+const PL_THREES = `(?:${PL_SHOT} de (?:tres|3)(?: puntos)?|triples)`; // "triple" solo no: "Triple-double"
+const PL_TWOS = `${PL_SHOT} de (?:dos|2)(?: puntos)?`;
+const PL_FREE = '(?:tiros?|lanzamientos?) libres?';
+const PL_FIELD = `${PL_SHOT} de campo`;
+// Intentados ("tiros de 3 puntos intentados", "intentos de triples"); anotados ("triples anotados" o solo "triples").
+const plAttempts = (shot) => `${shot}(?:\\s+totales)?\\s+(?:intentad[oa]s|lanzad[oa]s|intentos)|intentos? de\\s+${shot}`;
+const plMade = (shot) => `${shot}(?:\\s+(?:anotad[oa]s|convertid[oa]s|encestad[oa]s))?`;
 const PLAYER_STATS = [
   [`puntos${PL_AND}rebotes${PL_AND}asistencias`, 'pl_pra'],
   [`puntos${PL_AND}rebotes`, 'pl_pr'],
   [`puntos${PL_AND}asistencias`, 'pl_pa'],
   [`rebotes${PL_AND}asistencias`, 'pl_ra'],
   [`(?:robos|recuperaciones)${PL_AND}(?:tapones|bloqueos|tapas)`, 'pl_sb'],
-  ['(?:tiros|lanzamientos|canastas) de (?:tres|3)(?: puntos)?(?: anotad[oa]s)?|triples(?: anotados)?', 'pl_3pm'],
-  ['(?:tiros|lanzamientos|canastas) de (?:dos|2)(?: puntos)?(?: anotad[oa]s)?', 'pl_2pm'],
-  ['(?:tiros|lanzamientos) libres(?: anotados)?', 'pl_ftm'],
+  // Los intentos antes que los anotados: "tiros de 3 puntos" es el comienzo de "tiros de 3 puntos intentados".
+  [plAttempts(PL_THREES), 'pl_3pa'],
+  [plAttempts(PL_TWOS), 'pl_2pa'],
+  [plAttempts(PL_FREE), 'pl_fta'],
+  [plAttempts(PL_FIELD), 'pl_fga'],
+  [plAttempts('(?:tiros?|lanzamientos?)'), 'pl_fga'], // "tiros intentados": de campo (los libres van aparte)
+  [plMade(PL_THREES), 'pl_3pm'],
+  [plMade(PL_TWOS), 'pl_2pm'],
+  [plMade(PL_FREE), 'pl_ftm'],
+  [plMade(PL_FIELD), 'pl_fgm'],
   ['rebotes ofensivos', 'pl_oreb'],
   ['rebotes defensivos', 'pl_dreb'],
   ['rebotes', 'pl_reb'],
@@ -361,8 +382,8 @@ const NOT_NAME_WORDS = [
   'empate cada ambos todos exact[oa]s? juegos? puntos? rebotes asistencias tiros triples robos tapones perdidas balon libres anotad[oa]s jugador(?:es)?',
   'bocina forma ultimo oportunidad apuesta sets? innings? entradas? carreras goles? corners? tarjetas minutos? asiatico alternativ[oa]s? lineas?',
   'especial(?:es)? combinad[oa]s? cuotas?',
-  // Otras estadísticas que no son Más/Menos de lo anotado: intentos, puntos en la pintura, de la banca...
-  'intentad[oa]s? intentos? lanzad[oa]s? pintura banca banquillo titulares suplentes contraataques?',
+  // Restos de estadísticas que no se reconocieron (intentos sueltos, porcentajes, puntos en la pintura, de la banca...).
+  'intentad[oa]s? intentos? lanzad[oa]s? porcentajes? efectividad acierto pintura banca banquillo titulares suplentes contraataques?',
 ].join(' ');
 const NOT_NAME = new RegExp(`\\d|[[\\]{}|~/&+=<>?!%#*@]|\\b(?:${NOT_NAME_WORDS.split(' ').join('|')})\\b`);
 
@@ -481,7 +502,7 @@ function parsePlayerMarket(rawName, selections, ctx) {
 
 const unsupported = (kind) => ({ unsupported: kind, reason: UNSUPPORTED[kind] });
 
-const PLAYER = /\[jugador|jugador\]|(?<!ambos )jugadores|goleador|anotar en cualquier momento|anotador|en cualquier momento|triplete|ultimo en marcar|recibir una tarjeta|recibe una tarjeta roja|jugador que|el jugador|anota desde fuera|consigue una blanqueada|\bh2h\b|double[- ]double|triple[- ]double|mas puntos en el partido|mas rebotes en el partido|mas asistencias en un partido|mas tiros de 3 puntos anotados|mejor anotador|jonrones|ponches|cualquiera\/o|combinados \d\+ touchdown|encuentros \(|\[ross|\[jamie/;
+const PLAYER = /\[jugador|jugador\]|(?<!ambos )jugadores|goleador|anotar en cualquier momento|anotador|en cualquier momento|triplete|ultimo en marcar|recibir una tarjeta|recibe una tarjeta roja|jugador que|el jugador|anota desde fuera|consigue una blanqueada|\bh2h\b|double[- ]double|triple[- ]double|mas puntos en el partido|mas rebotes en el partido|mas asistencias en un partido|mas tiros de 3 puntos (?:anotados|intentados)|mejor anotador|jonrones|ponches|cualquiera\/o|combinados \d\+ touchdown|encuentros \(|\[ross|\[jamie/;
 const OUTRIGHT = /campeon|ganador absoluto|termina en el podio|vuelta mas rapida|termina entre|final con puntos|auto ganador|auto que hace|parada en boxes|ultimo clasificado|a clasificar|pilotos clasificados|coche de seguridad|bandera roja|primer piloto|retiro del primer|ganador de la clasificacion|primera posicion/;
 const SPECIAL = /forma de anotacion|forma del (primer|ultimo) punto|forma de la primera anotacion|que ocurrira primero|bocina|resultado del 1er drive|conversion exitosa|seguridad anotada|equipos especiales|cualquiera de los arqueros|ganador de la ronda|ronda de pistolas|carrera a rondas|tiempo extra \(mapa|cantidad de sets para superar|ganador de puntos \(punto|forma del triunfo|apuesta de ronda|por ko|por decision|llegara la lucha|en que minuto|ronda ganadora|especiales del partido|equipo que falla un penal|dos penales|ambos equipos ganan un penal|primer offside|primer ace|primera falta doble|carrera a 2|forma de anotacion|carrera a x puntos|carrera a \d+ puntos|resultado exacto de las rondas|total de rounds|total rounds|rondas.*(mma)|primera mitad \(mapa|primer tiempo \(mapa|segundo tiempo \(mapa|fin tiempo reg\. \(mapa|fin tiempo reg \(mapa|ganador de la primera mitad|\[local\/visitante\]/;
 
@@ -1189,7 +1210,8 @@ export const STAT_NAME = {
   pl_pts: 'puntos', pl_reb: 'rebotes', pl_ast: 'asistencias', pl_3pm: 'triples anotados', pl_stl: 'robos', pl_blk: 'tapones',
   pl_tov: 'pérdidas', pl_oreb: 'rebotes ofensivos', pl_dreb: 'rebotes defensivos', pl_ftm: 'tiros libres anotados',
   pl_2pm: 'tiros de 2 anotados', pl_pra: 'puntos + rebotes + asistencias', pl_pr: 'puntos + rebotes', pl_pa: 'puntos + asistencias',
-  pl_ra: 'rebotes + asistencias', pl_sb: 'robos + tapones',
+  pl_ra: 'rebotes + asistencias', pl_sb: 'robos + tapones', pl_fgm: 'tiros de campo anotados', pl_fga: 'tiros de campo intentados',
+  pl_3pa: 'triples intentados', pl_2pa: 'tiros de 2 intentados', pl_fta: 'tiros libres intentados',
 };
 const ORDINAL = ['1.er', '2.º', '3.er', '4.º', '5.º', '6.º', '7.º', '8.º', '9.º'];
 const ORDINAL_F = ['1.ª', '2.ª', '3.ª', '4.ª', '5.ª', '6.ª', '7.ª', '8.ª', '9.ª'];
