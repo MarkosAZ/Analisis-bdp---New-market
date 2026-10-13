@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { FEATURE_VERSION, FEATURES, upgradeFeatures } from '../docs/js/analysis/features.js';
-import { MIN_SAMPLES } from '../docs/js/analysis/neural.js';
+import { Corrector, MIN_SAMPLES } from '../docs/js/analysis/neural.js';
 import { NETWORKS, NetworkSet, networkOf } from '../docs/js/analysis/networks.js';
 import { MARKETS } from '../docs/js/analysis/picks.js';
 import { rng } from '../docs/js/util.js';
+import { mergeRows, rowCandidates } from '../docs/js/history.js';
 
 const Z = FEATURES.indexOf('zLine');
 
@@ -60,4 +61,81 @@ test('las filas de versiones anteriores (mezcladas con las cuotas) no se usan pa
   assert.equal(upgradeFeatures(new Array(39).fill(0), 2), null);
   assert.equal(upgradeFeatures(new Array(27).fill(0), 1), null);
   assert.equal(upgradeFeatures(new Array(FEATURES.length).fill(0), FEATURE_VERSION).length, FEATURES.length);
+});
+
+test('sin señal (resultado al azar según la estadística) la red casi nunca se acepta', () => {
+  let accepted = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const r = rng(1000 + seed);
+    const data = Array.from({ length: 220 }, (_, i) => {
+      const pBase = 0.5 + r() * 0.45;
+      const x = FEATURES.map((f, k) => (k % 3 === 0 ? r() * 2 - 1 : k % 3 === 1 ? (r() < 0.5 ? 1 : 0) : r() * 0.004));
+      return { x, pBase, y: r() < pBase ? 1 : 0, start: i };
+    });
+    const net = new Corrector({ inputs: FEATURES.length });
+    const meta = net.train(data);
+    assert.equal(meta.test, 132, 'el 60 % más reciente, predicho sin haberlo visto');
+    if (net.trained) accepted++;
+  }
+  assert.ok(accepted <= 2, `aceptadas por azar: ${accepted} de 40`);
+});
+
+test('variables casi constantes entran como 0 y los valores raros se recortan', () => {
+  const net = new Corrector({ inputs: 3 });
+  net.setNorm([{ x: [0, 5, 1] }, { x: [2, 5, 1.001] }, { x: [4, 5, 0.999] }]);
+  assert.deepEqual(net.std.map((v) => v > 0), [true, false, false]);
+  const xn = net.norm([1000, 9, 50]);
+  assert.equal(xn[0], 5);
+  assert.equal(xn[1], 0);
+  assert.equal(xn[2], 0);
+  assert.equal(net.norm([-1000, 5, 1])[0], -5);
+});
+
+// ---- Filas de entrenamiento ----
+
+test('filas: una por mercado (el lado más probable), sin los dos lados de la línea', () => {
+  const c = (eventId, market, sel, line, pBase) => ({ eventId, market, sel, line, pBase, key: `${market}|${sel}|${line ?? ''}` });
+  const rows = rowCandidates([
+    c(1, 'OU', 'over', 2.5, 0.62),
+    c(1, 'OU', 'under', 2.5, 0.38),
+    c(1, 'OU', 'over', 3.5, 0.41),
+    c(1, 'OU', 'under', 3.5, 0.59),
+    c(1, 'BTTS', 'yes', null, 0.98), // fuera de la zona útil
+    c(1, 'BTTS', 'no', null, 0.02),
+    c(2, 'OU', 'over', 2.5, 0.45),
+    c(2, 'OU', 'under', 2.5, 0.55),
+  ]);
+  assert.deepEqual(
+    rows.map((r) => `${r.eventId}|${r.market}|${r.sel}|${r.line}`).sort(),
+    ['1|OU|over|2.5', '2|OU|under|2.5'],
+  );
+});
+
+test('filas: hasta 40 de jugador por partido, repartidas entre todas las probabilidades', () => {
+  const list = [];
+  for (let i = 0; i < 100; i++) list.push({ eventId: 7, market: `OU.pl_pts#Jugador ${i}`, sel: 'over', line: 10.5, pBase: 0.5 + (0.47 * i) / 99 });
+  list.push({ eventId: 7, market: 'OU', sel: 'over', line: 220.5, pBase: 0.6 });
+  const rows = rowCandidates(list);
+  const players = rows.filter((r) => r.market.startsWith('OU.pl_'));
+  assert.equal(players.length, 40);
+  assert.equal(new Set(players.map((r) => r.market)).size, 40);
+  const ps = players.map((r) => r.pBase);
+  assert.ok(Math.min(...ps) < 0.52 && Math.max(...ps) > 0.94, 'de punta a punta, no solo las más altas');
+  assert.ok(rows.some((r) => r.market === 'OU'), 'los del equipo no cuentan para el tope');
+});
+
+test('filas guardadas: la del último análisis hasta tener resultado', () => {
+  const old = [
+    { key: '1|OU', sel: 'over', line: 2.5, y: null },
+    { key: '2|OU', sel: 'over', line: 2.5, y: 1 },
+  ];
+  const merged = mergeRows(old, [
+    { key: '1|OU', sel: 'under', line: 3.5, y: null },
+    { key: '2|OU', sel: 'under', line: 2.5, y: null },
+    { key: '3|OU', sel: 'over', line: 1.5, y: null },
+  ]);
+  const by = Object.fromEntries(merged.map((r) => [r.key, r]));
+  assert.deepEqual([by['1|OU'].sel, by['1|OU'].line], ['under', 3.5]);
+  assert.deepEqual([by['2|OU'].sel, by['2|OU'].y], ['over', 1], 'con resultado no se cambia');
+  assert.ok(by['3|OU']);
 });

@@ -25,20 +25,21 @@ export const MARKETS = [
   { sport: 'football', market: 'OU.shots_on', name: 'Tiros al arco', range: [2.5, 22.5], net: 'Football_Shots_Model' },
   { sport: 'football', market: 'OU.shots', name: 'Remates totales', range: [8.5, 45.5], net: 'Football_Shots_Model' },
   { sport: 'football', market: 'OU.corners@h1', name: 'Córners en el primer tiempo Más/Menos', range: [0.5, 10.5], net: 'Football_Corners_Model' },
-  { sport: 'basketball', market: 'OU', name: 'Total de puntos', range: [100.5, 290.5], net: 'Basketball_Totals_Model' },
-  { sport: 'basketball', market: 'HCP', name: 'Hándicap', range: [-45.5, 45.5], net: 'Basketball_Handicap_Model' },
+  { sport: 'basketball', market: 'OU', name: 'Total de puntos', range: [80.5, 300.5], net: 'Basketball_Totals_Model' },
+  { sport: 'basketball', market: 'HCP', name: 'Hándicap', range: [-75.5, 75.5], net: 'Basketball_Handicap_Model' },
   { sport: 'basketball', market: 'OU.player', name: 'Jugador: Más/Menos (puntos, rebotes, asistencias, triples...)', range: [0.5, 80.5], net: 'Basketball_PlayerProps_Model' },
-  { sport: 'basketball', market: 'HCP@h1', name: 'Primer tiempo: hándicap', range: [-30.5, 30.5], net: 'Basketball_Handicap_Model' },
-  { sport: 'basketball', market: 'OU@h1', name: 'Primer tiempo: total de puntos', range: [50.5, 150.5], net: 'Basketball_Totals_Model' },
+  { sport: 'basketball', market: 'HCP@h1', name: 'Primer tiempo: hándicap', range: [-40.5, 40.5], net: 'Basketball_Handicap_Model' },
+  { sport: 'basketball', market: 'OU@h1', name: 'Primer tiempo: total de puntos', range: [40.5, 160.5], net: 'Basketball_Totals_Model' },
   { sport: 'baseball', market: 'ML', name: 'Ganador', net: 'Baseball_Winner_Model' },
-  { sport: 'baseball', market: 'HCP', name: 'Hándicap (run line)', range: [-3.5, 3.5], net: 'Baseball_RunLine_Model' },
-  { sport: 'baseball', market: 'OU', name: 'Total de carreras', range: [3.5, 18.5], net: 'Baseball_Totals_Model' },
+  { sport: 'baseball', market: 'HCP', name: 'Hándicap (run line)', range: [-5.5, 5.5], net: 'Baseball_RunLine_Model' },
+  { sport: 'baseball', market: 'OU', name: 'Total de carreras', range: [3.5, 22.5], net: 'Baseball_Totals_Model' },
 ].map((m) => ({ ...m, id: `${m.sport}:${m.market}` }));
 
 const BY_ID = new Map(MARKETS.map((m) => [m.id, m]));
 export const isPlayerMarket = (market) => /^OU\.pl_/.test(String(market));
 // Mercado de la lista al que pertenece una selección ("basketball:OU.player" para los de jugador).
-export const marketKey = (sport, market) => `${sport}:${isPlayerMarket(market) ? 'OU.player' : String(market).replace(/#.*$/, '')}`;
+// Solo en los de jugador se quita el '#nombre': 'BTTS#2' (ambos anotan 2+) es otro mercado.
+export const marketKey = (sport, market) => `${sport}:${isPlayerMarket(market) ? 'OU.player' : String(market)}`;
 export const marketInfo = (sport, market) => BY_ID.get(marketKey(sport, market)) || null;
 // ¿El mercado (identificador del catálogo) se analiza en ese deporte?
 export const marketsOf = (sport) => ({ has: (market) => Boolean(marketInfo(sport, market)) });

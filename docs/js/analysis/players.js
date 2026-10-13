@@ -113,9 +113,12 @@ function givenScore(ra, rb) {
   return total;
 }
 
-// Parecido entre dos nombres ya separados en palabras (0 = no es el mismo).
-// El apellido (las últimas palabras) debe coincidir: 10 por palabra (8 si tiene
-// un error de tipeo), más lo que sumen los nombres de pila. Mismo nombre: 100.
+// Parecido entre dos nombres ya separados en palabras: a = el buscado, b = el
+// candidato. 0: no es el mismo; −1: mismo apellido pero se contradicen (otro
+// nombre de pila, o el buscado trae palabras que el candidato no tiene, como
+// "intentados Stephen Curry" o "LeBron James y Jayson Tatum"). El apellido (las
+// últimas palabras) suma 10 por palabra (8 con un error de tipeo), más lo que
+// sumen los nombres de pila. Mismo nombre: 100.
 function nameScore(a, b) {
   if (!a.length || !b.length) return 0;
   if (a.join('') === b.join('')) return 100;
@@ -131,8 +134,9 @@ function nameScore(a, b) {
     j--;
   }
   if (!sur) return 0;
+  if (i >= 0 && j < 0 && b.length > 1) return -1; // palabras de más en el buscado
   const given = givenScore(a.slice(0, i + 1), b.slice(0, j + 1));
-  return given < 0 ? 0 : sur + given;
+  return given < 0 ? -1 : sur + given;
 }
 
 // Jugador de `players` ([{ name, short }] o nombres) que corresponde a `name`, o null si
@@ -147,12 +151,13 @@ export function matchPlayer(name, players = []) {
   let tie = false;
   for (const p of players || []) {
     if (!p) continue;
-    const names = typeof p === 'string' ? [p] : [p.name, p.short];
-    let score = 0;
-    for (const x of names) {
-      const b = tokens(x);
-      for (const q of queries) score = Math.max(score, nameScore(q, b));
-    }
+    const full = tokens(typeof p === 'string' ? p : p.name);
+    // Si el nombre completo contradice al buscado ("Jalen" frente a "Jaylin"
+    // Williams), el corto ("J. Williams") no lo salva: es otro jugador.
+    const scores = queries.map((q) => nameScore(q, full));
+    if (scores.every((x) => x < 0)) continue;
+    let score = Math.max(0, ...scores);
+    if (typeof p !== 'string' && p.short) for (const q of queries) score = Math.max(score, nameScore(q, tokens(p.short)));
     if (score > bestScore) {
       best = p;
       bestScore = score;
@@ -252,7 +257,9 @@ export function playerValue(rec, name, code) {
   if (key == null) key = matchPlayer(String(name), Object.keys(players));
   const row = key == null ? null : players[key];
   if (!row) return null;
-  if (row.dnp || toNum(row.min) === 0) return { dnp: true };
+  // Solo la fuente dice si no jugó: con 0 minutos redondeados pudo entrar unos
+  // segundos (para la casa jugó y la apuesta vale).
+  if (row.dnp) return { dnp: true };
   const value = statValue(row, code);
   return value == null ? null : { value };
 }

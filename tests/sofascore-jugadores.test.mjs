@@ -373,6 +373,17 @@ test('getPlayerLogs: límite n, partido a analizar sin alineación y lista vací
   assert.deepEqual(await getPlayerLogs(), { mode: null, items: {}, notes: [] });
 });
 
+test('getPlayerLogs: liga sin alineaciones (todo 404): no prueba otra vía y queda en caché', async () => {
+  const calls = mockSofascore({});
+  const ev = { id: 9700, homeId: 1, awayId: 2, lastHome: [{ id: 9601, home: true }, { id: 9602, home: false }], lastAway: [{ id: 9603, home: true }] };
+  const r = await getPlayerLogs({ events: [ev] });
+  assert.ok(calls.every((c) => c.startsWith('api.sofascore.com')), `sin www ni pestaña: ${calls.join(', ')}`);
+  assert.deepEqual(r.items[9700], { home: { teamGames: 0, players: [] }, away: { teamGames: 0, players: [] } });
+  calls.length = 0;
+  await getPlayerLogs({ events: [ev] });
+  assert.deepEqual(calls, ['api.sofascore.com/event/9700/lineups'], 'los 404 de partidos terminados quedan en caché');
+});
+
 test('getPlayerLogs: si Sofascore no responde, error con los intentos', async () => {
   mockSofascore({ '/event/9401/lineups': 403, '/event/9402/lineups': 403, '/event/9500/lineups': 403 });
   // Sin chrome.tabs la vía "pestaña" también falla (como si no se pudiera abrir).

@@ -126,9 +126,11 @@ function boxNumber(raw, field) {
 // (no jugó: didNotPlay, sin estadísticas, o 0 minutos sin ningún dato).
 function athleteRow(a, cols) {
   if (a.didNotPlay || !a.stats?.length) return { min: 0, dnp: true };
+  // Todo en cero (también intentos y +/-): no jugó. Con "MIN 0" pero algún intento o
+  // +/- sí entró a la cancha, y la casa liquida la apuesta.
+  if (a.stats.every((v) => /^(?:[+-]?0+(?:-0+)?|--?|)$/.test(String(v ?? '').trim()))) return { min: 0, dnp: true };
   const row = {};
   for (const f of PLAYER_FIELDS) row[f] = cols[f] >= 0 ? boxNumber(a.stats[cols[f]], f) : null;
-  if (!(row.min > 0) && PLAYER_FIELDS.every((f) => !row[f])) return { min: 0, dnp: true };
   return row;
 }
 
@@ -247,8 +249,9 @@ function espnState(status) {
 export function eventsFromScoreboard(data) {
   return (data?.events || []).map((e) => {
     const comp = e.competitions?.[0] || {};
-    const team = (side) => comp.competitors?.find((c) => c.homeAway === side)?.team || null;
-    return { id: String(e.id), start: Date.parse(e.date), state: espnState(e.status || comp.status), home: team('home'), away: team('away') };
+    const side = (s) => comp.competitors?.find((c) => c.homeAway === s);
+    const score = (s) => (side(s)?.score != null && Number.isFinite(Number(side(s).score)) ? Number(side(s).score) : null);
+    return { id: String(e.id), start: Date.parse(e.date), state: espnState(e.status || comp.status), home: side('home')?.team || null, away: side('away')?.team || null, score: [score('home'), score('away')] };
   });
 }
 
@@ -346,19 +349,21 @@ const summaryBox = (league, id) =>
   memo(boxCache, `${league}|${id}`, async () => boxFromSummary(await getJson(`${BASKET_API}/${league}/summary?event=${id}`)), 400);
 
 // Marcador de un día (date: AAAA-MM-DD o AAAAMMDD) por liga. Se guarda `maxAgeMs`
-// (también si falla, para no insistir): Infinity para una corrida que no necesita
-// ver cambios, como la de GitHub Actions.
+// (Infinity para una corrida que no necesita ver cambios, como la de GitHub
+// Actions); si falla, solo un minuto (para no insistir, pero sin perder la corrida).
 const boards = new Map();
+const FAIL_MS = 60000;
 export function getScoreboard({ league, date, maxAgeMs = 60000 } = {}) {
   checkLeague(league);
   const ymd = String(date || '').replace(/-/g, '');
   const key = `${league}|${ymd}`;
   const hit = boards.get(key);
-  if (hit && Date.now() - hit.at < maxAgeMs) return hit.promise;
+  if (hit && (hit.failedAt ? Date.now() - hit.failedAt < Math.min(maxAgeMs, FAIL_MS) : Date.now() - hit.at < maxAgeMs)) return hit.promise;
   const url = `${BASKET_API}/${league}/scoreboard?dates=${ymd}`;
   const promise = fetchData(url, { modes: ['direct'] }).then(({ data, mode }) => ({ mode, events: eventsFromScoreboard(data) }));
-  promise.catch(() => {}); // el error lo recibe quien espera la promesa
-  boards.set(key, { at: Date.now(), promise });
+  const entry = { at: Date.now(), promise };
+  promise.catch(() => (entry.failedAt = Date.now())); // el error lo recibe quien espera la promesa
+  boards.set(key, entry);
   return promise;
 }
 
@@ -406,16 +411,18 @@ async function lastGames(league, teamId, before, n) {
 // Últimos `n` partidos de los jugadores de ambos equipos (nombres) antes de `start`:
 // { mode, home: { team, teamGames, players }, away: {...} } (formato de jugadores del
 // contrato). `out` sale de las bajas del partido a analizar si está en el marcador.
+// Un equipo que ESPN no tiene (amistosos de pretemporada con clubes de otras ligas)
+// queda sin jugadores; el error es solo si no está ninguno de los dos.
 export async function getPlayerLogs({ league, home, away, start, n = 10 } = {}) {
   checkLeague(league);
   const before = Number.isFinite(toMs(start)) ? toMs(start) : Date.now();
   const teams = await leagueTeams(league);
   const h = matchEspnTeam(home, teams);
   const a = matchEspnTeam(away, teams);
-  if (!h || !a) throw new Error(`ESPN ${league.toUpperCase()}: no se encontró el equipo ${!h ? home : away}`);
+  if (!h && !a) throw new Error(`ESPN ${league.toUpperCase()}: no se encontraron los equipos ${home} y ${away}`);
   let outs = {};
   try {
-    const game = await scoreboardGame({ league, home: h.displayName, away: a.displayName, start: before });
+    const game = h && a ? await scoreboardGame({ league, home: h.displayName, away: a.displayName, start: before }) : null;
     if (game) {
       const summary = await getJson(`${BASKET_API}/${league}/summary?event=${game.id}`);
       outs = { [h.id]: outFromSummary(summary, h.id), [a.id]: outFromSummary(summary, a.id) };
@@ -423,7 +430,8 @@ export async function getPlayerLogs({ league, home, away, start, n = 10 } = {}) 
   } catch {
     // sin bajas
   }
-  const side = async (team) => {
+  const side = async (team, name) => {
+    if (!team) return { team: name, teamGames: 0, players: [] };
     const list = await lastGames(league, team.id, before, n);
     const games = [];
     const errors = [];
@@ -437,11 +445,11 @@ export async function getPlayerLogs({ league, home, away, start, n = 10 } = {}) 
     if (list.length && !games.length) throw new Error(`ESPN ${team.displayName}: sin box scores (${errors[0]})`);
     return { team: team.displayName, ...teamLogs(games, team.id, outs[team.id] || []) };
   };
-  const [hs, as] = await Promise.all([side(h), side(a)]);
+  const [hs, as] = await Promise.all([side(h, home), side(a, away)]);
   return { mode: 'direct', home: hs, away: as };
 }
 
-// Box score del partido (nombres de equipo y hora de inicio): { id, state, players }
+// Box score del partido (nombres de equipo y hora de inicio): { id, state, score, players }
 // con players = { [nombre]: fila } solo si terminó (si no, null). null si no está.
 export async function getBoxScore({ league, home, away, start, maxAgeMs = 60000 } = {}) {
   checkLeague(league);
@@ -449,9 +457,13 @@ export async function getBoxScore({ league, home, away, start, maxAgeMs = 60000 
   if (!Number.isFinite(ms)) throw new Error('ESPN: falta la hora de inicio del partido');
   const game = await scoreboardGame({ league, home, away, start: ms, maxAgeMs });
   if (!game) return null;
-  if (game.state !== 'finalizado') return { id: game.id, state: game.state, players: null };
+  // Marcador final orientado como se pidió (el partido puede figurar al revés en ESPN).
+  const swapped = !matchEspnTeam(home, [game.home]);
+  const [hs, as] = swapped ? [...(game.score || [])].reverse() : game.score || [];
+  const score = hs != null && as != null ? { home: hs, away: as } : null;
+  if (game.state !== 'finalizado') return { id: game.id, state: game.state, score, players: null };
   const players = playersOfBox(await summaryBox(league, game.id));
-  return { id: game.id, state: game.state, players: Object.keys(players).length ? players : null };
+  return { id: game.id, state: game.state, score, players: Object.keys(players).length ? players : null };
 }
 
 export default {

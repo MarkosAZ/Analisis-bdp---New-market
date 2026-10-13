@@ -361,6 +361,8 @@ const NOT_NAME_WORDS = [
   'empate cada ambos todos exact[oa]s? juegos? puntos? rebotes asistencias tiros triples robos tapones perdidas balon libres anotad[oa]s jugador(?:es)?',
   'bocina forma ultimo oportunidad apuesta sets? innings? entradas? carreras goles? corners? tarjetas minutos? asiatico alternativ[oa]s? lineas?',
   'especial(?:es)? combinad[oa]s? cuotas?',
+  // Otras estadísticas que no son Más/Menos de lo anotado: intentos, puntos en la pintura, de la banca...
+  'intentad[oa]s? intentos? lanzad[oa]s? pintura banca banquillo titulares suplentes contraataques?',
 ].join(' ');
 const NOT_NAME = new RegExp(`\\d|[[\\]{}|~/&+=<>?!%#*@]|\\b(?:${NOT_NAME_WORDS.split(' ').join('|')})\\b`);
 
@@ -389,7 +391,9 @@ const trimName = (s) => s.replace(/\s+/g, ' ').replace(/^[\s,.\-–—]+|[\s,\-�
 function validName(name, ctx) {
   const n = trimName(name);
   if (!n || !/\p{L}.*\p{L}/u.test(n) || n.split(' ').length > 6) return null;
-  if (NOT_NAME.test(foldOf(pairsOf(n))) || isTeamName(n, ctx.home, ctx.away)) return null;
+  const folded = foldOf(pairsOf(n));
+  // Dos jugadores juntos ("LeBron James y Jayson Tatum"): no es el Más/Menos de uno.
+  if (NOT_NAME.test(folded) || /\s(?:y|o|vs|v)\s/.test(folded) || isTeamName(n, ctx.home, ctx.away)) return null;
   return n;
 }
 

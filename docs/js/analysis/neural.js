@@ -2,10 +2,11 @@
 //
 // No predice desde cero: toma la probabilidad del análisis estadístico y le
 // suma una corrección (en escala logit) que calcula una red pequeña
-// (entrada -> 10 neuronas tanh -> 1). Al inicio la corrección es 0, así que
-// la red da lo mismo que el análisis estadístico. Cada vez que se actualizan
-// los resultados se reentrena con todas las selecciones ya resueltas; solo
-// aplica la corrección si mejora en partidos que no usó para entrenar.
+// (entrada -> 10 neuronas tanh -> 1, más un camino lineal directo). Al inicio
+// la corrección es 0, así que la red da lo mismo que el análisis estadístico.
+// Cada vez que se actualizan los resultados se reentrena con todas las
+// selecciones ya resueltas; solo aplica la corrección si mejora en partidos que
+// no usó para entrenar ni para elegir cuánto entrenar, y por más que el azar.
 import { logit, rng, sigmoid } from '../util.js';
 import { FEATURE_VERSION } from './features.js';
 
@@ -15,6 +16,10 @@ export const isResult = (y) => typeof y === 'number' && y >= 0 && y <= 1;
 
 export const MIN_SAMPLES = 200; // resultados mínimos para empezar a corregir
 const MIN_GAIN = 0.01; // la corrección debe bajar el error al menos un 1 %
+const MIN_T = 1.65; // y con confianza (prueba t pareada, una cola, ~5 %)
+const MIN_STD = 1e-2; // variable casi constante en el entrenamiento: entra como 0
+const CLIP = 5; // entradas normalizadas entre -5 y 5 (valores raros no disparan la red)
+const CUTS = [0.4, 0.6, 0.8]; // cortes de la validación en el tiempo
 
 const dot = (a, b) => {
   let s = 0;
@@ -46,16 +51,17 @@ export class Corrector {
     this.W1 = Array.from({ length: this.hidden }, () => Array.from({ length: this.inputs }, () => randn() / Math.sqrt(this.inputs)));
     this.b1 = new Array(this.hidden).fill(0);
     this.W2 = new Array(this.hidden).fill(0); // salida en 0: sin corrección al inicio
+    this.V = new Array(this.inputs).fill(0); // camino lineal directo (entrada -> salida)
     this.b2 = 0;
   }
 
   norm(x) {
-    return x.map((v, i) => (v - this.mean[i]) / this.std[i]);
+    return x.map((v, i) => (this.std[i] > 0 ? Math.max(-CLIP, Math.min(CLIP, (v - this.mean[i]) / this.std[i])) : 0));
   }
 
   forward(xn) {
     const h = this.W1.map((w, j) => Math.tanh(dot(w, xn) + this.b1[j]));
-    return { h, out: dot(this.W2, h) + this.b2 };
+    return { h, out: dot(this.W2, h) + dot(this.V, xn) + this.b2 };
   }
 
   correction(x) {
@@ -79,11 +85,11 @@ export class Corrector {
   fit(rows, { epochs, lr, l2, val = null, patience = 40 }) {
     const H = this.hidden;
     const I = this.inputs;
-    const state = { mW1: this.W1.map((r) => r.map(() => 0)), vW1: this.W1.map((r) => r.map(() => 0)), mb1: new Array(H).fill(0), vb1: new Array(H).fill(0), mW2: new Array(H).fill(0), vW2: new Array(H).fill(0), mb2: 0, vb2: 0 };
+    const state = { mW1: this.W1.map((r) => r.map(() => 0)), vW1: this.W1.map((r) => r.map(() => 0)), mb1: new Array(H).fill(0), vb1: new Array(H).fill(0), mW2: new Array(H).fill(0), vW2: new Array(H).fill(0), mV: new Array(I).fill(0), vV: new Array(I).fill(0), mb2: 0, vb2: 0 };
     const b1 = 0.9;
     const b2 = 0.999;
     const eps = 1e-8;
-    const snapshot = () => ({ W1: this.W1.map((r) => r.slice()), b1: this.b1.slice(), W2: this.W2.slice(), b2: this.b2 });
+    const snapshot = () => ({ W1: this.W1.map((r) => r.slice()), b1: this.b1.slice(), W2: this.W2.slice(), V: this.V.slice(), b2: this.b2 });
     let best = val ? { loss: this.loss(val), params: snapshot(), epoch: 0 } : null;
     const N = rows.length;
     let epoch = 0;
@@ -91,11 +97,13 @@ export class Corrector {
       const gW1 = this.W1.map((r) => r.map(() => 0));
       const gb1 = new Array(H).fill(0);
       const gW2 = new Array(H).fill(0);
+      const gV = new Array(I).fill(0);
       let gb2 = 0;
       for (const r of rows) {
         const { h, out } = this.forward(r.xn);
         const dz = (sigmoid(r.b + out) - r.y) / N;
         gb2 += dz;
+        for (let k = 0; k < I; k++) gV[k] += dz * r.xn[k];
         for (let j = 0; j < H; j++) {
           gW2[j] += dz * h[j];
           const dpre = dz * this.W2[j] * (1 - h[j] * h[j]);
@@ -120,6 +128,7 @@ export class Corrector {
         [this.b1[j], state.mb1[j], state.vb1[j]] = step(this.b1[j], gb1[j], state.mb1[j], state.vb1[j]);
         [this.W2[j], state.mW2[j], state.vW2[j]] = step(this.W2[j], gW2[j] + 2 * l2 * this.W2[j], state.mW2[j], state.vW2[j]);
       }
+      for (let k = 0; k < I; k++) [this.V[k], state.mV[k], state.vV[k]] = step(this.V[k], gV[k] + 2 * l2 * this.V[k], state.mV[k], state.vV[k]);
       [this.b2, state.mb2, state.vb2] = step(this.b2, gb2, state.mb2, state.vb2);
       if (val) {
         const l = this.loss(val);
@@ -132,7 +141,12 @@ export class Corrector {
   }
 
   // rows: [{ x, pBase, y (0/1), start }]. Devuelve métricas del entrenamiento.
-  train(rows, { epochs = 300, lr = 0.01, l2 = 0.003, valFraction = 0.2 } = {}) {
+  // Validación en el tiempo: en cada corte (40 %, 60 % y 80 % de los datos en
+  // orden cronológico) entrena solo con lo anterior y predice el bloque
+  // siguiente, que no vio. La corrección se aplica si en esos bloques juntos (el
+  // 60 % más reciente) baja el error al menos un 1 % y la mejora no se explica
+  // por azar. El modelo final se entrena con todo.
+  train(rows, { epochs = 300, lr = 0.01, l2 = 0.003, patience = 40 } = {}) {
     const data = rows
       .filter((r) => isResult(r.y) && r.x?.length === this.inputs && r.pBase > 0 && r.pBase < 1)
       .sort((a, b) => (a.start || 0) - (b.start || 0))
@@ -143,43 +157,84 @@ export class Corrector {
       this.meta = { trainedAt: new Date().toISOString(), samples: data.length, reason: `Faltan resultados: ${data.length} de ${MIN_SAMPLES}` };
       return this.meta;
     }
-    // Normalización con los datos de entrenamiento.
-    this.mean = new Array(this.inputs).fill(0);
-    this.std = new Array(this.inputs).fill(0);
-    for (const r of data) r.x.forEach((v, i) => (this.mean[i] += v / data.length));
-    for (const r of data) r.x.forEach((v, i) => (this.std[i] += (v - this.mean[i]) ** 2 / data.length));
-    this.std = this.std.map((v) => Math.max(Math.sqrt(v), 1e-3));
-    const prep = (r) => ({ xn: this.norm(r.x), b: logit(r.pBase), y: r.y });
-
-    // 1) Validación cronológica: entrena con lo antiguo, mide en lo reciente.
-    const nVal = Math.max(20, Math.round(data.length * valFraction));
-    const trainSet = data.slice(0, -nVal).map(prep);
-    const valSet = data.slice(-nVal).map(prep);
-    this.reset();
-    const bestEpoch = Math.max(5, this.fit(trainSet, { epochs, lr, l2, val: valSet }));
-    const baseLoss = this.loss(valSet, 0);
-    let bestScale = 0;
-    let bestLoss = baseLoss;
-    for (const s of [0.25, 0.5, 0.75, 1]) {
-      const l = this.loss(valSet, s);
-      if (l < bestLoss - 1e-6) [bestScale, bestLoss] = [s, l];
+    const opts = { epochs, lr, l2, patience };
+    const cuts = [...CUTS.map((f) => Math.round(data.length * f)), data.length];
+    const diffs = [];
+    let baseSum = 0;
+    let nnSum = 0;
+    let baseHits = 0;
+    let nnHits = 0;
+    const folds = [];
+    for (let i = 0; i < CUTS.length; i++) {
+      const fold = this.fitPast(data.slice(0, cuts[i]), opts);
+      folds.push(fold);
+      for (const r of data.slice(cuts[i], cuts[i + 1]).map((x) => this.prep(x))) {
+        const pb = sigmoid(r.b);
+        const pn = sigmoid(r.b + fold.scale * this.forward(r.xn).out);
+        diffs.push(bce(pb, r.y) - bce(pn, r.y));
+        baseSum += bce(pb, r.y);
+        nnSum += bce(pn, r.y);
+        baseHits += (pb >= 0.5 ? 1 : 0) === r.y ? 1 : 0;
+        nnHits += (pn >= 0.5 ? 1 : 0) === r.y ? 1 : 0;
+      }
     }
-    if (bestLoss > baseLoss * (1 - MIN_GAIN)) [bestScale, bestLoss] = [0, baseLoss]; // mejora insuficiente
+    const n = diffs.length;
+    const baseLoss = baseSum / n;
+    const testLoss = nnSum / n;
+    const t = tStat(diffs);
+    const scale = median(folds.map((f) => f.scale));
+    const bestEpoch = Math.round(median(folds.map((f) => f.epoch)));
+    const accepted = scale > 0 && testLoss <= baseLoss * (1 - MIN_GAIN) && t >= MIN_T;
     const metrics = {
       baseLoss,
-      nnLoss: bestLoss,
-      baseAccuracy: accuracy(valSet, (r) => sigmoid(r.b)),
-      nnAccuracy: accuracy(valSet, (r) => sigmoid(r.b + bestScale * this.forward(r.xn).out)),
-      validation: valSet.length,
+      nnLoss: accepted ? testLoss : baseLoss,
+      testLoss,
+      t,
+      baseAccuracy: baseHits / n,
+      nnAccuracy: (accepted ? nnHits : baseHits) / n,
+      test: n,
     };
 
-    // 2) Modelo final con todos los datos (incluidos los más recientes).
-    this.reset();
-    this.fit(data.map(prep), { epochs: bestEpoch, lr, l2 });
-    this.scale = bestScale;
-    this.trained = bestScale > 0;
-    this.meta = { trainedAt: new Date().toISOString(), samples: data.length, epochs: bestEpoch, scale: bestScale, ...roundAll(metrics) };
+    // Modelo final con todos los datos (incluidos los más recientes).
+    if (accepted) {
+      this.setNorm(data);
+      this.reset();
+      this.fit(data.map((x) => this.prep(x)), { epochs: bestEpoch, lr, l2 });
+    }
+    this.scale = accepted ? scale : 0;
+    this.trained = accepted;
+    this.meta = { trainedAt: new Date().toISOString(), samples: data.length, epochs: bestEpoch, scale: this.scale, ...roundAll(metrics) };
     return this.meta;
+  }
+
+  prep(r) {
+    return { xn: this.norm(r.x), b: logit(r.pBase), y: r.y };
+  }
+
+  // Entrena con `past`: el 80 % más antiguo para aprender y el resto para
+  // elegir cuántas vueltas y cuánta corrección (0 si no mejora).
+  fitPast(past, opts) {
+    const nVal = Math.max(20, Math.round(past.length * 0.2));
+    const older = past.slice(0, -nVal);
+    this.setNorm(older);
+    const val = past.slice(-nVal).map((x) => this.prep(x));
+    this.reset();
+    const epoch = Math.max(5, this.fit(older.map((x) => this.prep(x)), { ...opts, val }));
+    let scale = 0;
+    let best = this.loss(val, 0);
+    for (const s of [0.25, 0.5, 0.75, 1]) {
+      const l = this.loss(val, s);
+      if (l < best - 1e-6) [scale, best] = [s, l];
+    }
+    return { epoch, scale };
+  }
+
+  setNorm(data) {
+    this.mean = new Array(this.inputs).fill(0);
+    const v = new Array(this.inputs).fill(0);
+    for (const r of data) r.x.forEach((x, i) => (this.mean[i] += x / data.length));
+    for (const r of data) r.x.forEach((x, i) => (v[i] += (x - this.mean[i]) ** 2 / data.length));
+    this.std = v.map((x) => (Math.sqrt(x) < MIN_STD ? 0 : Math.sqrt(x)));
   }
 
   toJSON() {
@@ -192,6 +247,7 @@ export class Corrector {
       W1: this.W1.map((row) => row.map(r)),
       b1: this.b1.map(r),
       W2: this.W2.map(r),
+      V: this.V.map(r),
       b2: r(this.b2),
       mean: this.mean.map(r),
       std: this.std.map(r),
@@ -203,15 +259,25 @@ export class Corrector {
 
   static fromJSON(o) {
     const net = new Corrector({ inputs: o.inputs, hidden: o.hidden });
-    Object.assign(net, { W1: o.W1, b1: o.b1, W2: o.W2, b2: o.b2, mean: o.mean, std: o.std, scale: o.scale, trained: o.trained, meta: o.meta || {} });
+    Object.assign(net, { W1: o.W1, b1: o.b1, W2: o.W2, V: o.V || new Array(o.inputs).fill(0), b2: o.b2, mean: o.mean, std: o.std, scale: o.scale, trained: o.trained, meta: o.meta || {} });
     if (o.featureVersion !== FEATURE_VERSION) net.trained = false; // variables distintas: no aplicar
     return net;
   }
 }
 
-function accuracy(rows, prob) {
-  if (!rows.length) return null;
-  return rows.filter((r) => (prob(r) >= 0.5 ? 1 : 0) === r.y).length / rows.length;
+// t de la media de las diferencias (mejora por fila): media / error estándar.
+function tStat(d) {
+  const n = d.length;
+  if (n < 2) return 0;
+  const m = d.reduce((a, b) => a + b, 0) / n;
+  const v = d.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1);
+  return v > 0 ? m / Math.sqrt(v / n) : m > 0 ? Infinity : 0;
+}
+
+function median(list) {
+  const s = [...list].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
 function roundAll(o) {

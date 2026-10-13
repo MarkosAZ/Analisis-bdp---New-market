@@ -379,7 +379,8 @@ function totalsTrend(d, e) {
 export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } = {}) {
   const cfg = sportOf(ev.sport);
   const roster = rosterOf(d);
-  const missing = [...(d?.missing?.home || []), ...(d?.missing?.away || [])].map((m) => ({ name: m.player || m.name || '' }));
+  // Bajas seguras (las dudas no: el jugador puede jugar y la apuesta seguir viva).
+  const missing = [...(d?.missing?.home || []), ...(d?.missing?.away || [])].filter((m) => m?.type !== 'doubtful').map((m) => ({ name: m.player || m.name || '' }));
   const chosen = balancedLines(canonicalPlayers(offers, roster), (o) => acceptsOffer(ev.sport, o.market, o.line));
   const lines = (market) => [...new Set(chosen.filter((o) => o.market === market).map((o) => o.line))];
   const model = predict(ev, d, cfg, { lines: { OU: lines('OU'), HCP: lines('HCP') }, xg });

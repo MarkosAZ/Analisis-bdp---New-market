@@ -446,7 +446,13 @@ test('getPlayerLogs: pretemporada + temporada regular anterior, box scores y baj
 
 test('getPlayerLogs: errores claros con liga o equipo desconocidos', async () => {
   await assert.rejects(getPlayerLogs({ league: 'euroleague', home: 'Real Madrid', away: 'Barcelona', start: START }), /no soportada/);
-  await assert.rejects(getPlayerLogs({ league: 'nba', home: 'Real Madrid', away: 'Dallas Mavericks', start: START }), /no se encontró el equipo Real Madrid/);
+  await assert.rejects(getPlayerLogs({ league: 'nba', home: 'Real Madrid', away: 'Barcelona', start: START }), /no se encontraron los equipos Real Madrid y Barcelona/);
+});
+
+test('getPlayerLogs: un equipo que ESPN no tiene (amistoso con un club de otra liga) queda sin jugadores', async () => {
+  const r = await getPlayerLogs({ league: 'nba', home: 'London Lions', away: 'Dallas Mavericks', start: START });
+  assert.deepEqual(r.home, { team: 'London Lions', teamGames: 0, players: [] });
+  assert.ok(r.away.players.length > 0);
 });
 
 // Box scores de partidos terminados.
@@ -463,16 +469,22 @@ test('getBoxScore: terminado, en vivo, al día siguiente, invertido y no encontr
   assert.equal(box.state, 'finalizado');
   assert.equal(box.id, '401700500');
   assert.deepEqual(box.players, playersFromSummary(SUMMARY));
+  assert.deepEqual(box.score, { home: 110, away: 102 });
   // Nombres invertidos y la hora en segundos.
   const swapped = await getBoxScore({ league: 'nba', home: 'Dallas Mavericks', away: 'Houston Rockets', start: Date.parse('2026-10-11T00:30Z') / 1000 });
   assert.equal(swapped.id, '401700500');
+  assert.deepEqual(swapped.score, { home: 102, away: 110 }, 'el marcador se da vuelta con los equipos');
   // En vivo: sin jugadores y sin pedir el resumen.
   const live = await getBoxScore({ league: 'nba', home: 'Los Angeles Lakers', away: 'LA Clippers', start: Date.parse('2026-10-11T02:00Z') });
-  assert.deepEqual(live, { id: '401700501', state: 'en_vivo', players: null });
+  assert.equal(live.id, '401700501');
+  assert.equal(live.state, 'en_vivo');
+  assert.equal(live.players, null);
   assert.equal(countCalls('/summary?event=401700501'), 0);
   // 23:30 de Lima del 12: ESPN lo lista el 13. Box score vacío → players null.
   const late = await getBoxScore({ league: 'nba', home: 'Los Angeles Clippers', away: 'Sacramento Kings', start: Date.parse('2026-10-13T04:30Z') });
-  assert.deepEqual(late, { id: '401700600', state: 'finalizado', players: null });
+  assert.equal(late.id, '401700600');
+  assert.equal(late.state, 'finalizado');
+  assert.equal(late.players, null);
   // No está (otro partido del día o liga sin ese partido).
   assert.equal(await getBoxScore({ league: 'nba', home: 'Houston Rockets', away: 'Los Angeles Lakers', start: Date.parse('2026-10-11T00:30Z') }), null);
   await assert.rejects(getBoxScore({ league: 'nba', home: 'A', away: 'B' }), /hora de inicio/);
@@ -482,15 +494,25 @@ test('getBoxScore: terminado, en vivo, al día siguiente, invertido y no encontr
   assert.equal(calls.filter((u) => u === `${NBA}/summary?event=401700500`).length, 1, 'box score terminado en caché');
 });
 
-test('getScoreboard: caché con maxAgeMs, también de los errores', async () => {
+test('getScoreboard: caché con maxAgeMs; los errores, solo un minuto', async () => {
   const n0 = calls.length;
-  await assert.rejects(getBoxScore({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: Date.parse('2026-10-20T23:00Z'), maxAgeMs: Infinity }), /HTTP 503/);
-  await assert.rejects(getBoxScore({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: Date.parse('2026-10-20T23:00Z'), maxAgeMs: Infinity }), /HTTP 503/);
+  const box = () => getBoxScore({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: Date.parse('2026-10-20T23:00Z'), maxAgeMs: Infinity });
+  await assert.rejects(box(), /HTTP 503/);
+  await assert.rejects(box(), /HTTP 503/);
   assert.equal(calls.length - n0, 1, 'el error queda en caché');
+  const realNow = Date.now;
+  const t = realNow();
+  Date.now = () => t + 61000;
+  try {
+    await assert.rejects(box(), /HTTP 503/);
+  } finally {
+    Date.now = realNow;
+  }
+  assert.equal(calls.length - n0, 2, 'pasado un minuto se reintenta aunque maxAgeMs sea Infinity');
   await getScoreboard({ league: 'nba', date: '2026-10-10' });
-  assert.equal(calls.length - n0, 1, 'dentro de maxAgeMs no se vuelve a pedir');
+  assert.equal(calls.length - n0, 2, 'dentro de maxAgeMs no se vuelve a pedir');
   const sb = await getScoreboard({ league: 'nba', date: '20261010', maxAgeMs: 0 });
-  assert.equal(calls.length - n0, 2, 'con maxAgeMs 0 se pide de nuevo');
+  assert.equal(calls.length - n0, 3, 'con maxAgeMs 0 se pide de nuevo');
   assert.equal(sb.events.length, 2);
 });
 

@@ -335,7 +335,7 @@ const REC = {
     'Luka Dončić': row({ pts: 35, reb: 10, ast: 11, tpm: 5, fgm: 12 }),
     'Jaren Jackson Jr.': row({ pts: 18, reb: 6, ast: 1, blk: 3 }),
     'Austin Reaves': { min: 0, dnp: true },
-    'Gabe Vincent': row({ min: 0, pts: 0 }),
+    'Gabe Vincent': row({ min: 0, pts: 0, reb: 1 }),
     'Jarred Vanderbilt': row({ oreb: null }),
   },
 };
@@ -347,7 +347,7 @@ test('playerValue: valor, no jugó, pendiente', () => {
   assert.deepEqual(playerValue(REC, 'Jaren Jackson', 'pl_blk'), { value: 3 }, 'sin "Jr." en el mercado');
   assert.deepEqual(playerValue(REC, 'L. James', 'pl_reb'), { value: 8 });
   assert.deepEqual(playerValue(REC, 'Austin Reaves', 'pl_pts'), { dnp: true });
-  assert.deepEqual(playerValue(REC, 'Gabe Vincent', 'pl_pts'), { dnp: true }, '0 minutos');
+  assert.deepEqual(playerValue(REC, 'Gabe Vincent', 'pl_pts'), { value: 0 }, '0 minutos sin marcar como baja: jugó');
   assert.equal(playerValue(REC, 'Jarred Vanderbilt', 'pl_oreb'), null, 'sin el dato: pendiente');
   assert.equal(playerValue(REC, 'Anthony Davis', 'pl_pts'), null, 'no está en el box score');
   assert.equal(playerValue({ ...REC, players: undefined }, 'LeBron James', 'pl_pts'), null);
@@ -376,7 +376,7 @@ test('evaluate: Más/Menos de jugador con el box score', () => {
   // No jugó: nula (la casa la anula), en ambos lados.
   assert.equal(e('OU.pl_pts#Austin Reaves', 'over', 10.5), 'void');
   assert.equal(e('OU.pl_pts#Austin Reaves', 'under', 10.5), 'void');
-  assert.equal(e('OU.pl_reb#Gabe Vincent', 'under', 2.5), 'void');
+  assert.equal(e('OU.pl_reb#Gabe Vincent', 'under', 2.5), 'won', 'entró unos segundos: la apuesta vale');
   // Sin dato, jugador no encontrado o sin línea: pendiente.
   assert.equal(e('OU.pl_oreb#Jarred Vanderbilt', 'over', 0.5), null);
   assert.equal(e('OU.pl_pts#Anthony Davis', 'over', 20.5), null);

@@ -402,6 +402,8 @@ export function mergeRecords(a, b) {
     out.stats = { ...(b.stats || {}) };
     for (const [code, v] of Object.entries(a.stats || {})) out.stats[code] = { ...(out.stats[code] || {}), ...v };
   }
+  // Jugadores: se juntan los de los dos registros (los de `a` mandan).
+  if (a.players || b.players) out.players = { ...(b.players || {}), ...(a.players || {}) };
   if (a.state !== 'finalizado' && b.state === 'finalizado') out.state = 'finalizado';
   return out;
 }

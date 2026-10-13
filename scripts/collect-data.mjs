@@ -32,6 +32,7 @@ import { teamStatsFrom } from '../docs/js/analysis/teamstats.js';
 const OUT = path.resolve(process.argv[2] || 'site', 'data/fuente');
 const CACHE = path.resolve('.cache/h2h-v3'); // subir la versión si cambia getH2H
 const DETAIL_CACHE = path.resolve('.cache/detalle-v1'); // feeds de partidos terminados (no cambian)
+const PLAYERS_CACHE = path.resolve('.cache/jugadores-v1'); // jugadores de partidos terminados de ESPN (no cambian)
 const HISTORY = path.resolve('docs/data/historial');
 // Deportes con estadísticas por partido en Flashscore (para los mercados de estadísticas).
 const STAT_SPORTS = new Set(['football', 'basketball', 'ice-hockey', 'tennis', 'baseball', 'american-football', 'handball', 'rugby']);
@@ -107,18 +108,31 @@ async function feedsCached(fsId, kinds) {
 }
 
 // Jugadores de un partido de básquet terminado (box score de ESPN; se prueba la
-// NBA y luego la WNBA): { [nombre]: fila } o null. Los marcadores de cada liga y
-// fecha quedan en caché toda la corrida (también si fallan).
+// NBA y luego la WNBA): { [nombre]: fila } o null. Queda en caché en disco (un
+// partido terminado no cambia), también si no es de esas ligas, salvo que ESPN
+// haya fallado (se reintenta en la próxima corrida).
 let espnErrors = 0;
 async function espnPlayers(ev) {
+  const file = path.join(PLAYERS_CACHE, `${String(ev.id).replace(/[^\w.-]/g, '_')}.json`);
+  try {
+    return JSON.parse(await fs.readFile(file, 'utf8')).players;
+  } catch {
+    // sin caché
+  }
+  let failed = false;
   for (const league of ['nba', 'wnba']) {
     try {
       const box = await getBoxScore({ league, home: ev.home.name, away: ev.away.name, start: ev.start, maxAgeMs: Infinity });
-      if (box) return box.state === 'finalizado' ? box.players : null;
+      if (!box) continue;
+      if (box.state !== 'finalizado') return null;
+      if (box.players) await writeJson(file, { at: Date.now(), league, players: box.players });
+      return box.players;
     } catch {
       espnErrors++;
+      failed = true;
     }
   }
+  if (!failed) await writeJson(file, { at: Date.now(), league: null, players: null });
   return null;
 }
 
@@ -166,6 +180,7 @@ async function pruneCache(dir, days = 30) {
 async function main() {
   const today = limaToday();
   await pruneCache(DETAIL_CACHE);
+  await pruneCache(PLAYERS_CACHE);
   const started = Date.now();
   const sports = Object.keys(SPORT_IDS).filter((s) => ACTIVE_SPORTS.includes(s)); // solo fútbol, básquet y béisbol
   const upcoming = {}; // fecha -> deporte -> partidos

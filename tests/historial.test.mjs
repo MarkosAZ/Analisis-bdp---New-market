@@ -107,3 +107,18 @@ test('nivel Baja: su propia fila, fuera de los totales, pero se sigue liquidando
   assert.equal(est.byLevel.baja.pending, 1);
   assert.equal(s.pendingAll, 1, 'un día con solo Baja pendiente se vuelve a revisar');
 });
+
+test('el mismo mercado analizado otra vez con otro lado o línea cuenta una sola vez', () => {
+  const s = daySummary({
+    date: '2026-10-03',
+    analyses: [
+      { id: 'a', method: 'estadistico', created: '2026-10-03T10:00:00Z', picks: [pick(5, 'OU|over|2.5', 'moderada', 'lost', 1.8), pick(5, 'BTTS|yes|', 'alta', 'won', 1.5)], combos: [] },
+      { id: 'b', method: 'estadistico', created: '2026-10-03T16:00:00Z', picks: [pick(5, 'OU|under|3.5', 'moderada_alta', 'won', 1.6)], combos: [] },
+    ],
+  });
+  const est = s.methods.estadistico;
+  assert.equal(est.n, 2, 'OU del partido 5 una vez (el último) y BTTS');
+  assert.equal(est.won, 2);
+  assert.equal(est.byLevel.moderada?.n || 0, 0);
+  assert.equal(est.byLevel.moderada_alta.n, 1);
+});

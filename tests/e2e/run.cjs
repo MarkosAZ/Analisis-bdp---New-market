@@ -355,7 +355,18 @@ async function withoutExtension(browser, errors) {
 
     // 6) Celular
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.click('.tabs button[data-tab="analisis"]');
+    await page.waitForSelector('#tab-analisis .segmented.levels');
     await page.screenshot({ path: path.join(OUT, '4-celular-analisis.png'), fullPage: false });
+    const levelsFit = await page.evaluate(() => {
+      const el = document.querySelector('#tab-analisis .segmented.levels');
+      const r = el.getBoundingClientRect();
+      return r.right <= window.innerWidth + 1 && el.scrollWidth <= el.clientWidth + 1;
+    });
+    check('el filtro por nivel cabe en el celular', levelsFit);
+    await (await page.$('#tab-analisis .segmented.levels')).screenshot({ path: path.join(OUT, '4b-celular-niveles.png') });
+    const analysisOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    check('sin desplazamiento horizontal en el análisis (celular)', !analysisOverflow);
     await page.click('.tabs button[data-tab="partidos"]');
     await page.screenshot({ path: path.join(OUT, '5-celular-partidos.png'), fullPage: false });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);

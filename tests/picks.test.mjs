@@ -96,6 +96,11 @@ test('los ajustes eligen cuáles de los mercados de la lista pueden salir en pic
   // Líneas imposibles para el mercado: son de otro mercado mal leído.
   assert.ok(acceptsOffer('basketball', 'OU', 220.5) && !acceptsOffer('basketball', 'OU', 24.5));
   assert.ok(acceptsOffer('basketball', 'OU.pl_pts#X', 24.5) && !acceptsOffer('football', 'OU.pl_pts#X', 24.5));
+  // "Ambos anotan 2+" (BTTS#2) no es "Ambos equipos anotan".
+  assert.equal(acceptsOffer('football', 'BTTS#2', null), false);
+  assert.equal(acceptsOffer('football', 'BTTS', null), true);
+  // Palizas de ligas juveniles o femeninas: el hándicap principal puede pasar de 45.
+  assert.ok(acceptsOffer('basketball', 'HCP', -48.5));
   const list = [cand(1, 'OU.corners|over|8.5', 0.85, 1.4), cand(1, 'BTTS|yes|', 0.82, 1.3), cand(2, 'OU|over|1.5', 0.8, 1.35)];
   assert.equal(selectPicks(list).length, 3);
   const s = { ...DEFAULT_SETTINGS, marketsOff: ['football:OU.corners'] };

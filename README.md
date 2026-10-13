@@ -51,8 +51,12 @@ historial de resultados. Funciona en el **celular y en la PC**:
   los resultados de sus mercados (con los datos del partido, la distancia de la
   línea a lo esperado y las noticias de Flashscore, ESPN y FotMob) y corrige la
   probabilidad estadística solo cuando tiene 200 resultados de su mercado y
-  mejora en partidos que no usó para entrenar; mientras tanto, sus mercados
-  quedan con la probabilidad estadística. Se reentrenan al actualizar resultados.
+  mejora en partidos que no usó para entrenar (validación en el tiempo: cada
+  tramo reciente se predice con lo aprendido antes; la mejora debe ser de al
+  menos 1 % y no explicarse por azar); mientras tanto, sus mercados quedan con
+  la probabilidad estadística. Aprenden de un resultado por mercado de cada
+  partido (el lado más probable; hasta 40 de jugador por partido). Se
+  reentrenan al actualizar resultados.
 - **Todos los mercados de cada partido con su nivel de confianza**: alta
   (≥ 80 %), moderada-alta (70–80 %), moderada (60–70 %) y **baja** (menos de
   60 %), con la mejor cuota entre Apuesta Total y Betano. La pestaña Análisis

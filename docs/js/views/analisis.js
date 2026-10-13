@@ -234,7 +234,7 @@ function levelFilter(app, a) {
   const btn = (id, name, n, title) => h('button', { class: id === current ? 'active' : '', title, onclick: () => app.setLevelFilter(id) }, name, h('span', { class: 'n' }, ` ${n}`));
   return h(
     'div',
-    { class: 'segmented', role: 'group', 'aria-label': 'Nivel de confianza a mostrar' },
+    { class: 'segmented levels', role: 'group', 'aria-label': 'Nivel de confianza a mostrar' },
     btn('todos', 'Todos', a.picks.length, 'Todos los mercados'),
     LEVELS.map((l) => btn(l.id, l.name, a.picks.filter((p) => p.level === l.id).length, `Confianza ${l.name.toLowerCase()}: ${ranges[l.id]}`)),
   );

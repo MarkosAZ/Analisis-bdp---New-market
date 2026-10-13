@@ -35,12 +35,13 @@ const setApiWorks = (works) => chrome.storage.session.set({ sofaApi: { works, at
 
 // api.sofascore.com directo y luego www.sofascore.com (directo y en pestaña).
 // `required(path)`: peticiones que deben existir; si todas fallan, el API no sirve.
-async function apiMany(paths, required = () => false) {
+// `answered(resultado)`: qué cuenta como respuesta (p. ej. un 404 de "no hay datos").
+async function apiMany(paths, required = () => false, { answered = (x) => x.ok } = {}) {
   const notes = [];
   const reqs = (base) => paths.map((p) => ({ url: base + p, required: required(p) }));
   const failed = (results) => {
     const idx = paths.map((p, j) => (required(p) ? j : -1)).filter((j) => j >= 0);
-    return idx.length ? idx.every((j) => !results[j].ok) : results.filter((r) => !r.ok).length > results.length / 2;
+    return idx.length ? idx.every((j) => !answered(results[j])) : results.filter((r) => !answered(r)).length > results.length / 2;
   };
   for (const [base, modes, label] of [
     [API_DIRECT, ['direct'], 'api.sofascore.com'],
@@ -560,10 +561,12 @@ export async function getPlayerLogs({ events = [], n = 10 } = {}) {
   let mode = null;
   let failed = false;
   if (ids.length) {
-    // Los partidos terminados deben tener alineación: si ninguna llega, se prueba otra vía.
+    // Un 404 es respuesta (ligas sin alineación; queda en caché): solo si la
+    // mayoría no responde se prueba otra vía (la pestaña del sitio).
     const r = await apiMany(
       ids.map((id) => `/event/${id}/lineups`),
-      (p) => past.has(p.split('/')[2]),
+      () => false,
+      { answered: (x) => x.ok || x.status === 404 },
     );
     notes.push(...r.notes);
     mode = r.mode ?? null;
