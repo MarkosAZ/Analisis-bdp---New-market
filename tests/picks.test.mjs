@@ -89,7 +89,7 @@ test('combinadas por casa, cuota objetivo y sin repetir partido', () => {
 test('los ajustes eligen cuáles de los mercados de la lista pueden salir en picks y combinadas', async () => {
   const { MARKETS, marketKey, acceptsOffer } = await import('../docs/js/analysis/picks.js');
   assert.equal(new Set(MARKETS.map((m) => m.id)).size, MARKETS.length);
-  assert.ok(MARKETS.every((m) => m.net), 'cada mercado tiene su red especializada');
+  assert.ok(MARKETS.every((m) => m.net || m.market === 'OU.player'), 'cada mercado tiene su red especializada (los de jugador, una por estadística)');
   assert.deepEqual(DEFAULT_SETTINGS.marketsOff, []);
   assert.equal(marketKey('basketball', 'OU.pl_reb#Jayson Tatum'), 'basketball:OU.player');
   assert.equal(marketKey('football', 'OU.corners@h1'), 'football:OU.corners@h1');

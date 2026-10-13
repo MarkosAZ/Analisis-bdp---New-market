@@ -416,10 +416,14 @@ function minutesOf(s) {
   return num(m);
 }
 
+// Intentos y sus anotados (con menos intentos que anotados el dato está roto).
+const MADE_OF = { fga: 'fgm', tpa: 'tpm', fta: 'ftm' };
+
 // Estadísticas de un jugador en un partido (alineación de Sofascore) en el formato
-// común { min, pts, reb, ast, tpm, stl, blk, tov, oreb, dreb, ftm, fgm } (null si
-// falta el dato) o { min: 0, dnp: true } si no jugó: sin estadísticas, 0 segundos o,
-// sin minutos, todo en cero (las ligas sin minutos marcan así a los que no jugaron).
+// común { min, pts, reb, ast, tpm, stl, blk, tov, oreb, dreb, ftm, fgm, fga, tpa, fta }
+// (null si falta el dato; fga/tpa/fta son los intentados) o { min: 0, dnp: true } si no
+// jugó: sin estadísticas, 0 segundos o, sin minutos, todo en cero (las ligas sin minutos
+// marcan así a los que no jugaron).
 export function playerRow(statistics) {
   const s = statistics && typeof statistics === 'object' ? statistics : {};
   const raw = minutesOf(s);
@@ -427,6 +431,8 @@ export function playerRow(statistics) {
   const oreb = num(s.offensiveRebounds);
   const dreb = num(s.defensiveRebounds);
   const tpm = firstNum(s, ['threePointsMade', 'threePointersMade', 'threePointFieldGoalsMade']);
+  const tpa = firstNum(s, ['threePointAttempts', 'threePointsAttempted', 'threePointersAttempted', 'threePointFieldGoalsAttempted', 'threePointsAttempts']);
+  const twoA = firstNum(s, ['twoPointAttempts', 'twoPointsAttempted', 'twoPointersAttempted', 'twoPointsAttempts']);
   const row = {
     min,
     pts: num(s.points),
@@ -440,8 +446,12 @@ export function playerRow(statistics) {
     dreb,
     ftm: num(s.freeThrowsMade),
     fgm: num(s.fieldGoalsMade) ?? addOrNull(num(s.twoPointsMade), tpm),
+    fga: firstNum(s, ['fieldGoalAttempts', 'fieldGoalsAttempted', 'fieldGoalsAttempts']) ?? addOrNull(twoA, tpa),
+    tpa,
+    fta: firstNum(s, ['freeThrowAttempts', 'freeThrowsAttempted', 'freeThrowsAttempts']),
   };
   if (min != null ? min <= 0 : Object.values(row).every((v) => !v)) return { min: 0, dnp: true };
+  for (const [att, made] of Object.entries(MADE_OF)) if (row[att] != null && row[made] != null && row[att] < row[made]) row[att] = null;
   return row;
 }
 

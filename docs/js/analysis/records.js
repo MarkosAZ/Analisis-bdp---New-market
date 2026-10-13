@@ -412,13 +412,20 @@ export function mergeRecords(a, b) {
 
 const KINDS = ['goal', 'pengoal', 'og', 'pen', 'card', 'red'];
 
-// Jugadores (básquet): { nombre: [min, pts, reb, ast, tpm, stl, blk, tov, oreb, dreb, ftm, fgm] };
-// el que no jugó va como 0 (también se acepta [0]). Los datos que faltan, null.
-const PLAYER_FIELDS = ['min', 'pts', 'reb', 'ast', 'tpm', 'stl', 'blk', 'tov', 'oreb', 'dreb', 'ftm', 'fgm'];
+// Jugadores (básquet): { nombre: [min, pts, reb, ast, tpm, stl, blk, tov, oreb, dreb, ftm, fgm, fga, tpa, fta] };
+// el que no jugó va como 0 (también se acepta [0]). Los datos que faltan, null; los null del
+// final no se escriben. Los campos nuevos van siempre al final: los registros ya publicados
+// (más cortos) se siguen leyendo, con null en lo que no traen.
+const PLAYER_FIELDS = ['min', 'pts', 'reb', 'ast', 'tpm', 'stl', 'blk', 'tov', 'oreb', 'dreb', 'ftm', 'fgm', 'fga', 'tpa', 'fta'];
 const r2 = (x) => (x == null || x === '' || !Number.isFinite(Number(x)) ? null : Math.round(Number(x) * 100) / 100);
+function compactRow(p) {
+  const v = PLAYER_FIELDS.map((f) => r2(p[f]));
+  while (v.length > 2 && v[v.length - 1] == null) v.pop(); // al menos 2 (uno solo es "no jugó")
+  return v;
+}
 export function compactPlayers(players) {
   const out = {};
-  for (const [name, p] of Object.entries(players || {})) out[name] = !p || p.dnp ? 0 : PLAYER_FIELDS.map((f) => r2(p[f]));
+  for (const [name, p] of Object.entries(players || {})) out[name] = !p || p.dnp ? 0 : compactRow(p);
   return out;
 }
 export function expandPlayers(c) {

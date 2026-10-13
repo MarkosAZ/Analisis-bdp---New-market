@@ -5,7 +5,7 @@ import { MIN_SAMPLES } from '../analysis/neural.js';
 import { BOOKMAKERS, LEVELS, MAIN_LEVELS } from '../analysis/picks.js';
 import { emptyMethodStats, hitRate, roi, totals } from '../history.js';
 import { sportOf } from '../sports.js';
-import { fmtDateTime, fmtDay, fmtTime, h, pct } from '../util.js';
+import { fmtDateTime, fmtDay, fmtTime, groupBy, h, pct } from '../util.js';
 
 const STATUS = { won: 'Ganada', lost: 'Perdida', void: 'Nula', pending: 'Pendiente', half_won: 'Medio ganada', half_lost: 'Medio perdida' };
 const LEVEL_NAME = Object.fromEntries(LEVELS.map((l) => [l.id, l.name]));
@@ -134,7 +134,12 @@ function storageBanner(app) {
   return h('div', { class: 'banner warn' }, h('b', {}, 'Este navegador no permite guardar datos '), '(¿modo incógnito?). Pega tu token de GitHub para guardar en el repositorio. ', settings);
 }
 
-// Estado de cada red especializada: resultados, si corrige y cuánto mejora.
+// Id de la red con puntos de corte (tras "_" y entre palabras) para que quepa en el celular.
+const breakable = (id) => id.split(/(?<=_)|(?<=[a-z])(?=[A-Z])/).flatMap((part, i) => (i ? [h('wbr'), part] : [part]));
+
+// Estado de cada red especializada (una por mercado y una por estadística de
+// jugador), agrupadas: resultados, si corrige y cuánto mejora. Dos tablas (las de
+// mercado y las de jugador): lado a lado en la PC, una debajo de otra en el celular.
 function networkPanel(app) {
   const list = app.state.network?.status?.() || [];
   const row = (n) => {
@@ -144,27 +149,41 @@ function networkPanel(app) {
     return h(
       'tr',
       { title: n.markets.join(' · ') },
-      h('td', {}, h('code', {}, n.id), h('div', { class: 'note' }, n.name)),
+      h('td', { class: 'net-id' }, h('code', {}, breakable(n.id)), h('div', { class: 'note' }, n.name)),
       h('td', { class: 'num' }, `${n.samples}`),
-      h('td', { class: n.trained ? 'pos' : '' }, state),
+      h('td', { class: n.trained ? 'pos' : '' }, state, better == null ? null : h('div', { class: 'note net-gain-sm' }, `${better.toFixed(1)}% menos error`)),
       h('td', { class: 'num hide-sm' }, better == null ? '–' : `${better.toFixed(1)}%`),
     );
   };
-  return h(
-    'div',
-    { class: 'panel' },
-    h('h3', {}, 'Redes especializadas'),
-    h('p', { class: 'note' }, `Una red por mercado. Cada una empieza a corregir con ${MIN_SAMPLES} resultados de su mercado y solo si mejora en los partidos más recientes, que no usó para entrenar; mientras tanto, sus mercados usan la probabilidad estadística.`),
+  const groupHead = (group, nets) => {
+    const on = nets.filter((n) => n.trained).length;
+    const count = `${nets.length} ${nets.length === 1 ? 'red' : 'redes'}${on ? `, ${on} ${on === 1 ? 'corrige' : 'corrigen'}` : ''}`;
+    return h('tr', { class: 'net-group' }, h('th', { colspan: 4, scope: 'colgroup' }, group, h('span', { class: 'note' }, ` · ${count}`)));
+  };
+  const table = (nets) =>
     h(
       'div',
       { class: 'table-wrap' },
       h(
         'table',
-        {},
+        { class: 'nets-table' },
         h('thead', {}, h('tr', {}, h('th', {}, 'Red'), h('th', { class: 'num' }, 'Resultados'), h('th', {}, 'Estado'), h('th', { class: 'num hide-sm' }, 'Menos error'))),
-        h('tbody', {}, list.map(row)),
+        h('tbody', {}, [...groupBy(nets, (n) => n.group || '').entries()].map(([group, same]) => [groupHead(group, same), same.map(row)])),
       ),
+    );
+  const blocks = [list.filter((n) => !n.code), list.filter((n) => n.code)].filter((b) => b.length);
+  const on = list.filter((n) => n.trained).length;
+  return h(
+    'div',
+    { class: 'panel nets-panel' },
+    h('h3', {}, 'Redes especializadas'),
+    h(
+      'p',
+      { class: 'note' },
+      `Una red por mercado y, en los Más/Menos de jugador, una por estadística (puntos, rebotes, asistencias, triples, tiros de campo intentados...): ninguna aprende de otro mercado. Cada una empieza a corregir con ${MIN_SAMPLES} resultados de su mercado y solo si mejora en los partidos más recientes, que no usó para entrenar; mientras tanto, su mercado usa la probabilidad estadística.`,
+      list.length ? ` Corrigen ${on} de ${list.length}.` : '',
     ),
+    h('div', { class: 'nets-tables' }, blocks.map(table)),
     app.storage.mode !== 'lectura' ? h('button', { class: 'btn small', onclick: () => app.retrain() }, 'Reentrenar ahora') : null,
   );
 }

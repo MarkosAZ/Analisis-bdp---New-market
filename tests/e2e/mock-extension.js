@@ -153,12 +153,24 @@
     ['Jimmy Butler', 24, 20, 5.5, 5, 0.8],
   ];
   const vary = (m, sd) => Math.max(0, Math.round(m + sd * (rand() + rand() + rand() - 1.5) * 1.15));
-  // Un partido de un jugador en el formato del contrato (ESPN/Sofascore normalizado).
+  // Los intentos salen de otra secuencia para no cambiar el resto de los datos simulados.
+  let seed2 = 11;
+  const rand2 = () => ((seed2 = (seed2 * 16807) % 2147483647) / 2147483647);
+  const missed = (m, sd) => Math.max(0, Math.round(m + sd * (rand2() + rand2() + rand2() - 1.5) * 1.15));
+  // Un partido de un jugador en el formato del contrato (ESPN/Sofascore normalizado);
+  // fga/tpa/fta: intentados (anotados + fallados).
   const gameRow = ([, , pts, reb, ast, tpm], start) => {
     const t = vary(tpm, 1.4);
     const p = Math.max(vary(pts, 6), 3 * t);
-    return { start, min: vary(34, 4), pts: p, reb: vary(reb, 2.5), ast: vary(ast, 2), tpm: t, stl: vary(1.2, 1), blk: vary(0.8, 0.8), tov: vary(2.5, 1.2), oreb: vary(reb * 0.25, 1), dreb: vary(reb * 0.75, 2), ftm: vary(4, 2), fgm: vary((p - t) / 2.2, 2) };
+    const r = {
+      start, min: vary(34, 4), pts: p, reb: vary(reb, 2.5), ast: vary(ast, 2), tpm: t, stl: vary(1.2, 1), blk: vary(0.8, 0.8), tov: vary(2.5, 1.2),
+      oreb: vary(reb * 0.25, 1), dreb: vary(reb * 0.75, 2), ftm: vary(4, 2), fgm: vary((p - t) / 2.2, 2),
+    };
+    const tpa = r.tpm + missed(tpm * 1.7, 1.5);
+    return { ...r, fga: Math.max(r.fgm + missed(r.fgm * 1.05, 2.5), tpa), tpa, fta: r.ftm + missed(1.2, 1) };
   };
+  // Línea de tiros de campo intentados de cada jugador (anotados promedio / 0.48).
+  const fgaLine = ([, , pts, , , tpm]) => Math.floor((pts - tpm) / 2.2 / 0.48) + 0.5;
   const teamOf = (name) => events.find((e) => e.sport === 'basketball' && (e.home.name === name || e.away.name === name));
   const playerLogs = (teamName, start) => {
     const t = [...teamById.values()].find((x) => x.name === teamName);
@@ -180,12 +192,16 @@
   function betanoBasketball(e) {
     const ou = (name, line, over, under) => ({ name, selections: [{ name: `Más de ${line}`, price: over }, { name: `Menos de ${line}`, price: under }] });
     const list = [];
-    for (const [name, team] of PLAYERS) {
+    for (const p of PLAYERS) {
+      const [name, team] = p;
       if (team !== e.home.id && team !== e.away.id) continue;
       list.push(ou(`Total de Puntos ${name}`, 24.5, 1.87, 1.87), ou(`Total de rebotes ${name}`, 7.5, 1.9, 1.85), ou(`${name} Total de Puntos, Rebotes y Asistencias`, 39.5, 1.85, 1.95));
+      // Intentos: tiros de campo intentados (red y probabilidad propias, no los anotados).
+      list.push(ou(`Total de tiros de campo intentados ${name}`, fgaLine(p), 1.87, 1.87));
       list.push({ name: `Double-double ${name}`, selections: [{ name: 'Sí', price: 2.4 }, { name: 'No', price: 1.55 }] });
     }
     list.push(ou('Total de Tiros de tres puntos anotados Stephen Curry', 4.5, 1.8, 2.0));
+    list.push(ou('Total de tiros de 3 puntos intentados Stephen Curry', 12.5, 1.85, 1.9), ou('Total de tiros libres intentados Stephen Curry', 4.5, 1.9, 1.85));
     return list.filter((m) => !m.name.includes('Stephen Curry') || e.home.id === 23 || e.away.id === 23);
   }
 

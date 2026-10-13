@@ -6,7 +6,7 @@
 //   data/historial/index.json         resumen por día
 //   data/historial/AAAA-MM-DD.json    análisis del día con sus picks y combinadas
 //   data/entrenamiento/AAAA-MM.json   selecciones analizadas + resultado real (para la red)
-//   data/modelo/redes.json            pesos de las redes especializadas (una por mercado)
+//   data/modelo/redes.json            pesos de las redes especializadas (una por mercado y por estadística de jugador)
 import * as ext from './ext.js';
 import * as provider from './provider.js';
 import * as store from './storage.js';
@@ -18,9 +18,9 @@ import { profitOf } from './analysis/outcomes.js';
 import { mergeRecords, recordFromSofascore } from './analysis/records.js';
 import { flashscoreRecords } from './flashscore-link.js';
 import { isResult } from './analysis/neural.js';
-import { NetworkSet } from './analysis/networks.js';
+import { NetworkSet, networkOf } from './analysis/networks.js';
 import { isPlayerMarket, LEVELS } from './analysis/picks.js';
-import { basketballLeague } from './analysis/players.js';
+import { basketballLeague, PLAYER_STATS } from './analysis/players.js';
 
 export const INDEX = 'data/historial/index.json';
 export const MODEL = 'data/modelo/redes.json';
@@ -88,18 +88,22 @@ export function compactAnalysis(result) {
   };
 }
 
-// Filas para la red: una por mercado de cada partido (en los de jugador, por
+// Filas para las redes: una por mercado de cada partido (en los de jugador, por
 // jugador y estadística), la selección más probable según la estadística entre
 // las de la zona útil (50 % a 97 %), como los picks. Los dos lados de una línea,
 // o dos líneas del mismo mercado, son el mismo resultado contado dos veces.
-// Los de jugador son muchos por partido: hasta 40, repartidos entre todas las
-// probabilidades, para que un partido no pese más que los otros en su red.
-const PLAYER_ROWS_PER_EVENT = 40;
+// Cada estadística de jugador tiene su propia red (networks.PLAYER_NETWORKS): de
+// cada una, hasta 8 jugadores por partido, repartidos entre todas las
+// probabilidades, para que un partido no pese más que los otros en esa red. Los
+// mercados de equipo (uno por partido en su red) no tienen tope.
+const PLAYER_ROWS_PER_NETWORK = 8;
 const spread = (list, n) => {
   if (list.length <= n) return list;
   const sorted = [...list].sort((a, b) => a.pBase - b.pBase);
   return Array.from({ length: n }, (_, i) => sorted[Math.floor((i * sorted.length) / n)]);
 };
+// Red de una fila de jugador; sin red (código nuevo), su estadística ('OU.pl_pts').
+const playerGroup = (c) => networkOf(c.sport, c.market) || String(c.market).split('#')[0];
 export function rowCandidates(candidates) {
   const out = [];
   const useful = candidates.filter((c) => Number.isFinite(c.pBase) && c.pBase >= 0.5 && c.pBase <= 0.97);
@@ -107,7 +111,8 @@ export function rowCandidates(candidates) {
     const best = [...groupBy(list, (c) => c.market).values()].map((same) =>
       same.reduce((a, b) => (b.pBase > a.pBase || (b.pBase === a.pBase && `${b.sel}|${b.line}` < `${a.sel}|${a.line}`) ? b : a)),
     );
-    out.push(...best.filter((c) => !isPlayerMarket(c.market)), ...spread(best.filter((c) => isPlayerMarket(c.market)), PLAYER_ROWS_PER_EVENT));
+    out.push(...best.filter((c) => !isPlayerMarket(c.market)));
+    for (const same of groupBy(best.filter((c) => isPlayerMarket(c.market)), playerGroup).values()) out.push(...spread(same, PLAYER_ROWS_PER_NETWORK));
   }
   return out;
 }
@@ -412,13 +417,26 @@ export async function updateResults({ onProgress = () => {} } = {}) {
   // Partidos con apuestas de jugador (necesitan las estadísticas de cada jugador)
   // y el resumen guardado de cada partido (liga, país, equipos) para buscarlos.
   const playerIds = new Set();
+  // Campos de jugador que necesitan las apuestas pendientes de cada partido (p. ej. fga para pl_fga).
+  const playerFields = new Map();
+  const needFields = (id, market) => {
+    const parts = PLAYER_STATS[parseMarketId(market)?.stat] || [];
+    const set = playerFields.get(id) || new Set();
+    for (const p of parts) set.add(p.replace(/^-/, ''));
+    playerFields.set(id, set);
+  };
   const eventInfo = new Map();
   for (const day of dayFiles)
     for (const a of day.analyses) {
       for (const [id, e] of Object.entries(a.events || {})) eventInfo.set(String(id), e);
-      for (const leg of [...a.picks, ...(a.combos || []).flatMap((k) => k.legs)]) if (due(leg) && isPlayerMarket(leg.market)) playerIds.add(leg.eventId);
+      for (const leg of [...a.picks, ...(a.combos || []).flatMap((k) => k.legs)]) if (due(leg) && isPlayerMarket(leg.market)) (playerIds.add(leg.eventId), needFields(leg.eventId, leg.market));
     }
-  for (const { file } of rowFiles) for (const r of file.rows) if (r.y == null && isPlayerMarket(r.market) && r.start < now - GRACE_MS) playerIds.add(r.eventId);
+  for (const { file } of rowFiles) for (const r of file.rows) if (r.y == null && isPlayerMarket(r.market) && r.start < now - GRACE_MS) (playerIds.add(r.eventId), needFields(r.eventId, r.market));
+  // ¿El registro trae lo que piden sus apuestas? (uno guardado antes puede no tener los intentos).
+  const hasPlayerFields = (id, players) => {
+    const fields = [...(playerFields.get(id) || [])];
+    return Object.values(players || {}).some((row) => row && !row.dnp && fields.every((f) => row[f] != null));
+  };
   // Liga de ESPN (NBA, WNBA) del partido: sus jugadores se liquidan con ESPN.
   const espnLeague = (id) => {
     const info = eventInfo.get(String(id));
@@ -499,7 +517,7 @@ export async function updateResults({ onProgress = () => {} } = {}) {
   // modelo de estas ligas usa los partidos de ESPN).
   if (ext.available()) {
     for (const id of playerIds) {
-      if (results[id]?.record?.players) continue;
+      if (hasPlayerFields(id, results[id]?.record?.players)) continue;
       const league = espnLeague(id);
       if (!league) continue;
       const info = eventInfo.get(String(id));

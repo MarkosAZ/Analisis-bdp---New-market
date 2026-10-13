@@ -21,9 +21,10 @@ historial de resultados. Funciona en el **celular y en la PC**:
     total de tarjetas, tiros al arco, remates totales y córners del primer tiempo
     (siempre el total del partido, no los de cada equipo).
   - Básquet: total de puntos, hándicap, hándicap y total de puntos del primer
-    tiempo y los **Más/Menos de jugador** (puntos, rebotes, asistencias, triples,
-    robos, tapones, pérdidas, rebotes ofensivos y defensivos, tiros libres, tiros
-    de 2 y los combinados P+R+A, P+R, P+A, R+A y robos+tapones). Apuesta Total
+    tiempo y los **Más/Menos de jugador** (puntos, rebotes, asistencias, robos,
+    tapones, pérdidas, rebotes ofensivos y defensivos; triples, tiros de campo,
+    tiros de 2 y tiros libres, anotados **e intentados**; y los combinados
+    P+R+A, P+R, P+A, R+A y robos+tapones). Apuesta Total
     no ofrece mercados de jugador: sus cuotas son de **Betano** (con la extensión,
     en la PC). Los últimos partidos de cada jugador salen de **ESPN** en la NBA y
     la WNBA y de **Sofascore** en las demás ligas.
@@ -42,21 +43,50 @@ historial de resultados. Funciona en el **celular y en la PC**:
   equipo. Jugadores: sus últimos 10 partidos (los más recientes pesan más; al
   menos 5 jugados). Si figura como baja, no se analiza. La probabilidad que dan
   las cuotas se muestra solo como referencia.
-- **Análisis con red neuronal**: **redes especializadas**, una por tipo de
-  mercado: `Football_Goals_Model`, `Football_BTTS_Model`,
-  `Football_Corners_Model`, `Football_Cards_Model`, `Football_Shots_Model`,
-  `Basketball_Totals_Model`, `Basketball_Handicap_Model`,
-  `Basketball_PlayerProps_Model`, `Baseball_Winner_Model`,
-  `Baseball_RunLine_Model` y `Baseball_Totals_Model`. Cada una aprende solo de
-  los resultados de sus mercados (con los datos del partido, la distancia de la
-  línea a lo esperado y las noticias de Flashscore, ESPN y FotMob) y corrige la
-  probabilidad estadística solo cuando tiene 200 resultados de su mercado y
-  mejora en partidos que no usó para entrenar (validación en el tiempo: cada
-  tramo reciente se predice con lo aprendido antes; la mejora debe ser de al
-  menos 1 % y no explicarse por azar); mientras tanto, sus mercados quedan con
-  la probabilidad estadística. Aprenden de un resultado por mercado de cada
-  partido (el lado más probable; hasta 40 de jugador por partido). Se
-  reentrenan al actualizar resultados.
+- **Análisis con red neuronal**: **35 redes especializadas** y ninguna mezcla
+  mercados (los córners del primer tiempo no aprenden de los del partido, ni los
+  tiros al arco de los remates, ni los rebotes de un jugador de sus puntos):
+  - Una por mercado de la lista (14): `Football_Goals_Model` (goles totales),
+    `Football_BTTS_Model` (ambos anotan), `Football_Corners_Model` (córners),
+    `Football_Cards_Model` (tarjetas), `Football_ShotsOnTarget_Model` (tiros al
+    arco), `Football_Shots_Model` (remates totales), `Football_CornersH1_Model`
+    (córners del primer tiempo), `Basketball_Totals_Model` (total de puntos),
+    `Basketball_Handicap_Model` (hándicap), `Basketball_HandicapH1_Model`
+    (hándicap del primer tiempo), `Basketball_TotalsH1_Model` (total del primer
+    tiempo), `Baseball_Winner_Model` (ganador), `Baseball_RunLine_Model`
+    (run line) y `Baseball_Totals_Model` (total de carreras).
+  - Una por estadística de los Más/Menos de jugador (21):
+    `Basketball_PlayerPoints_Model` (puntos), `Basketball_PlayerRebounds_Model`
+    (rebotes), `Basketball_PlayerAssists_Model` (asistencias),
+    `Basketball_PlayerThreesMade_Model` (triples anotados),
+    `Basketball_PlayerThreesAttempted_Model` (triples intentados),
+    `Basketball_PlayerFieldGoalsMade_Model` (tiros de campo anotados),
+    `Basketball_PlayerFieldGoalsAttempted_Model` (tiros de campo intentados),
+    `Basketball_PlayerTwosMade_Model` (tiros de 2 anotados),
+    `Basketball_PlayerTwosAttempted_Model` (tiros de 2 intentados),
+    `Basketball_PlayerFreeThrowsMade_Model` (tiros libres anotados),
+    `Basketball_PlayerFreeThrowsAttempted_Model` (tiros libres intentados),
+    `Basketball_PlayerSteals_Model` (robos), `Basketball_PlayerBlocks_Model`
+    (tapones), `Basketball_PlayerTurnovers_Model` (pérdidas),
+    `Basketball_PlayerOffensiveRebounds_Model` (rebotes ofensivos),
+    `Basketball_PlayerDefensiveRebounds_Model` (rebotes defensivos),
+    `Basketball_PlayerPtsRebAst_Model` (P+R+A), `Basketball_PlayerPtsReb_Model`
+    (P+R), `Basketball_PlayerPtsAst_Model` (P+A), `Basketball_PlayerRebAst_Model`
+    (R+A) y `Basketball_PlayerStealsBlocks_Model` (robos + tapones). Las de
+    intentos (tiros de campo, triples, tiros de 2 y tiros libres intentados) y
+    la de tiros de campo anotados son de los Más/Menos de jugador nuevos.
+
+  Cada una aprende solo de los resultados de su mercado (con los datos del
+  partido, la distancia de la línea a lo esperado y las noticias de Flashscore,
+  ESPN y FotMob) y corrige la probabilidad estadística solo cuando tiene 200
+  resultados de su mercado y mejora en partidos que no usó para entrenar
+  (validación en el tiempo: cada tramo reciente se predice con lo aprendido
+  antes; la mejora debe ser de al menos 1 % y no explicarse por azar); mientras
+  tanto, su mercado queda con la probabilidad estadística. Aprenden de un
+  resultado por mercado de cada partido (el lado más probable); en las de
+  jugador, hasta 8 jugadores por partido en cada red. Se reentrenan al
+  actualizar resultados; el Historial muestra el estado de cada una, agrupadas
+  por deporte.
 - **Todos los mercados de cada partido con su nivel de confianza**: alta
   (≥ 80 %), moderada-alta (70–80 %), moderada (60–70 %) y **baja** (menos de
   60 %), con la mejor cuota entre Apuesta Total y Betano. La pestaña Análisis
@@ -142,7 +172,7 @@ docs/                 página web (GitHub Pages)
     simulate.js       simula partidos (primer tiempo del básquet)
     stats.js          córners, tarjetas y tiros con los promedios de cada equipo
     players.js        Más/Menos de jugador: modelo, nombres y liquidación
-    networks.js       redes especializadas (una por tipo de mercado)
+    networks.js       redes especializadas (una por mercado y una por estadística de jugador)
     records.js        registro del partido con datos de Flashscore y Sofascore
     teamstats.js      estadísticas promedio de cada equipo
     news.js           señales de las noticias para la red neuronal

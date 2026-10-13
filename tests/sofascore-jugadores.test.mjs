@@ -48,7 +48,7 @@ const lineups = (home, away, { homeMissing = [], awayMissing = [] } = {}) => ({
   home: { players: home, supportStaff: [], missingPlayers: homeMissing },
   away: { players: away, supportStaff: [], missingPlayers: awayMissing },
 });
-const ROW = { min: 36, pts: 27, reb: 8, ast: 9, tpm: 3, stl: 2, blk: 1, tov: 4, oreb: 1, dreb: 7, ftm: 4, fgm: 10 };
+const ROW = { min: 36, pts: 27, reb: 8, ast: 9, tpm: 3, stl: 2, blk: 1, tov: 4, oreb: 1, dreb: 7, ftm: 4, fgm: 10, fga: 19, tpa: 7, fta: 5 };
 const DNP = { min: 0, dnp: true };
 
 // ---- playerRow ----
@@ -61,7 +61,7 @@ test('playerRow: claves de Sofascore al formato común', () => {
   assert.deepEqual(playerRow(stats({ points: 0, threePointsMade: 0, steals: 0 })), { ...ROW, pts: 0, tpm: 0, stl: 0 });
   // Números como texto.
   assert.deepEqual(playerRow({ secondsPlayed: '600', points: '12', assists: '3' }), {
-    min: 10, pts: 12, reb: null, ast: 3, tpm: null, stl: null, blk: null, tov: null, oreb: null, dreb: null, ftm: null, fgm: null,
+    min: 10, pts: 12, reb: null, ast: 3, tpm: null, stl: null, blk: null, tov: null, oreb: null, dreb: null, ftm: null, fgm: null, fga: null, tpa: null, fta: null,
   });
 });
 
@@ -89,6 +89,35 @@ test('playerRow: alias de rebotes, triples, tapones, tiros de campo y minutos', 
   assert.equal(playerRow({ secondsPlayed: 90, minutesPlayed: 40, points: 4 }).min, 1.5, 'secondsPlayed manda');
 });
 
+test('playerRow: intentos (tiros de campo, triples y libres) con sus alias', () => {
+  const base = { secondsPlayed: 1200, points: 10 };
+  const att = (o) => {
+    const r = playerRow({ ...base, ...o });
+    return [r.fga, r.tpa, r.fta];
+  };
+  // Claves de Sofascore.
+  assert.deepEqual(att({ fieldGoalAttempts: 15, threePointAttempts: 6, freeThrowAttempts: 4 }), [15, 6, 4]);
+  // Otras formas de llamarlas.
+  assert.deepEqual(att({ fieldGoalsAttempted: 14, threePointsAttempted: 5, freeThrowsAttempted: 3 }), [14, 5, 3]);
+  assert.deepEqual(att({ fieldGoalsAttempts: 13, threePointersAttempted: 4, freeThrowsAttempts: 2 }), [13, 4, 2]);
+  assert.equal(playerRow({ ...base, threePointFieldGoalsAttempted: 9 }).tpa, 9);
+  // Tiros de campo intentados = dobles intentados + triples intentados si no vienen.
+  assert.equal(playerRow({ ...base, twoPointAttempts: 9, threePointAttempts: 6 }).fga, 15);
+  assert.equal(playerRow({ ...base, twoPointsAttempted: 8, threePointsAttempted: 2 }).fga, 10);
+  assert.equal(playerRow({ ...base, twoPointAttempts: 9 }).fga, null, 'sin triples intentados no se puede sumar');
+  assert.equal(playerRow({ ...base, fieldGoalAttempts: 20, twoPointAttempts: 9, threePointAttempts: 6 }).fga, 20, 'fieldGoalAttempts manda');
+  // Ceros son datos; sin la clave, null (no 0).
+  assert.deepEqual(att({ fieldGoalAttempts: 0, threePointAttempts: 0, freeThrowAttempts: '0' }), [0, 0, 0]);
+  assert.deepEqual(att({}), [null, null, null]);
+  assert.deepEqual(att({ fieldGoalAttempts: '12', threePointAttempts: 'x' }), [12, null, null]);
+  // Menos intentos que anotados (dato roto): sin dato.
+  assert.deepEqual(att({ fieldGoalsMade: 8, fieldGoalAttempts: 6, threePointsMade: 2, threePointAttempts: 5, freeThrowsMade: 4, freeThrowAttempts: 3 }), [null, 5, null]);
+  // Solo con intentos (sin minutos ni otros datos) jugó: tiró al aro.
+  const r = playerRow({ fieldGoalAttempts: 3 });
+  assert.equal(r.dnp, undefined);
+  assert.equal(r.fga, 3);
+});
+
 test('playerRow: no jugó (sin estadísticas, 0 segundos o todo en cero sin minutos)', () => {
   assert.deepEqual(playerRow(undefined), DNP);
   assert.deepEqual(playerRow(null), DNP);
@@ -106,7 +135,7 @@ test('playerRow: no jugó (sin estadísticas, 0 segundos o todo en cero sin minu
   assert.equal(r.min, null);
   assert.equal(r.pts, 8);
   // Con minutos y sin ningún otro dato: jugó.
-  const empty = { pts: null, reb: null, ast: null, tpm: null, stl: null, blk: null, tov: null, oreb: null, dreb: null, ftm: null, fgm: null };
+  const empty = { pts: null, reb: null, ast: null, tpm: null, stl: null, blk: null, tov: null, oreb: null, dreb: null, ftm: null, fgm: null, fga: null, tpa: null, fta: null };
   assert.deepEqual(playerRow({ secondsPlayed: 300 }), { min: 5, ...empty });
 });
 

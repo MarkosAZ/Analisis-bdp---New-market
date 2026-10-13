@@ -24,12 +24,16 @@ const hasPlayer = (r) => (r?.outcomes || []).some((o) => isPlayerStat(o.spec.sta
 test('códigos de estadística de jugador y sus textos', () => {
   assert.deepEqual(PLAYER_STAT_CODES, [
     'pl_pts', 'pl_reb', 'pl_ast', 'pl_3pm', 'pl_stl', 'pl_blk', 'pl_tov', 'pl_oreb', 'pl_dreb', 'pl_ftm', 'pl_2pm', 'pl_pra', 'pl_pr', 'pl_pa', 'pl_ra', 'pl_sb',
+    'pl_fgm', 'pl_fga', 'pl_3pa', 'pl_2pa', 'pl_fta',
   ]);
   const texts = {
     pl_pts: 'puntos', pl_reb: 'rebotes', pl_ast: 'asistencias', pl_3pm: 'triples anotados', pl_stl: 'robos', pl_blk: 'tapones', pl_tov: 'pérdidas',
     pl_oreb: 'rebotes ofensivos', pl_dreb: 'rebotes defensivos', pl_ftm: 'tiros libres anotados', pl_2pm: 'tiros de 2 anotados',
     pl_pra: 'puntos + rebotes + asistencias', pl_pr: 'puntos + rebotes', pl_pa: 'puntos + asistencias', pl_ra: 'rebotes + asistencias', pl_sb: 'robos + tapones',
+    pl_fgm: 'tiros de campo anotados', pl_fga: 'tiros de campo intentados', pl_3pa: 'triples intentados', pl_2pa: 'tiros de 2 intentados',
+    pl_fta: 'tiros libres intentados',
   };
+  assert.equal(new Set(PLAYER_STAT_CODES).size, 21);
   for (const code of PLAYER_STAT_CODES) assert.equal(STAT_NAME[code], texts[code], code);
   // Las estadísticas de equipo no cambian.
   assert.equal(STAT_NAME.reb, 'rebotes');
@@ -69,6 +73,93 @@ test('nombres reales de Betano: el jugador antes o después de la estadística',
     assert.deepEqual(r.spec, { t: 'OU', stat: code, scope: 'ft', team: null, n: who }, name);
     assert.deepEqual(r.outcomes.map((o) => o.price), [1.8, 1.9], name);
   }
+});
+
+test('intentos y tiros de campo: cada uno con su código (los intentos no son los anotados)', () => {
+  const cases = [
+    // Tiros de campo intentados.
+    ['Total de tiros de campo intentados LeBron James', 'pl_fga'],
+    ['Tiros de campo intentados LeBron James', 'pl_fga'],
+    ['LeBron James Total de tiros de campo intentados', 'pl_fga'],
+    ['LeBron James - Tiros de campo intentados', 'pl_fga'],
+    ['Total de lanzamientos de campo intentados LeBron James', 'pl_fga'],
+    ['Total de intentos de tiros de campo LeBron James', 'pl_fga'],
+    ['Intentos de tiros de campo LeBron James', 'pl_fga'],
+    ['Total de tiros intentados LeBron James', 'pl_fga'],
+    ['Tiros de campo intentados totales LeBron James', 'pl_fga'],
+    // Tiros de campo anotados.
+    ['Total de tiros de campo anotados LeBron James', 'pl_fgm'],
+    ['Tiros de campo anotados LeBron James', 'pl_fgm'],
+    ['LeBron James Total de tiros de campo anotados', 'pl_fgm'],
+    ['Total de canastas de campo anotadas LeBron James', 'pl_fgm'],
+    // Triples intentados: antes "tiros de 3 puntos" se comía el comienzo y quedaba "intentados LeBron James".
+    ['Total de tiros de 3 puntos intentados LeBron James', 'pl_3pa'],
+    ['Total de Tiros de tres puntos intentados LeBron James', 'pl_3pa'],
+    ['Triples intentados LeBron James', 'pl_3pa'],
+    ['LeBron James Triples intentados', 'pl_3pa'],
+    ['Total de lanzamientos de 3 puntos intentados LeBron James', 'pl_3pa'],
+    ['Intentos de triples LeBron James', 'pl_3pa'],
+    ['Total de intentos de tiros de 3 puntos LeBron James', 'pl_3pa'],
+    ['Total de triples lanzados LeBron James', 'pl_3pa'],
+    // Tiros de 2 intentados.
+    ['Total de tiros de 2 puntos intentados LeBron James', 'pl_2pa'],
+    ['Total de tiros de dos puntos intentados LeBron James', 'pl_2pa'],
+    ['LeBron James Total de tiros de 2 puntos intentados', 'pl_2pa'],
+    // Tiros libres intentados.
+    ['Total de tiros libres intentados LeBron James', 'pl_fta'],
+    ['Tiros libres intentados LeBron James', 'pl_fta'],
+    ['LeBron James: Total de tiros libres intentados', 'pl_fta'],
+    ['Total de lanzamientos libres intentados LeBron James', 'pl_fta'],
+    ['Intentos de tiros libres LeBron James', 'pl_fta'],
+    // Los anotados siguen igual.
+    ['Total de tiros de 3 puntos anotados LeBron James', 'pl_3pm'],
+    ['Total de tiros de 3 puntos LeBron James', 'pl_3pm'],
+    ['Triples LeBron James', 'pl_3pm'],
+    ['Total de tiros de 2 puntos anotados LeBron James', 'pl_2pm'],
+    ['Total de tiros libres anotados LeBron James', 'pl_ftm'],
+    ['Tiros libres LeBron James', 'pl_ftm'],
+  ];
+  for (const [name, code] of cases) {
+    const r = parse(name, ['Más de 8.5', 'Menos de 8.5']);
+    const id = `OU.${code}#LeBron James`;
+    assert.deepEqual(keysOf(r), [`${id}|over|8.5`, `${id}|under|8.5`], name);
+  }
+  // Con el jugador en la selección.
+  assert.deepEqual(keysOf(parse('Tiros de campo intentados', ['LeBron James Más de 19.5', 'LeBron James Menos de 19.5'])), [
+    'OU.pl_fga#LeBron James|over|19.5',
+    'OU.pl_fga#LeBron James|under|19.5',
+  ]);
+  assert.deepEqual(keysOf(parse('Total de tiros de 3 puntos intentados', ['Stephen Curry - Más de 11.5', 'Stephen Curry - Menos de 11.5'])), [
+    'OU.pl_3pa#Stephen Curry|over|11.5',
+    'OU.pl_3pa#Stephen Curry|under|11.5',
+  ]);
+});
+
+test('intentos que no son el Más/Menos de un jugador', () => {
+  const unsupported = (name, list = ['Más de 8.5', 'Menos de 8.5']) => parse(name, list)?.unsupported;
+  // De un periodo, con marcador de prueba o porcentajes: no se modelan.
+  assert.equal(unsupported('1er Periodo - Total de tiros de campo intentados LeBron James'), 'player');
+  assert.equal(unsupported('Total de tiros de 3 puntos intentados [Jugador]'), 'player');
+  assert.equal(unsupported('Porcentaje de tiros de campo LeBron James'), 'player');
+  assert.equal(unsupported('Porcentaje de tiros de 3 puntos LeBron James'), 'player');
+  assert.equal(unsupported('Más tiros de 3 puntos intentados', ['LeBron James', 'Jayson Tatum']), 'player');
+  assert.equal(unsupported('Triple-double Nikola Jokić', ['Sí', 'No']), 'player');
+  // De equipo: sin datos para liquidarlos (antes se leían como el total de puntos o los libres anotados).
+  for (const name of [
+    'Total de tiros de campo intentados - Local',
+    'Total de tiros de 3 puntos intentados - Local',
+    'Total de tiros libres intentados - Visitante',
+    'Total de tiros de campo - Local',
+    'Tiros de campo anotados - Local',
+    'Total de tiros de campo intentados',
+  ]) assert.equal(unsupported(name, ['Más de 40.5', 'Menos de 40.5']), 'special', name);
+  // Un jugador con un dato que no es de tiros de campo ("tiros anotados"): no es el total del partido.
+  assert.equal(unsupported('Total de tiros anotados LeBron James'), 'special');
+  // Los triples anotados del equipo siguen igual.
+  assert.deepEqual(keysOf(parse('Tiros de tres puntos anotados - Local', ['Más de 12.5', 'Menos de 12.5'])), ['OU.threes:home|over|12.5', 'OU.threes:home|under|12.5']);
+  // En fútbol no cambia nada ("intentos" no es de básquet).
+  const r = parseMarket('Tiros al arco', sels(['Más de 8.5', 'Menos de 8.5']), { sport: 'football', home: 'Arsenal', away: 'Chelsea' });
+  assert.deepEqual(keysOf(r), ['OU.shots_on|over|8.5', 'OU.shots_on|under|8.5']);
 });
 
 test('el nombre conserva mayúsculas, tildes, apóstrofos, guiones y "Jr."', () => {
@@ -231,6 +322,10 @@ test('identificador, clave, etiqueta, familia y equipos al revés', () => {
   assert.equal(labelOf('OU.pl_pra#LeBron James', 'under', 24.5, 'basketball', names), 'LeBron James: Menos de 24.5 puntos + rebotes + asistencias');
   assert.equal(labelOf({ ...spec, stat: 'pl_3pm', n: 'Stephen Curry' }, 'over', 3.5, 'basketball'), 'Stephen Curry: Más de 3.5 triples anotados');
   assert.equal(labelOf('OU.pl_2pm#Luka Dončić', 'under', 6.5, 'basketball'), 'Luka Dončić: Menos de 6.5 tiros de 2 anotados');
+  assert.equal(labelOf('OU.pl_fga#LeBron James', 'over', 19.5, 'basketball'), 'LeBron James: Más de 19.5 tiros de campo intentados');
+  assert.equal(labelOf('OU.pl_3pa#Stephen Curry', 'under', 11.5, 'basketball'), 'Stephen Curry: Menos de 11.5 triples intentados');
+  assert.deepEqual(parseMarketId('OU.pl_fta#Jaren Jackson Jr.'), { ...spec, stat: 'pl_fta', n: 'Jaren Jackson Jr.' });
+  assert.equal(familyOf(parseMarketId('OU.pl_2pa#LeBron James')), 'pl_2pa');
   // Las etiquetas de equipo no cambian.
   assert.equal(labelOf('OU.reb:home', 'over', 44.5, 'basketball', names), `Más de 44.5 rebotes de ${HOME}`);
   assert.equal(labelOf('OU', 'over', 220.5, 'basketball', names), 'Más de 220.5 puntos');

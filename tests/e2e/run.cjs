@@ -323,18 +323,23 @@ async function withoutExtension(browser, errors) {
     const table = await page.textContent('.panel table');
     check('calcula aciertos y ganancia por nivel', /%/.test(table), table.replace(/\s+/g, ' ').slice(0, 160));
     const netPanel = await page.textContent('.panel:has(h3:text-is("Redes especializadas"))');
+    const netIds = ['Football_Goals_Model', 'Football_Corners_Model', 'Football_CornersH1_Model', 'Football_ShotsOnTarget_Model', 'Basketball_TotalsH1_Model', 'Basketball_PlayerPoints_Model', 'Basketball_PlayerFieldGoalsAttempted_Model', 'Baseball_Totals_Model'];
     check(
       'las redes especializadas registran los resultados de su mercado',
-      ['Football_Goals_Model', 'Football_Corners_Model', 'Basketball_PlayerProps_Model', 'Baseball_Totals_Model'].every((id) => netPanel.includes(id)) && /[1-9]\d*\/200/.test(netPanel),
+      netIds.every((id) => netPanel.includes(id)) && !netPanel.includes('Basketball_PlayerProps_Model') && /[1-9]\d*\/200/.test(netPanel),
       netPanel.replace(/\s+/g, ' ').slice(0, 260),
     );
+    const netRows = await page.$$eval('.nets-table tbody tr:not(.net-group)', (els) => els.length);
+    const netGroups = await page.$$eval('.nets-table tr.net-group th', (els) => els.map((e) => e.firstChild.textContent.trim()));
+    check('35 redes (14 de mercado y 21 de jugador), agrupadas', netRows === 35 && netGroups.join() === 'Fútbol,Básquet,Béisbol,Básquet: jugadores', `${netRows} redes · ${netGroups.join(', ')}`);
     await page.screenshot({ path: path.join(OUT, '3-historial.png'), fullPage: true });
+    await (await page.$('.nets-panel')).screenshot({ path: path.join(OUT, '3d-redes.png') });
 
     // 5) Análisis con red neuronal
     await page.click('#run-nn');
     await page.waitForSelector('#tab-analisis .summary h2:has-text("red neuronal")', { timeout: 60000 });
     const nnBanner = await page.textContent('#tab-analisis .summary .banner');
-    check('el análisis con red neuronal explica el estado de las redes especializadas', /Ninguna red especializada corrige|Corrigen \d+ de \d+ redes/.test(nnBanner), nnBanner.slice(0, 160));
+    check('el análisis con red neuronal explica el estado de las redes especializadas', /Redes especializadas que corrigen: \d+ de 35/.test(nnBanner), nnBanner.slice(0, 160));
     const nnSummary = await page.textContent('#tab-analisis .summary');
     check('la red neuronal usa noticias de Flashscore, ESPN y FotMob', /Noticias · \d+ noticias/.test(nnSummary), nnSummary.match(/Noticias[^A-Z]*/)?.[0]);
     const compare = await page.textContent('#tab-analisis .compare');
@@ -367,6 +372,14 @@ async function withoutExtension(browser, errors) {
     await (await page.$('#tab-analisis .segmented.levels')).screenshot({ path: path.join(OUT, '4b-celular-niveles.png') });
     const analysisOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     check('sin desplazamiento horizontal en el análisis (celular)', !analysisOverflow);
+    await page.click('.tabs button[data-tab="historial"]');
+    await page.waitForSelector('.nets-table');
+    await (await page.$('.nets-panel')).screenshot({ path: path.join(OUT, '4c-celular-redes.png') });
+    const netsFit = await page.evaluate(() => ({
+      page: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      tables: [...document.querySelectorAll('.nets-panel .table-wrap')].every((w) => w.scrollWidth <= w.clientWidth + 1),
+    }));
+    check('las redes caben en el celular (sin desplazamiento horizontal)', netsFit.page && netsFit.tables, JSON.stringify(netsFit));
     await page.click('.tabs button[data-tab="partidos"]');
     await page.screenshot({ path: path.join(OUT, '5-celular-partidos.png'), fullPage: false });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);

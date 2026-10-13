@@ -12,22 +12,56 @@ import {
   statValue,
 } from '../docs/js/analysis/players.js';
 
-// Fila de un partido en el formato normalizado del contrato.
-const row = (o = {}) => ({ min: 34.5, pts: 27, reb: 8, ast: 9, tpm: 3, stl: 2, blk: 1, tov: 4, oreb: 1, dreb: 7, ftm: 5, fgm: 10, ...o });
+// Fila de un partido en el formato normalizado del contrato (fga/tpa/fta: intentados).
+const row = (o = {}) => ({ min: 34.5, pts: 27, reb: 8, ast: 9, tpm: 3, stl: 2, blk: 1, tov: 4, oreb: 1, dreb: 7, ftm: 5, fgm: 10, fga: 19, tpa: 7, fta: 6, ...o });
 const close = (a, b, eps = 1e-9, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg || ''} ${a} ≠ ${b}`);
 
 test('códigos de estadística de jugador y su valor en un partido', () => {
-  const codes = 'pl_2pm pl_3pm pl_ast pl_blk pl_dreb pl_ftm pl_oreb pl_pa pl_pr pl_pra pl_pts pl_ra pl_reb pl_sb pl_stl pl_tov';
+  const codes = 'pl_2pa pl_2pm pl_3pa pl_3pm pl_ast pl_blk pl_dreb pl_fga pl_fgm pl_fta pl_ftm pl_oreb pl_pa pl_pr pl_pra pl_pts pl_ra pl_reb pl_sb pl_stl pl_tov';
   assert.deepEqual(Object.keys(PLAYER_STATS).sort(), codes.split(' '));
+  assert.deepEqual(PLAYER_STATS.pl_fgm, ['fgm']);
+  assert.deepEqual(PLAYER_STATS.pl_fga, ['fga']);
+  assert.deepEqual(PLAYER_STATS.pl_3pa, ['tpa']);
+  assert.deepEqual(PLAYER_STATS.pl_2pa, ['fga', '-tpa']);
+  assert.deepEqual(PLAYER_STATS.pl_fta, ['fta']);
   const r = row();
   const expected = {
     pl_pts: 27, pl_reb: 8, pl_ast: 9, pl_3pm: 3, pl_stl: 2, pl_blk: 1, pl_tov: 4, pl_oreb: 1, pl_dreb: 7, pl_ftm: 5,
     pl_2pm: 7, pl_pra: 44, pl_pr: 35, pl_pa: 36, pl_ra: 17, pl_sb: 3,
+    pl_fgm: 10, pl_fga: 19, pl_3pa: 7, pl_2pa: 12, pl_fta: 6,
   };
   for (const [code, v] of Object.entries(expected)) assert.equal(statValue(r, code), v, code);
   // Números como texto también sirven; ceros cuentan.
   assert.equal(statValue({ pts: '12', reb: '0', ast: 3 }, 'pl_pra'), 15);
   assert.equal(statValue({ fgm: 4, tpm: 4 }, 'pl_2pm'), 0);
+  assert.equal(statValue({ fga: '15', tpa: '15' }, 'pl_2pa'), 0);
+  assert.equal(statValue({ fga: 0, fgm: 0 }, 'pl_fga'), 0, 'no tiró: 0 intentos');
+  // Intentos sin los anotados también valen.
+  assert.equal(statValue({ fga: 15 }, 'pl_fga'), 15);
+  assert.equal(statValue({ fta: 4, ftm: null }, 'pl_fta'), 4);
+});
+
+test('statValue de los intentos: sin el dato o con datos que se contradicen → null (no 0)', () => {
+  // Fila de antes (sin intentos, como los registros ya publicados): solo valen las de siempre.
+  const old = { min: 30, pts: 12, reb: 5, ast: 1, tpm: 2, stl: 0, blk: 0, tov: 1, oreb: 1, dreb: 4, ftm: 2, fgm: 4 };
+  for (const code of ['pl_fga', 'pl_3pa', 'pl_2pa', 'pl_fta']) assert.equal(statValue(old, code), null, code);
+  assert.equal(statValue(old, 'pl_fgm'), 4);
+  assert.equal(statValue(old, 'pl_pts'), 12);
+  assert.equal(statValue(row({ fga: null }), 'pl_fga'), null);
+  assert.equal(statValue(row({ fga: null }), 'pl_2pa'), null);
+  assert.equal(statValue(row({ tpa: undefined }), 'pl_2pa'), null, 'tiros de 2 intentados necesita los triples intentados');
+  assert.equal(statValue(row({ fta: '' }), 'pl_fta'), null);
+  assert.equal(statValue(row({ fgm: null }), 'pl_fgm'), null);
+  // Menos intentos que anotados: el dato está roto.
+  assert.equal(statValue(row({ fga: 8 }), 'pl_fga'), null, '8 intentos con 10 anotados');
+  assert.equal(statValue(row({ fga: 8 }), 'pl_2pa'), null);
+  assert.equal(statValue(row({ tpa: 2 }), 'pl_3pa'), null, '2 intentos con 3 triples');
+  assert.equal(statValue(row({ fta: 4 }), 'pl_fta'), null, '4 intentos con 5 libres');
+  // Negativos o restas negativas: null.
+  assert.equal(statValue(row({ fga: 5, tpa: 7, fgm: 2 }), 'pl_2pa'), null);
+  assert.equal(statValue({ fgm: 3, tpm: 4 }, 'pl_2pm'), null);
+  assert.equal(statValue(row({ fga: -1 }), 'pl_fga'), null);
+  assert.equal(statValue({ min: 0, dnp: true, fga: 10 }, 'pl_fga'), null);
 });
 
 test('statValue: null si falta una parte, si no jugó o si el código no existe', () => {
@@ -274,6 +308,33 @@ test('playerProbability: solo los últimos maxGames jugados y con dato', () => {
   assert.equal(noMin.n, 6);
 });
 
+test('playerProbability de los intentos: partidos sin el dato se saltan (no son ceros)', () => {
+  // 10 partidos: los 4 más recientes de una fuente sin intentos, los 6 siguientes con 20 intentos.
+  const mixed = [
+    ...games(Array(4).fill(25), { fga: null, tpa: null, fta: null }),
+    ...games(Array(6).fill(25)).map((g) => ({ ...g, fga: 20, tpa: 8, fta: 6 })),
+  ];
+  const fga = playerProbability(mixed, 'pl_fga', 'over', 19.5);
+  assert.equal(fga.n, 6);
+  close(fga.mean, 20, 1e-9);
+  close(fga.p, poissonOver(fga.mean, 19.5), 1e-12);
+  const twos = playerProbability(mixed, 'pl_2pa', 'under', 12.5);
+  close(twos.mean, 12, 1e-9, '20 − 8');
+  close(twos.p, 1 - poissonOver(twos.mean, 12.5), 1e-12);
+  close(playerProbability(mixed, 'pl_3pa', 'over', 7.5).mean, 8, 1e-9);
+  assert.equal(playerProbability(mixed, 'pl_fta', 'over', 5.5).n, 6);
+  // Los puntos usan los 10.
+  assert.equal(playerProbability(mixed, 'pl_pts', 'over', 24.5).n, 10);
+  // Con menos de 5 partidos con el dato no hay probabilidad (aunque haya 10 jugados).
+  const few = [...games(Array(6).fill(25), { fga: null }), ...games(Array(4).fill(25))];
+  assert.equal(playerProbability(few, 'pl_fga', 'over', 18.5), null);
+  // Intentos más dispersos que la media: binomial negativa, igual que los anotados.
+  const spread = games(Array(10).fill(25)).map((g, i) => ({ ...g, fga: [30, 12, 28, 10, 26, 14, 31, 9, 27, 13][i], fgm: 5 }));
+  const r = playerProbability(spread, 'pl_fga', 'over', 22.5);
+  assert.ok(r.sd ** 2 > r.mean);
+  close(r.p, nbOver(r.mean, r.sd ** 2, 22.5), 1e-9);
+});
+
 test('playerProbability: null con pocos partidos o datos inválidos', () => {
   assert.equal(playerProbability(games([20, 20, 20, 20]), 'pl_pts', 'over', 24.5), null, 'menos de 5');
   assert.ok(playerProbability(games([20, 20, 20, 20, 20]), 'pl_pts', 'over', 24.5));
@@ -332,11 +393,13 @@ const REC = {
   nReg: 4,
   players: {
     'LeBron James': row({ pts: 27, reb: 8, ast: 9 }),
-    'Luka Dončić': row({ pts: 35, reb: 10, ast: 11, tpm: 5, fgm: 12 }),
+    'Luka Dončić': row({ pts: 35, reb: 10, ast: 11, tpm: 5, fgm: 12, fga: 24, tpa: 11, ftm: 6, fta: 9 }),
     'Jaren Jackson Jr.': row({ pts: 18, reb: 6, ast: 1, blk: 3 }),
     'Austin Reaves': { min: 0, dnp: true },
-    'Gabe Vincent': row({ min: 0, pts: 0, reb: 1 }),
+    'Gabe Vincent': row({ min: 0, pts: 0, reb: 1, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0 }),
     'Jarred Vanderbilt': row({ oreb: null }),
+    // Registro publicado antes de los intentos (12 campos).
+    'Rui Hachimura': { min: 30, pts: 12, reb: 5, ast: 1, tpm: 2, stl: 0, blk: 0, tov: 1, oreb: 1, dreb: 4, ftm: 2, fgm: 4 },
   },
 };
 
@@ -391,6 +454,32 @@ test('evaluate: Más/Menos de jugador con el box score', () => {
   assert.equal(e('AND', 'OU.pl_pts#Austin Reaves~over~10.5+ML~home~'), 'void');
   // Con el objeto del mercado en lugar del id.
   assert.equal(evaluate({ t: 'OU', stat: 'pl_ast', scope: 'ft', team: null, n: 'LeBron James' }, 'over', 8.5, REC), 'won');
+});
+
+test('liquidación de los intentos y los tiros de campo', () => {
+  assert.deepEqual(playerValue(REC, 'Luka Doncic', 'pl_fga'), { value: 24 });
+  assert.deepEqual(playerValue(REC, 'Luka Dončić', 'pl_fgm'), { value: 12 });
+  assert.deepEqual(playerValue(REC, 'Luka Dončić', 'pl_3pa'), { value: 11 });
+  assert.deepEqual(playerValue(REC, 'Luka Dončić', 'pl_2pa'), { value: 13 }, '24 − 11');
+  assert.deepEqual(playerValue(REC, 'L. Dončić', 'pl_fta'), { value: 9 });
+  assert.deepEqual(playerValue(REC, 'Gabe Vincent', 'pl_fga'), { value: 0 }, 'jugó y no tiró: 0');
+  assert.deepEqual(playerValue(REC, 'Austin Reaves', 'pl_fga'), { dnp: true });
+  // Registro sin intentos: queda pendiente (no se liquida como 0); lo demás sí.
+  for (const code of ['pl_fga', 'pl_3pa', 'pl_2pa', 'pl_fta']) assert.equal(playerValue(REC, 'Rui Hachimura', code), null, code);
+  assert.deepEqual(playerValue(REC, 'Rui Hachimura', 'pl_fgm'), { value: 4 });
+
+  const e = (m, s, l) => evaluate(m, s, l, REC);
+  assert.equal(e('OU.pl_fga#Luka Dončić', 'over', 22.5), 'won');
+  assert.equal(e('OU.pl_fga#Luka Dončić', 'under', 22.5), 'lost');
+  assert.equal(e('OU.pl_fgm#Luka Dončić', 'under', 12.5), 'won');
+  assert.equal(e('OU.pl_3pa#Luka Doncic', 'over', 10.5), 'won');
+  assert.equal(e('OU.pl_3pa#Luka Doncic', 'over', 11.5), 'lost');
+  assert.equal(e('OU.pl_2pa#Luka Dončić', 'over', 12.5), 'won');
+  assert.equal(e('OU.pl_fta#Luka Dončić', 'under', 8.5), 'lost');
+  assert.equal(e('OU.pl_fta#Luka Dončić', 'over', 9), 'void', 'línea entera igual al valor');
+  assert.equal(e('OU.pl_fga#Austin Reaves', 'over', 10.5), 'void');
+  assert.equal(e('OU.pl_fga#Rui Hachimura', 'over', 8.5), null, 'sin el dato: pendiente');
+  assert.equal(e('OU.pl_fgm#Rui Hachimura', 'over', 3.5), 'won');
 });
 
 test('evaluate: estado del partido y registros sin jugadores', () => {
