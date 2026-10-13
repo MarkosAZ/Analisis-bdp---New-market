@@ -127,6 +127,16 @@ function comboCard(k, analysis) {
   );
 }
 
+// Deporte que se ve: el elegido si el análisis tiene partidos de ese deporte; si
+// no (p. ej. se eligió en el Historial o en otro análisis), todos.
+export function viewSport(app, a) {
+  const s = app.state.sportFilter || 'todos';
+  return Object.values(a?.events || {}).some((e) => e.sport === s) ? s : 'todos';
+}
+// Combinadas con alguna selección del deporte (las selecciones recién hechas no
+// guardan el deporte: sale del partido).
+const combosOf = (a, sport) => (a.combos || []).filter((k) => sport === 'todos' || k.legs.some((l) => (l.sport || a.events[l.eventId]?.sport) === sport));
+
 // Texto para copiar y compartir (WhatsApp, notas...): por deporte y liga, cada
 // partido con sus mercados y su nivel.
 export function analysisText(a, filter = 'todos', sport = 'todos') {
@@ -144,10 +154,11 @@ export function analysisText(a, filter = 'todos', sport = 'todos') {
       }
     }
   }
-  if (a.combos.length) {
+  const combos = combosOf(a, sport);
+  if (combos.length) {
     lines.push('', 'Combinadas');
     const byKey = new Map(a.candidates.map((c) => [`${c.eventId}|${c.key}`, c]));
-    for (const k of a.combos) {
+    for (const k of combos) {
       lines.push(`${BOOKMAKERS[k.source]} · cuota ${k.odds.toFixed(2)} · prob. ${pct(k.p)}`);
       for (const leg of k.legs) {
         const ev = a.events[leg.eventId];
@@ -261,17 +272,20 @@ function levelFilter(app, a) {
   const s = a.settings;
   const ranges = { alta: `≥ ${pct(s.alta)}`, moderada_alta: `${pct(s.moderadaAlta)}–${pct(s.alta)}`, moderada: `${pct(s.moderada)}–${pct(s.moderadaAlta)}`, baja: `< ${pct(s.moderada)}` };
   const btn = (id, name, n, title) => h('button', { class: id === current ? 'active' : '', title, onclick: () => app.setLevelFilter(id) }, name, h('span', { class: 'n' }, ` ${n}`));
+  // Cuenta solo los del deporte que se está viendo.
+  const sport = viewSport(app, a);
+  const picks = a.picks.filter((p) => sport === 'todos' || p.sport === sport);
   return h(
     'div',
     { class: 'segmented levels', role: 'group', 'aria-label': 'Nivel de confianza a mostrar' },
-    btn('todos', 'Todos', a.picks.length, 'Todos los mercados'),
-    LEVELS.map((l) => btn(l.id, l.name, a.picks.filter((p) => p.level === l.id).length, `Confianza ${l.name.toLowerCase()}: ${ranges[l.id]}`)),
+    btn('todos', 'Todos', picks.length, 'Todos los mercados'),
+    LEVELS.map((l) => btn(l.id, l.name, picks.filter((p) => p.level === l.id).length, `Confianza ${l.name.toLowerCase()}: ${ranges[l.id]}`)),
   );
 }
 
 // Filtro por deporte: Todos y cada deporte del análisis (con cuántos partidos tiene).
 function sportFilter(app, a) {
-  const current = app.state.sportFilter || 'todos';
+  const current = viewSport(app, a);
   const events = Object.values(a.events || {});
   const sports = bySportAndLeague(events).map((g) => g.sport);
   const btn = (id, name, n) => h('button', { class: id === current ? 'active' : '', title: `${n} partidos`, onclick: () => app.setSportFilter(id) }, name, h('span', { class: 'n' }, ` ${n}`));
@@ -343,7 +357,7 @@ function renderMethod(root, app, a) {
   }
   const s = a.settings;
   const filter = app.state.levelFilter || 'todos';
-  const sport = app.state.sportFilter || 'todos';
+  const sport = viewSport(app, a);
   const all = filter === 'todos';
   const shown = a.picks.filter((p) => all || p.level === filter);
   const byEvent = groupBy(shown, (p) => String(p.eventId));
@@ -389,8 +403,8 @@ function renderMethod(root, app, a) {
     ),
   );
   root.append(
-    a.combos.length
-      ? h('div', { class: 'cards' }, a.combos.map((k) => comboCard(k, a)))
+    combosOf(a, sport).length
+      ? h('div', { class: 'cards' }, combosOf(a, sport).map((k) => comboCard(k, a)))
       : h('div', { class: 'note' }, 'No se pudo armar una combinada: hacen falta más selecciones con cuota en la misma casa.'),
   );
   root.append(

@@ -9,7 +9,7 @@ import { DEFAULT_SETTINGS, MARKETS } from './analysis/picks.js';
 import { isActiveSport, sportOf } from './sports.js';
 import { addDays, h, limaToday, versionBefore } from './util.js';
 import { PartidosView } from './views/partidos.js';
-import { analysisText, renderAnalisis } from './views/analisis.js';
+import { analysisText, renderAnalisis, viewSport } from './views/analisis.js';
 import { renderHistorial } from './views/historial.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -314,7 +314,8 @@ app.setAnalysisView = (method) => {
 
 app.copyAnalysis = async () => {
   try {
-    await navigator.clipboard.writeText(analysisText(app.state.analyses[app.state.analysisView], app.state.levelFilter, app.state.sportFilter));
+    const a = app.state.analyses[app.state.analysisView];
+    await navigator.clipboard.writeText(analysisText(a, app.state.levelFilter, viewSport(app, a)));
     toast('Picks copiados');
   } catch {
     toast('No se pudo copiar');
