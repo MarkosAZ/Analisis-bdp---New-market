@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { analyzeEvent } from '../docs/js/analysis/engine.js';
+import { analyzeEvent, baseCandidates } from '../docs/js/analysis/engine.js';
 import { FEATURES } from '../docs/js/analysis/features.js';
 import { offersFromApuestaTotal, offersFromBetano, offersFromSofascore } from '../docs/js/analysis/markets.js';
 import { NetworkSet } from '../docs/js/analysis/networks.js';
@@ -139,6 +139,18 @@ test('córners, tarjetas, tiros al arco y remates: con los promedios de cada equ
   assert.ok(!Object.keys(by).some((k) => k.includes(':home') || k.includes('|45.5')));
   // Sin promedios de los equipos no se inventa una probabilidad.
   assert.equal(analyzeEvent(ev, details, list, {}).candidates.length, 0);
+});
+
+test('mercados con línea .5 pero sin datos de los equipos: quedan anotados con ese motivo', () => {
+  const list = offersFromBetano(betanoStats, { home: 'Belgium', away: 'Türkiye' }, ev);
+  // Sin los tiros de los equipos: tiros al arco y remates no se pueden calcular.
+  const partial = { home: { corners: teamStats.home.corners, cards: teamStats.home.cards }, away: { corners: teamStats.away.corners, cards: teamStats.away.cards } };
+  const r = baseCandidates(ev, { ...details, teamStats: partial }, list, {});
+  assert.deepEqual(r.noData.sort(), ['OU.shots', 'OU.shots_on']);
+  assert.ok(r.candidates.some((c) => c.market === 'OU.corners'));
+  assert.ok(!r.candidates.some((c) => c.market.startsWith('OU.shots')));
+  // Con todos los datos no falta ninguno.
+  assert.deepEqual(baseCandidates(ev, { ...details, teamStats }, list, {}).noData, []);
 });
 
 // Hándicap de córners (Betano "Hándicap de Córners - Dobles"): la diferencia de
