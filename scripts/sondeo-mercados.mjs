@@ -1,8 +1,7 @@
-// Sondeo temporal (5): tipos ML/OU/HC/QA del 7000 al 19999 en partidos de fútbol
-// (los del 0 al 6999 ya se probaron): nombres y cómo los lee la página.
+// Sondeo temporal (6): cómo arma la web de Apuesta Total los pedidos de la página de
+// un partido (/api/eventpage, /api/master, /api/sportscenter) y si alguno trae el
+// catálogo de tipos de mercado o los mercados de "Disparos a puerta".
 import { getEventList } from '../extension/sources/apuestatotal.js';
-import { offersFromApuestaTotal } from '../docs/js/analysis/markets.js';
-import { marketsOf } from '../docs/js/analysis/picks.js';
 
 const BASE = 'https://prod20392.kmianko.com';
 const PAGE = `${BASE}/es-pe/spbkv3?operatorToken=logout`;
@@ -18,54 +17,38 @@ async function session() {
   headers = { 'time-area': '01', ...(jar.authorization ? { authorization: jar.authorization, session: jar.session } : {}) };
   return headers;
 }
-async function markets(ids, types) {
-  const q = encodeURIComponent(`${ids.join('|')}:${types.join('|')}`);
-  for (let i = 0; i < 3; i++) {
-    try {
-      const r = await fetch(`${BASE}/api/eventlist/eu/markets/all?markets=${q}`, { headers: await session(), signal: AbortSignal.timeout(30000) });
-      if (r.status === 403) { headers = null; continue; }
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const d = await r.json();
-      return Array.isArray(d) ? d : [];
-    } catch (e) {
-      if (i === 2) { console.log('error', e.message); return []; }
-    }
+async function get(url) {
+  try {
+    const r = await fetch(url.startsWith('http') ? url : BASE + url, { headers: await session(), signal: AbortSignal.timeout(40000) });
+    return { status: r.status, type: r.headers.get('content-type') || '', text: await r.text() };
+  } catch (e) {
+    return { status: 0, type: '', text: String(e.message) };
   }
-  return [];
 }
-const toMarket = (m) => ({
-  name: m.Name || m.MarketType?.Name || '',
-  type: m.MarketType?._id || '',
-  selections: (m.Selections || []).filter((s) => !s.IsDisabled && !s.IsRemoved).map((s) => ({
-    name: s.BetslipLine || s.Name || '',
-    line: s.QAParam1 != null && s.QAParam1 !== '' && Number.isFinite(Number(s.QAParam1)) ? Number(s.QAParam1) : null,
-    price: Number(s.DisplayOdds?.Decimal ?? s.TrueOdds),
-  })).filter((s) => s.price > 1),
-});
 
-const TYPES = ['OU', 'QA', 'HC', 'ML'].flatMap((p) => Array.from({ length: 13000 }, (_, i) => `${p}${i + 7000}`));
+const page = await get(PAGE);
+const scripts = [...page.text.matchAll(/<script[^>]+src="([^"]+)"/g)].map((m) => new URL(m[1], PAGE).href);
+let code = '';
+for (const src of scripts) code += (await get(src)).text + '\n';
+console.log('código:', code.length, 'car.');
+for (const key of ['/api/eventpage', '/api/master', '/api/sportscenter', '/api/eventlist/eu', 'markets/all', 'MarketGroups', 'marketGroups', 'TotalMarketsCount', 'isparo']) {
+  const hits = [...code.matchAll(new RegExp(key.replace(/[/]/g, '\\/'), 'g'))].slice(0, 6);
+  console.log(`\n== ${key}: ${hits.length} apariciones`);
+  for (const h of hits) console.log('   …', code.slice(Math.max(0, h.index - 220), h.index + 260).replace(/\s+/g, ' '));
+}
+
 const now = Date.now();
-for (const [sport, n] of [['football', 8]]) {
-  const { items } = await getEventList({ sport, from: now, to: now + 48 * 3600000 });
-  const events = items.filter((e) => !e.live).sort((a, b) => b.topLeague - a.topLeague || a.leagueOrder - b.leagueOrder || a.start - b.start).slice(0, n);
-  console.log(`\n==================== ${sport}: ${events.map((e) => `${e.home} vs ${e.away}`).join(' | ')}`);
-  const ids = events.map((e) => e.eventId);
-  const byType = new Map();
-  for (let j = 0; j < TYPES.length; j += 60) {
-    for (const raw of await markets(ids, TYPES.slice(j, j + 60))) {
-      if (raw.IsRemoved) continue;
-      const m = toMarket(raw);
-      const ev = events.find((x) => x.eventId === String(raw.EventId));
-      if (!ev) continue;
-      const offers = offersFromApuestaTotal([m], ev, { sport });
-      const list = [...new Set(offers.map((o) => o.market).filter((x) => marketsOf(sport).has(x)))];
-      const t = byType.get(m.type) || { names: new Set(), list: new Set(), events: new Set(), sample: '' };
-      t.names.add(m.name.replace(ev.home, '[L]').replace(ev.away, '[V]'));
-      list.forEach((x) => t.list.add(x));
-      t.events.add(ev.eventId);
-      if (!t.sample) t.sample = `${m.selections.slice(0, 4).map((s) => `${s.name}${s.line != null ? `(${s.line})` : ''}@${s.price}`).join(' · ')} → ${[...new Set(offers.map((o) => `${o.market}${o.line != null ? ' ' + o.line : ''}`))].slice(0, 3).join(', ') || 'no se lee'}`;
-      byType.set(m.type, t);
-    }
-  }
-  for (const [type, t] of [...byType].sort()) console.log(`${t.list.size ? '★' : ' '} ${type} | ${t.events.size} partidos | ${[...t.names].slice(0, 2).join(' / ')} | ${t.sample}`);
+const { items } = await getEventList({ sport: 'football', from: now, to: now + 48 * 3600000 });
+const ev = items.filter((e) => !e.live).sort((a, b) => b.topLeague - a.topLeague || a.leagueOrder - b.leagueOrder)[0];
+const id = ev.eventId;
+console.log(`\nPartido ${id} ${ev.home} vs ${ev.away}`);
+for (const path of [
+  `/api/eventpage/eu/markets?eventId=${id}`, `/api/eventpage/eu/${id}/markets`, `/api/eventpage/eu/event?eventId=${id}`, `/api/eventpage/eu/events/${id}`,
+  `/api/eventpage/eu/markets/all?eventId=${id}`, `/api/eventpage/eu/markets/all?markets=${id}`, `/api/eventpage/eu/markettypes?eventId=${id}`,
+  `/api/master/eu/markettypes`, `/api/master/markettypes`, `/api/master/eu/marketgroups`, `/api/master/marketgroups`, `/api/master/eu/sports`, `/api/master/sports`,
+  `/api/sportscenter/eu/markets?eventId=${id}`, `/api/sportscenter/eu/event/${id}`,
+]) {
+  const r = await get(path);
+  const json = /json/.test(r.type);
+  console.log(`${r.status} ${json ? 'JSON' : r.type.slice(0, 12)} ${r.text.length} car. ${path}${json ? ' | ' + r.text.slice(0, 220).replace(/\s+/g, ' ') : ''}${/isparo/.test(r.text) && json ? ' | ¡DISPAROS!' : ''}`);
 }
