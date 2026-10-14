@@ -278,6 +278,8 @@ async function withoutExtension(browser, errors) {
       rowMarkets.join(' '),
     );
     check('analiza los Más/Menos de jugador de Betano con los datos de ESPN', rowMarkets.some((m) => m.startsWith('OU.pl_pts#LeBron James')) && rowMarkets.some((m) => m.startsWith('OU.pl_pra#')), rowMarkets.filter((m) => m.startsWith('OU.pl_')).join(' '));
+    check('analiza los jugadores de Apuesta Total (asistencias y triples)', rowMarkets.some((m) => m.startsWith('OU.pl_ast#')) && rowMarkets.some((m) => m.startsWith('OU.pl_3pm#') && !m.endsWith('#por')), rowMarkets.filter((m) => /^OU\.pl_(ast|3pm)#/.test(m)).join(' '));
+    check('básquet: 1.er tiempo con las líneas extra .5 de Apuesta Total (la principal es entera)', rowMarkets.includes('OU@h1') && rowMarkets.includes('HCP@h1'), rowMarkets.filter((m) => m.includes('@h1')).join(' '));
     check('"Double-double" no se analiza como Más/Menos', !rowMarkets.some((m) => /double/i.test(m)));
     const levels = await page.$$eval('#tab-analisis .mrow', (rows) => rows.map((c) => c.className));
     const combos = await page.$$('#tab-analisis .card.combo');
@@ -296,7 +298,7 @@ async function withoutExtension(browser, errors) {
     const footballRows = await page.$$eval('#tab-analisis .sport-group:first-child .match-card', (cards) => cards.map((c) => [...c.children].filter((e) => e.classList.contains('mrow')).length));
     const missing = await page.$$eval('#tab-analisis .mrow.missing .meta', (els) => els.map((e) => e.textContent));
     check('cada partido de fútbol muestra los 8 mercados de la lista', footballRows.length > 0 && footballRows.every((n) => n === 8), footballRows.join(', '));
-    check('los mercados sin apuesta dicen por qué', missing.length > 0 && missing.every((t) => /línea \.5|datos suficientes/.test(t)), [...new Set(missing)].join(' | '));
+    check('los mercados sin apuesta dicen por qué', missing.length > 0 && missing.every((t) => /línea \.5|sin \.5|datos suficientes/.test(t)), [...new Set(missing)].join(' | '));
     await page.click('#tab-analisis .segmented.sports button:has-text("Básquet")');
     const onlyBasket = await page.$$eval('#tab-analisis .grp-sport', (els) => els.map((e) => e.firstChild.textContent.trim()));
     check('el filtro por deporte muestra solo ese deporte', onlyBasket.join() === '🏀 Básquet', onlyBasket.join(', '));

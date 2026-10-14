@@ -245,10 +245,23 @@
     if (e.sport === 'basketball') {
       const [h, a] = expected(e);
       const total = Math.floor(h + a) + 0.5;
+      // 1.er tiempo como en la NBA: la línea principal entera y las extra con .5.
+      const h1 = Math.round((h + a) / 2);
+      const d1 = Math.max(1, Math.round((h - a) / 2));
+      const sel = (name, price) => ({ name, price });
+      // Jugadores de Apuesta Total: el nombre va en cada selección ("LeBron James Más de 2.5").
+      const ou = (name, line, over = 1.9, under = 1.88) => [sel(`${name} Más de ${line}`, over), sel(`${name} Menos de ${line}`, under)];
+      const players = PLAYERS.filter((p) => p[1] === e.home.id || p[1] === e.away.id);
       return [
         { name: 'Ganador (incl. prórroga)', type: 'ML0', selections: [{ name: H, price: odd(0.5 + (h - a) / 30, 1.05) }, { name: A, price: odd(0.5 - (h - a) / 30, 1.05) }] },
         { name: 'Total de puntos', type: 'OU0', selections: [{ name: `Más de ${total}`, price: 1.9 }, { name: `Menos de ${total}`, price: 1.9 }, { name: `Más de ${total + 6}`, price: 2.45 }, { name: `Menos de ${total + 6}`, price: 1.52 }] },
         { name: 'Hándicap', type: 'HC0', selections: [{ name: `${H} (${-Math.round(h - a) - 0.5})`, price: 1.9 }, { name: `${A} (+${Math.round(h - a) + 0.5})`, price: 1.9 }] },
+        { name: '1ra Mitad Puntos Asiáticos', type: 'OU623', selections: [sel(`Más de ${h1}`, 1.85), sel(`Menos de ${h1}`, 1.85)] },
+        { name: '1ra Mitad Total de Puntos (extra)', type: 'OU2125', selections: [sel(`Más de ${h1 - 0.5}`, 1.8), sel(`Menos de ${h1 - 0.5}`, 1.92), sel(`Más de ${h1 + 3.5}`, 2.3), sel(`Menos de ${h1 + 3.5}`, 1.58)] },
+        { name: 'Hándicap - 1° Mitad', type: 'HC623', selections: [sel(`${H} -${d1}`, 1.85), sel(`${A} +${d1}`, 1.85)] },
+        { name: '1ra Mitad - Hándicap (extra)', type: 'HC2125', selections: [sel(`${H} -${d1 - 0.5}`, 1.8), sel(`${A} +${d1 - 0.5}`, 1.95)] },
+        { name: 'Asistencias del jugador (incl. Prórroga)', type: 'QA4402', selections: players.flatMap((p) => ou(p[0], Math.floor(p[4]) + 0.5)) },
+        { name: 'Tiros de 3 puntos anotados por jugador (incl. Prórroga)', type: 'QA4872', selections: players.flatMap((p) => ou(p[0], Math.floor(p[5]) + 0.5, 1.95, 1.83)) },
       ];
     }
     if (e.sport === 'baseball') {
@@ -328,12 +341,20 @@
       }
       return { mode: 'direct', items, failed: 0, requests: list.length * 7 };
     },
-    'sofascore.getEventResults': ({ ids }) => {
+    'sofascore.getEventResults': ({ ids, detail = [] }) => {
       const items = {};
+      // Marcador por cuartos (para el 1.er tiempo del básquet), como el evento de Sofascore.
+      const quarters = (pts) => {
+        const q = [Math.round(pts * 0.26), Math.round(pts * 0.25), Math.round(pts * 0.25)];
+        return [...q, pts - q[0] - q[1] - q[2]];
+      };
+      const sideScore = (pts) => ({ current: pts, ...Object.fromEntries(quarters(pts).map((v, i) => [`period${i + 1}`, v])) });
       for (const id of ids) {
         const e = byId.get(id);
         if (!e) continue;
-        items[id] = { state: 'finalizado', score: finalScore(e), winner: null };
+        const score = finalScore(e);
+        items[id] = { state: 'finalizado', score, winner: null };
+        if (e.sport === 'basketball' && detail.includes(id)) items[id].raw = { event: { status: { type: 'finished' }, homeScore: sideScore(score.home), awayScore: sideScore(score.away) } };
       }
       return { mode: 'direct', items };
     },
