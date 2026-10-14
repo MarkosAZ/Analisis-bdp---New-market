@@ -158,7 +158,11 @@ async function playerLogsCached(ev, names) {
   const r = await getPlayerLogs({ league, home: ev.home.name, away: ev.away.name, start: ev.start, n: 10, names, regular: !isPreseason(ev) });
   const keep = (side) => ({ teamGames: side.teamGames, players: side.players.filter((p) => names.some((n) => matchPlayer(n, [p]))) });
   const data = { source: 'espn', home: keep(r.home), away: keep(r.away) };
-  await writeJson(file, { at: Date.now(), names, data });
+  // Si ESPN falló con un equipo se publica lo que hay, pero no se guarda: la
+  // próxima corrida lo vuelve a pedir.
+  const failed = [r.home, r.away].filter((x) => x.error);
+  if (failed.length) log(`Jugadores ${ev.home.name} - ${ev.away.name}: ${failed.map((x) => `${x.team}: ${x.error}`).join(' | ')}`);
+  else await writeJson(file, { at: Date.now(), names, data });
   return data;
 }
 

@@ -239,3 +239,17 @@ test('básquet: nombres del 1.er tiempo ("1era", "1ª", "1.ª", "1°", "1T") nun
   assert.equal(first('2ª mitad - total de puntos'), 'OU@h2');
   assert.equal(first('Total de puntos (incl. prórroga)'), 'OU');
 });
+
+test('fútbol: más formas del 1.er y 2.º tiempo, y "disparos" que no son el total', () => {
+  const ctx = { sport: 'football', home: 'Arsenal', away: 'Lille' };
+  const ou = [{ name: 'Más de 4.5', price: 1.9 }, { name: 'Menos de 4.5', price: 1.9 }];
+  const read = (n) => {
+    const r = parseMarket(n, ou, ctx);
+    return r.unsupported ? `no:${r.unsupported}` : r.outcomes[0].market;
+  };
+  for (const n of ['1° Tiempo - Total de goles', '1.er tiempo: total de goles', '1er. tiempo total de goles', '1ra. Mitad Total de goles']) assert.equal(read(n), 'OU@h1', n);
+  assert.equal(read('2° tiempo - total de goles'), 'OU@h2');
+  for (const n of ['Disparos fuera', 'Disparos bloqueados', 'Disparos a portería']) assert.equal(read(n), 'no:special', n);
+  assert.equal(read('Disparos al palo'), 'OU.woodwork');
+  assert.equal(read('Disparos'), 'OU.shots');
+});

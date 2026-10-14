@@ -197,7 +197,8 @@ const STATS = [
   [/corner|corneres|tiros? de esquina/, 'corners'],
   [/tiros al arco|remates a puerta|tiros a puerta|remates al arco|disparos (?:a puertas?|al arco)/, 'shots_on'],
   [/tiros a porteria/, 'sog'],
-  [/remates totales|tiros totales|disparos totales|total de disparos|total de remates|\bdisparos\b/, 'shots'],
+  // "Disparos" solo es el total; "disparos fuera/bloqueados/al palo/a portería" son otros.
+  [/remates totales|tiros totales|disparos totales|total de disparos|total de remates|\bdisparos\b(?! (?:fuera|bloqueados|al palo|a porteria))/, 'shots'],
   [/faltas cometidas|\bfaltas\b/, 'fouls'],
   [/offside|fueras? de juego/, 'offsides'],
   [/saques de meta|saques de puerta/, 'goalkicks'],
@@ -308,9 +309,9 @@ function scopeOf(name, sport) {
   // Mitades.
   if (/primer tiempo\s*\/\s*tiempo completo|medio tiempo\s*\/\s*tiempo completo|primer tiempo o tiempo completo/.test(name)) return 'ft';
   if (/mitad\s*\/\s*final|descanso\s*\/\s*final/.test(name)) return 'ft';
-  // "1ra/1era/1ª/1.ª/1° mitad", "1T" (1.er tiempo); "2da/2ª mitad", "2T".
-  if (/primer tiempo|1er tiempo|medio tiempo|primera mitad|\b1\.?(ra|era|er|a)? (mitad|parte)\b|primera parte|\b1t\b/.test(name)) return 'h1';
-  if (/segundo tiempo|2do tiempo|segunda mitad|\b2\.?(da|do|a)? (mitad|parte)\b|segunda parte|\b2t\b/.test(name)) return 'h2';
+  // "1ra/1era/1ª/1.ª/1° mitad", "1° tiempo", "1.er tiempo", "1T"; "2da/2ª mitad", "2° tiempo", "2T".
+  if (/primer tiempo|1er tiempo|medio tiempo|primera mitad|\b1\.?(ra|era|er|a)?\.? (mitad|parte|tiempo)\b|primera parte|\b1t\b/.test(name)) return 'h1';
+  if (/segundo tiempo|2do tiempo|segunda mitad|\b2\.?(da|do|a)?\.? (mitad|parte|tiempo)\b|segunda parte|\b2t\b/.test(name)) return 'h2';
   if (/tiempo reg|tiempo regular|fin tiempo reg/.test(name)) return 'reg';
   return 'ft';
 }

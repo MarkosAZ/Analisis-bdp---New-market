@@ -568,7 +568,10 @@ export async function getPlayerLogs({ league, home, away, start, n = 10, names =
   // Si falla un equipo, el otro conserva sus jugadores (el error solo si fallan los dos).
   const sides = await Promise.allSettled([side(h, home), side(a, away)]);
   if (sides.every((x) => x.status === 'rejected')) throw sides[0].reason;
-  const [hs, as] = sides.map((x, i) => (x.status === 'fulfilled' ? x.value : { team: [h, a][i]?.displayName || [home, away][i], teamGames: 0, players: [] }));
+  // El equipo que falló lleva su error (para avisarlo y no guardarlo en caché).
+  const [hs, as] = sides.map((x, i) =>
+    x.status === 'fulfilled' ? x.value : { team: [h, a][i]?.displayName || [home, away][i], teamGames: 0, players: [], error: String(x.reason?.message || x.reason) },
+  );
   // Un traspasado que enfrenta a su equipo anterior aparece en los partidos de los dos:
   // queda solo en el equipo de su plantel actual (si no, su nombre empata y se descarta).
   if (names?.length) {

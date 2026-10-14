@@ -251,7 +251,9 @@ async function addPlayerLogs(events, details, sources, progress, offers = new Ma
     if (league) {
       try {
         const names = offeredPlayers(offers.get(ev.id));
-        set(ev, await ext.call('espn', 'getPlayerLogs', { league, home: ev.home.name, away: ev.away.name, start: ev.start, n: PLAYER_GAMES, names, regular: !isPreseason(ev) }, { timeout: 180000 }), 'espn');
+        const r = await ext.call('espn', 'getPlayerLogs', { league, home: ev.home.name, away: ev.away.name, start: ev.start, n: PLAYER_GAMES, names, regular: !isPreseason(ev) }, { timeout: 180000 });
+        for (const side of [r?.home, r?.away]) if (side?.error) errors.push(`ESPN ${side.team}: ${side.error}`);
+        set(ev, r, 'espn');
       } catch (e) {
         errors.push(`ESPN ${ev.home.name}: ${e.message}`);
       }

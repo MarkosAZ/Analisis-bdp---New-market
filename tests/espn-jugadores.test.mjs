@@ -564,6 +564,15 @@ test('getPlayerLogs: en la temporada regular no cuenta la pretemporada aunque ES
   assert.equal(gafford.games[0].start, Date.parse('2026-04-12T23:30Z'), 'el más reciente es de la regular 2026, no la pretemporada de octubre');
 });
 
+test('getPlayerLogs: si ESPN falla con un equipo, el otro conserva sus jugadores y el error queda anotado', async () => {
+  routes.set(`${NBA}/teams/18/schedule`, 503);
+  const r = await getPlayerLogs({ league: 'nba', home: 'Houston Rockets', away: 'New York Knicks', start: START, n: 10 });
+  assert.ok(r.home.players.length > 0);
+  assert.equal(r.home.error, undefined);
+  assert.deepEqual([r.away.team, r.away.players.length], ['New York Knicks', 0]);
+  assert.match(r.away.error, /503/);
+});
+
 test('getPlayerLogs: errores claros con liga o equipo desconocidos', async () => {
   await assert.rejects(getPlayerLogs({ league: 'euroleague', home: 'Real Madrid', away: 'Barcelona', start: START }), /no soportada/);
   await assert.rejects(getPlayerLogs({ league: 'nba', home: 'Real Madrid', away: 'Barcelona', start: START }), /no se encontraron los equipos Real Madrid y Barcelona/);
