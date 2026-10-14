@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { analyzeEvent, baseCandidates } from '../docs/js/analysis/engine.js';
+import { analyzeEvent, baseCandidates, withPublished } from '../docs/js/analysis/engine.js';
 import { FEATURES } from '../docs/js/analysis/features.js';
 import { offersFromApuestaTotal, offersFromBetano, offersFromSofascore } from '../docs/js/analysis/markets.js';
 import { NetworkSet } from '../docs/js/analysis/networks.js';
@@ -376,4 +376,18 @@ test('básquet: el 1.er tiempo solo con línea entera queda anotado con ese moti
   // Con una línea extra .5 ya no falta.
   const extra = [...markets, { name: '1ra Mitad Total de Puntos (extra)', selections: [sel('Más de 115.5', 1.75), sel('Menos de 115.5', 1.95)] }];
   assert.deepEqual(baseCandidates(nba, {}, offersFromApuestaTotal(extra, at, nba), {}).wholeOnly, ['HCP@h1']);
+});
+
+test('cuotas publicadas: solo los mercados que no llegaron en vivo (nunca una línea vieja)', () => {
+  const o = (market, sel, line, price, source = 'apuestatotal') => ({ source, market, sel, line, price, group: `${source}|${market}|${line}` });
+  // En vivo: el total ya se movió a 231.5 y el 1.er tiempo a 117.5 (extensión sin actualizar: sin jugadores).
+  const live = [o('OU', 'over', 231.5, 1.9), o('OU', 'under', 231.5, 1.9), o('OU@h1', 'over', 117.5, 1.95), o('OU@h1', 'under', 117.5, 1.85), o('OU', 'over', 230.5, 1.8, 'betano')];
+  // Publicado horas antes: líneas viejas y los jugadores.
+  const published = [o('OU', 'over', 228.5, 1.9), o('OU', 'under', 228.5, 1.9), o('OU@h1', 'over', 115.5, 1.9), o('OU@h1', 'under', 115.5, 1.9), o('OU.pl_pts#Cade Cunningham', 'over', 24.5, 1.85), o('OU.pl_pts#Cade Cunningham', 'under', 24.5, 1.85)];
+  const merged = withPublished(live, published);
+  assert.deepEqual(merged.filter((x) => x.source === 'apuestatotal' && x.market === 'OU').map((x) => x.line), [231.5, 231.5]);
+  assert.deepEqual(merged.filter((x) => x.market === 'OU@h1').map((x) => x.line), [117.5, 117.5]);
+  assert.equal(merged.filter((x) => x.market.startsWith('OU.pl_')).length, 2, 'los jugadores publicados sí se suman');
+  // Sin nada en vivo de Apuesta Total: todo lo publicado.
+  assert.equal(withPublished([o('OU', 'over', 230.5, 1.8, 'betano')], published).length, 7);
 });

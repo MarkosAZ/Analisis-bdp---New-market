@@ -112,8 +112,8 @@ function chip(cls, text, title) {
 }
 
 // Versión de la extensión con todos los mercados de Betano y Flashscore.
-const EXT_LATEST = '0.5.2';
-// Compara mayor, menor y parche (0.5.1 < 0.5.2: la 0.5.2 pide los disparos y los jugadores de básquet de Apuesta Total).
+const EXT_LATEST = '0.5.3';
+// Compara mayor, menor y parche (0.5.2 < 0.5.3: la 0.5.3 pide los disparos y los jugadores de básquet de Apuesta Total y el registro de jugadores de ESPN).
 const extOutdated = (v) => Boolean(v) && !/prueba/.test(v) && versionBefore(v, EXT_LATEST);
 
 function renderHeader() {

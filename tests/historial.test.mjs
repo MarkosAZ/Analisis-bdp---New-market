@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { daySummary, totals, withPlayers } from '../docs/js/history.js';
+import { daySummary, needsRecord, totals, withPlayers } from '../docs/js/history.js';
+import { recordFromSofascore } from '../docs/js/analysis/records.js';
 import { settle } from '../docs/js/analysis/markets.js';
 
 const pick = (eventId, key, level, status, odds = 1.5) => ({ eventId, key, level, status, odds });
@@ -140,4 +141,22 @@ test('NBA: con las estadísticas de ESPN se siguen liquidando el 1.er tiempo y l
   const early = withPlayers({}, players, 'basketball');
   assert.equal(settle(c('OU.pl_pts#Cade Cunningham', 'under', 24.5), early, 'basketball'), 'lost');
   assert.equal(settle(c('OU@h1', 'over', 109.5), early, 'basketball'), null);
+});
+
+test('NBA: resultado de Sofascore con cuartos y prórroga liquida el 1.er tiempo', () => {
+  // Las apuestas del 1.er tiempo piden el registro completo del partido.
+  assert.equal(needsRecord('OU@h1'), true);
+  assert.equal(needsRecord('HCP@h1'), true);
+  assert.equal(needsRecord('OU'), false);
+  const side = (q, ot) => ({ current: q.reduce((a, b) => a + b, 0) + ot, period1: q[0], period2: q[1], period3: q[2], period4: q[3], overtime: ot });
+  const event = { status: { type: 'finished' }, homeScore: side([28, 30, 25, 27], 12), awayScore: side([31, 26, 27, 26], 8), winnerCode: 1 };
+  const rec = recordFromSofascore({ sport: 'basketball', event });
+  const res = { state: 'finalizado', record: rec };
+  const c = (market, sel, line) => ({ market, sel, line });
+  // 1.er tiempo 58 - 57 (115): la prórroga no cuenta.
+  assert.equal(settle(c('OU@h1', 'under', 115.5), res, 'basketball'), 'won');
+  assert.equal(settle(c('HCP@h1', 'home', -1.5), res, 'basketball'), 'lost');
+  assert.equal(settle(c('HCP@h1', 'away', -1.5), res, 'basketball'), 'won');
+  // Partido: 122 - 118 con la prórroga (incl. prórroga, como las casas).
+  assert.equal(settle(c('OU', 'over', 239.5), res, 'basketball'), 'won');
 });

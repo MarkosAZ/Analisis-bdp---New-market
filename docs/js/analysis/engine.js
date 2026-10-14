@@ -434,6 +434,8 @@ export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } 
       if (!r) continue;
       c.pModel = r.p;
       c.via = 'simulación';
+      // Tendencia de los últimos partidos también en el total del 1.er tiempo.
+      if (c.spec.t === 'OU' && c.spec.stat === 'score') c.trend = trend * (DIR[c.sel] ?? 0);
       simulated++;
     }
   }
@@ -529,6 +531,15 @@ async function publishedData(events, details, sources, progress) {
   return out;
 }
 
+// Cuotas en vivo más las publicadas por GitHub Actions: todas si no llegó nada en
+// vivo de Apuesta Total, o solo los mercados que faltan (una extensión sin
+// actualizar no pide los jugadores). De un mercado que llegó en vivo no se suma
+// nada publicado: sus líneas viejas competirían con las nuevas.
+export function withPublished(live = [], published = []) {
+  const have = new Set(live.filter((o) => o.source === 'apuestatotal').map((o) => o.market));
+  return [...live, ...published.filter((o) => !have.has(o.market))];
+}
+
 export const METHODS = ['estadistico', 'red_neuronal'];
 
 // events: partidos seleccionados (de Sofascore o automáticos). Junta los datos
@@ -550,18 +561,16 @@ export async function analyzeMany(events, { methods = ['estadistico'], settings 
   const xg = sofa.length && withExt ? await understatXg(sofa, sources, onProgress) : new Map();
 
   // Partidos automáticos: cuotas publicadas de Apuesta Total que no se
-  // obtuvieron en vivo con la extensión (todas, o las selecciones que faltan:
-  // una extensión sin actualizar no pide los jugadores ni las líneas extra).
+  // obtuvieron en vivo con la extensión (ver withPublished).
   let usedPublished = 0;
   for (const ev of auto) {
     const p = published.get(ev.id);
     if (!p) continue;
     const live = offers.get(ev.id) || [];
-    const have = new Set(live.filter((o) => o.source === 'apuestatotal').map((o) => candidateKey(o.market, o.sel, o.line)));
-    const missing = p.offers.filter((o) => !have.has(candidateKey(o.market, o.sel, o.line)));
-    if (missing.length) {
-      offers.set(ev.id, [...live, ...missing]);
-      if (!have.size) usedPublished++;
+    const merged = withPublished(live, p.offers);
+    if (merged.length > live.length) {
+      offers.set(ev.id, merged);
+      if (!live.some((o) => o.source === 'apuestatotal')) usedPublished++;
     }
     if (p.xg) xg.set(ev.id, p.xg);
   }
