@@ -25,10 +25,17 @@ historial de resultados. Funciona en el **celular y en la PC**:
     tiempo y los **Más/Menos de jugador** (puntos, rebotes, asistencias, robos,
     tapones, pérdidas, rebotes ofensivos y defensivos; triples, tiros de campo,
     tiros de 2 y tiros libres, anotados **e intentados**; y los combinados
-    P+R+A, P+R, P+A, R+A y robos+tapones). Apuesta Total
-    no ofrece mercados de jugador: sus cuotas son de **Betano** (con la extensión,
-    en la PC). Los últimos partidos de cada jugador salen de **ESPN** en la NBA y
-    la WNBA y de **Sofascore** en las demás ligas.
+    P+R+A, P+R, P+A, R+A y robos+tapones). Sus cuotas son de **Apuesta Total**
+    (puntos, rebotes, asistencias, triples y sus combinados; también en el
+    celular, sin la extensión) y de **Betano** (con la extensión, en la PC). Los
+    intentados (tiros de campo, triples, de 2 y libres) solo si alguna casa los
+    ofrece. Los últimos partidos de cada jugador salen de **ESPN** en la NBA y
+    la WNBA (si con su equipo tiene menos de 10, p. ej. un traspasado o al
+    comenzar la temporada, se completan con su registro de partidos, también
+    los que jugó con otro equipo) y de **Sofascore** en las demás ligas.
+    Primer tiempo: Apuesta Total publica sus líneas pocas horas antes del
+    partido y la principal a veces es entera (88, +1): se usan sus líneas
+    "extra" con .5; si solo hay enteras, el partido lo dice.
   - Béisbol: ganador, hándicap (run line) y total de carreras.
 - **Una línea por mercado**: solo líneas .5 (sin enteras ni asiáticas, así solo
   hay dos resultados posibles y nunca devolución) y, en cada casa por separado,
@@ -38,7 +45,8 @@ historial de resultados. Funciona en el **celular y en la PC**:
 - **Análisis estadístico** (datos de Sofascore y Flashscore, sin noticias): la
   probabilidad sale **solo de la estadística**, las cuotas no la cambian. Goles,
   ambos marcan y béisbol: modelo de Poisson con la forma reciente, H2H y xG;
-  básquet: modelo de puntos; córners (total y hándicap), tarjetas y tiros:
+  básquet: modelo de puntos (sin los partidos de la Summer League, que duran 40
+  minutos); córners (total y hándicap), tarjetas y tiros:
   promedios de cada equipo (lo que hace y lo que le permite el rival); primer
   tiempo del básquet: partido
   simulado miles de veces. Hacen falta al menos 4 partidos con datos de cada

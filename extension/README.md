@@ -34,7 +34,10 @@ permisos nuevos (alarmas y almacenamiento de la extensión, y acceso a `api.gith
 La 0.5.2 pide también los disparos de Apuesta Total ("Disparos a puerta totales" y
 "Disparos totales"), que en la página se ven como tiros al arco y remates totales, y en
 básquet los jugadores (puntos, rebotes, asistencias, triples y sus combinadas) y las
-líneas extra del primer tiempo.
+líneas extra del primer tiempo. Además pide permiso para `site.web.api.espn.com`
+(el registro de partidos de cada jugador de la NBA) y el diagnóstico de Betano
+también prueba el básquet: si Betano no empareja los partidos de la NBA, copia el
+informe del diagnóstico (sección Betano → "Ver datos técnicos" → basketball).
 
 ## Guardar en GitHub (opcional)
 
