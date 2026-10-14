@@ -1,72 +1,58 @@
-// Sondeo temporal (11): cómo vienen los mercados de jugador (QA4400...) y las líneas
-// alternativas del primer tiempo (OU2125/HC2125) de básquet en Apuesta Total, y cómo
-// los lee hoy el catálogo.
-import { getEventList } from '../extension/sources/apuestatotal.js';
-import { offersFromApuestaTotal } from '../docs/js/analysis/markets.js';
-import { parseMarket } from '../docs/js/analysis/catalog.js';
+// Sondeo temporal (12): (a) ligas de los últimos partidos de los equipos de la NBA
+// en Flashscore (¿Summer League?), (b) plantel y registro de partidos de un jugador en
+// ESPN (para los traspasados y novatos al empezar la temporada).
+import { getH2H, getSportDay } from '../extension/sources/flashscore.js';
 
-const BASE = 'https://prod20392.kmianko.com';
-const PAGE = `${BASE}/es-pe/spbkv3?operatorToken=logout`;
-let headers = null;
-async function session() {
-  if (headers) return headers;
-  const r = await fetch(PAGE, { signal: AbortSignal.timeout(25000) });
-  const jar = {};
-  for (const c of r.headers.getSetCookie()) {
-    const pair = c.split(';')[0];
-    jar[pair.slice(0, pair.indexOf('='))] = pair.slice(pair.indexOf('=') + 1);
-  }
-  headers = { 'time-area': '01', ...(jar.authorization ? { authorization: jar.authorization, session: jar.session } : {}) };
-  return headers;
-}
-const TYPES = 'OU623 HC623 OU2125 HC2125 OU660 HC660 QA4400 QA4402 QA4403 QA4872 QA5543 QA4407 QA4408 QA4410 QA4975'.split(' ');
-const now = Date.now();
-const { items } = await getEventList({ sport: 'basketball', from: now, to: now + 10 * 86400000 });
-const want = [/^NBA$/, /Pretemporada NBA/, /Euroleague/, /WNBA/, /ACB/];
-const picked = [];
-for (const re of want) {
-  const list = items.filter((e) => !e.live && re.test(e.league)).sort((a, b) => a.start - b.start);
-  picked.push(...list.slice(0, re.source === '^NBA$' ? 3 : 1));
-}
-for (const ev of picked) {
-  const query = encodeURIComponent(`${ev.eventId}:${TYPES.join('|')}`);
-  const r = await fetch(`${BASE}/api/eventlist/eu/markets/all?markets=${query}`, { headers: await session(), signal: AbortSignal.timeout(40000) });
-  const data = await r.json().catch(() => null);
-  const markets = Array.isArray(data) ? data : [];
-  console.log(`\n==== ${ev.league} | ${ev.home} vs ${ev.away} | ${new Date(ev.start).toISOString()} | HTTP ${r.status} | ${markets.length} mercados`);
-  const shown = new Map();
-  for (const m of markets) {
-    const t = m.MarketType?._id;
-    const n = (shown.get(t) || 0) + 1;
-    shown.set(t, n);
-    const sels = (m.Selections || []).filter((s) => !s.IsDisabled && !s.IsRemoved);
-    const simple = {
-      name: m.Name || m.MarketType?.Name || '',
-      type: t,
-      selections: sels.map((s) => ({
-        name: s.BetslipLine || s.Name || '',
-        line: s.QAParam1 != null && s.QAParam1 !== '' && Number.isFinite(Number(s.QAParam1)) ? Number(s.QAParam1) : null,
-        price: Number(s.DisplayOdds?.Decimal ?? s.TrueOdds),
-      })).filter((s) => s.price > 1),
-    };
-    let parsed;
+const NBA = /^NBA/i;
+for (const day of [0, 1, 2, 7]) {
+  const { items } = await getSportDay({ sport: 'basketball', day });
+  const nba = items.filter((e) => NBA.test(e.tournament.name) && e.category.name.match(/ESTADOS UNIDOS|USA/i));
+  console.log(`\n==== día ${day}: ${items.length} partidos de básquet, NBA: ${nba.length} | ligas NBA: ${[...new Set(nba.map((e) => e.tournament.name))].join(', ')}`);
+  for (const ev of nba.slice(0, day === 0 ? 3 : 1)) {
     try {
-      const p = parseMarket(simple.name, simple.selections, { sport: 'basketball', home: ev.home, away: ev.away });
-      parsed = p.unsupported ? `NO(${p.unsupported})` : p.outcomes.map((o) => `${o.market}|${o.sel}|${o.line}`).join(' ');
+      const d = await getH2H({ fsId: ev.id.replace(/^fs:/, ''), homeId: ev.home.id, awayId: ev.away.id });
+      for (const [side, list] of [['local', d.lastHome], ['visita', d.lastAway]]) {
+        console.log(`  ${ev.home.name} vs ${ev.away.name} [${ev.tournament.name}] · ${side}: ${list.length} partidos`);
+        for (const m of list.slice(0, 14)) console.log(`     ${new Date(m.start).toISOString().slice(0, 10)} | ${m.league} | ${m.home ? 'L' : 'V'} vs ${m.opp} | ${m.gf}-${m.ga} (total ${m.gf + m.ga})`);
+      }
     } catch (e) {
-      parsed = `ERROR ${e.message}`;
-    }
-    if (n <= 3) {
-      console.log(`  ${t} | ${simple.name} | ${sels.length} sel | lee: ${parsed}`);
-      for (const s of sels.slice(0, 4)) console.log(`      sel: ${JSON.stringify({ Name: s.Name, BetslipLine: s.BetslipLine, QAParam1: s.QAParam1, QAParam2: s.QAParam2, Side: s.Side, OutcomeType: s.OutcomeType, Odds: s.DisplayOdds?.Decimal, Group: s.Group, Points: s.Points, Player: s.PlayerName ?? s.Player ?? s.ParticipantName })}`);
-      if (n === 1 && /^QA44|QA48|QA55/.test(t)) console.log(`      claves mercado: ${Object.keys(m).join(',')} | claves sel: ${Object.keys(sels[0] || {}).join(',')}`);
+      console.log(`  H2H ${ev.home.name}: ${e.message}`);
     }
   }
-  console.log(`  por tipo: ${[...shown].map(([t, n]) => `${t}=${n}`).join(' ')}`);
-  const offers = offersFromApuestaTotal(markets.map((m) => ({
-    name: m.Name || '', type: m.MarketType?._id, selections: (m.Selections || []).filter((s) => !s.IsDisabled && !s.IsRemoved).map((s) => ({ name: s.BetslipLine || s.Name || '', line: s.QAParam1 != null && s.QAParam1 !== '' && Number.isFinite(Number(s.QAParam1)) ? Number(s.QAParam1) : null, price: Number(s.DisplayOdds?.Decimal ?? s.TrueOdds) })).filter((s) => s.price > 1),
-  })), ev, { ...ev, sport: 'basketball' });
-  const by = {};
-  for (const o of offers) (by[o.market] ||= new Set()).add(o.line);
-  console.log(`  ofertas: ${Object.entries(by).map(([k, v]) => `${k}: ${[...v].slice(0, 12).join(',')}`).join(' | ')}`);
+}
+
+const API = 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba';
+const WEB = 'https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba';
+const get = async (url) => {
+  const r = await fetch(url, { signal: AbortSignal.timeout(30000) });
+  const text = await r.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch {}
+  return { status: r.status, data, text };
+};
+const teams = (await get(`${API}/teams`)).data?.sports?.[0]?.leagues?.[0]?.teams?.map((x) => x.team) || [];
+const team = teams.find((t) => /Lakers/.test(t.displayName)) || teams[0];
+console.log(`\n==== ESPN: ${teams.length} equipos; ${team?.displayName} id ${team?.id}`);
+const roster = await get(`${API}/teams/${team.id}/roster`);
+const athletes = roster.data?.athletes || [];
+console.log(`plantel HTTP ${roster.status} | claves: ${Object.keys(roster.data || {}).join(',')} | atletas: ${athletes.length} | forma: ${Array.isArray(athletes[0]?.items) ? 'agrupado' : 'lista'}`);
+const flat = athletes.flatMap((a) => (Array.isArray(a.items) ? a.items : [a]));
+console.log(`  ejemplo: ${JSON.stringify(flat.slice(0, 2).map((a) => ({ id: a.id, displayName: a.displayName, shortName: a.shortName, position: a.position?.abbreviation, experience: a.experience?.years, injuries: a.injuries?.length, status: a.status?.type })))}`);
+const sched = await get(`${API}/teams/${team.id}/schedule`);
+console.log(`calendario por defecto: season ${JSON.stringify(sched.data?.season)} requestedSeason ${JSON.stringify(sched.data?.requestedSeason)} | partidos ${sched.data?.events?.length}`);
+const star = flat.find((a) => /LeBron|Luka|Reaves/.test(a.displayName)) || flat[0];
+for (const season of ['', '?season=2026', '?season=2027', '?season=2026&seasontype=2']) {
+  const g = await get(`${WEB}/athletes/${star.id}/gamelog${season}`);
+  const d = g.data || {};
+  console.log(`\n---- gamelog ${star.displayName} ${season || '(por defecto)'} | HTTP ${g.status} | claves: ${Object.keys(d).join(',')}`);
+  if (!g.data) { console.log(g.text.slice(0, 300)); continue; }
+  console.log(`  labels: ${JSON.stringify(d.labels)} | names: ${JSON.stringify(d.names)}`);
+  const evIds = Object.keys(d.events || {});
+  console.log(`  events (mapa): ${evIds.length} | ejemplo: ${JSON.stringify(d.events?.[evIds[0]] || null).slice(0, 600)}`);
+  for (const st of (d.seasonTypes || []).slice(0, 3)) {
+    console.log(`  seasonType: ${st.displayName} | categorías: ${(st.categories || []).map((c) => `${c.displayName || c.type}(${c.events?.length ?? 0})`).join(', ')}`);
+    const c = (st.categories || []).find((x) => x.events?.length);
+    if (c) console.log(`    ejemplo fila: ${JSON.stringify(c.events[0]).slice(0, 400)}`);
+  }
+  console.log(`  filtros: ${JSON.stringify(d.filters || null).slice(0, 400)}`);
 }
