@@ -323,6 +323,38 @@ test('jugadores: el nombre de la casa se busca en los datos y la línea más par
   assert.ok(!keys.some((k) => /Davis|Tatum|Durant/.test(k)));
 });
 
+// Apuesta Total: el jugador va en cada selección ("LeBron James Más de 24.5") y un
+// mercado trae a varios jugadores; la línea de respaldo es la × 100 (QAParam1).
+test('jugadores de Apuesta Total: cada jugador por separado, con su nombre buscado en los datos', () => {
+  const games = (pts, ast) => Array.from({ length: 10 }, (_, i) => ({ start: Date.parse('2026-10-01T00:00:00Z') - i * 2 * 864e5, min: 34, pts, reb: 7, ast, tpm: 2, stl: 1, blk: 1, tov: 3, oreb: 1, dreb: 6, ftm: 5, fgm: 11 }));
+  const players = {
+    source: 'espn',
+    home: { teamGames: 10, players: [{ name: 'LeBron James', short: 'L. James', out: false, games: games(30, 8) }] },
+    away: { teamGames: 10, players: [{ name: 'Jayson Tatum', short: 'J. Tatum', out: false, games: games(27, 5) }] },
+  };
+  const sel = (who, side, line, price) => ({ name: `${who} ${side} ${line}`, price, line: (side === 'Más de' ? 100 : -100) * line });
+  const at = [
+    { name: 'Puntos del jugador (incl. prórroga)', selections: [sel('LeBron James', 'Más de', 24.5, 1.85), sel('LeBron James', 'Menos de', 24.5, 1.85), sel('Jayson Tatum', 'Más de', 26.5, 1.8), sel('Jayson Tatum', 'Menos de', 26.5, 1.9)] },
+    { name: 'Asistencias del jugador (incl. Prórroga)', selections: [sel('L. James', 'Más de', 7.5, 1.9), sel('L. James', 'Menos de', 7.5, 1.8)] },
+  ];
+  const list = offersFromApuestaTotal(at, { home: 'Lakers', away: 'Celtics' }, basketEv);
+  const { candidates } = analyzeEvent(basketEv, { ...basketDetails, players }, list, {});
+  const keys = candidates.map((c) => c.key).filter((k) => k.includes('pl_')).sort();
+  assert.deepEqual(keys, [
+    'OU.pl_ast#LeBron James|over|7.5',
+    'OU.pl_ast#LeBron James|under|7.5',
+    'OU.pl_pts#Jayson Tatum|over|26.5',
+    'OU.pl_pts#Jayson Tatum|under|26.5',
+    'OU.pl_pts#LeBron James|over|24.5',
+    'OU.pl_pts#LeBron James|under|24.5',
+  ]);
+  const p = (k) => candidates.find((c) => c.key === k).p;
+  // Cada jugador con sus propias cuotas (sin el margen de la casa mezclado entre jugadores).
+  assert.ok(Math.abs(p('OU.pl_pts#LeBron James|over|24.5') + p('OU.pl_pts#LeBron James|under|24.5') - 1) < 1e-9);
+  assert.ok(p('OU.pl_pts#LeBron James|over|24.5') > 0.8);
+  assert.ok(p('OU.pl_pts#Jayson Tatum|over|26.5') > 0.5);
+});
+
 test('jugadores: un Más/Menos de jugador nunca se toma como el total del partido', () => {
   const betano = [{ name: 'Total de Puntos LeBron James', selections: [{ name: 'Más de 24.5', price: 1.87 }, { name: 'Menos de 24.5', price: 1.87 }] }];
   const list = offersFromBetano(betano, { home: 'Lakers', away: 'Celtics' }, basketEv);

@@ -657,6 +657,12 @@ export async function getEventResults({ ids = [], urls = {}, detail = [], player
       const scan = await scanPage(urls[id], { waitMs: 12000 });
       const e = eventsIn(scan.responses).find((x) => x.id === Number(id));
       if (e) items[id] = resultOf(e);
+      // Registro (marcador por periodo y, si la página los descargó, estadísticas e
+      // incidencias): sin él no se liquidan el 1.er tiempo, los cuartos ni los córners.
+      if (e && detail.map(String).includes(String(id)) && items[id].state === 'finalizado') {
+        const found = (part) => scan.responses.find((x) => x.url.includes(`/event/${id}/${part}`) && x.data)?.data || null;
+        items[id].raw = { event: e, statistics: found('statistics'), incidents: found('incidents') };
+      }
       // Box score si la página descargó la alineación.
       const lu = scan.responses.find((x) => x.url.includes(`/event/${id}/lineups`) && (x.data?.home || x.data?.away))?.data;
       const rows = e && box.has(String(id)) && items[id].state === 'finalizado' && lu ? boxScoreFromLineups(lu) : {};

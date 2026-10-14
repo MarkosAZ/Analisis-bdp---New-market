@@ -227,3 +227,15 @@ test('Apuesta Total: jugadores de básquet (nombres reales del sondeo de la NBA)
   // La línea sale del nombre de la selección, no de QAParam1 (línea × 100).
   assert.equal(read('Rebotes del jugador (incl. Prórroga)', sels('Jayson Tatum', 8.5)), 'OU.pl_reb#Jayson Tatum 8.5');
 });
+
+test('básquet: nombres del 1.er tiempo ("1era", "1ª", "1.ª", "1°", "1T") nunca como el partido completo', () => {
+  const ctx = { sport: 'basketball', home: 'Los Angeles Lakers', away: 'Boston Celtics' };
+  const ou = [{ name: 'Más de 112.5', price: 1.9 }, { name: 'Menos de 112.5', price: 1.9 }];
+  const hc = [{ name: 'Los Angeles Lakers -2.5', price: 1.9 }, { name: 'Boston Celtics +2.5', price: 1.9 }];
+  const first = (name, sels = ou) => parseMarket(name, sels, ctx).outcomes[0].market;
+  for (const n of ['1era Mitad - Total de Puntos', '1ª Mitad - Total de puntos', '1.ª mitad: total de puntos', '1° Mitad Total de Puntos', '1T Total de puntos', 'Total de Puntos 1era Mitad', 'Primera Mitad - Total de Puntos', '1er Tiempo - Total de Puntos'])
+    assert.equal(first(n), 'OU@h1', n);
+  for (const n of ['1era Mitad - Hándicap', 'Hándicap 1era mitad', 'Hándicap - 1° Mitad']) assert.equal(first(n, hc), 'HCP@h1', n);
+  assert.equal(first('2ª mitad - total de puntos'), 'OU@h2');
+  assert.equal(first('Total de puntos (incl. prórroga)'), 'OU');
+});
