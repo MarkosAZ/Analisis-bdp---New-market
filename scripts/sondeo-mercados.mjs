@@ -1,4 +1,4 @@
-// Sondeo temporal (20): ajuste (sin la fuga del sondeo 19: la apertura del mismo día) del modelo de béisbol con la MLB 2026. Se ajusta con
+// Sondeo temporal (21): ajuste con separación de equipos y escala del total (sin fuga) del modelo de béisbol con la MLB 2026. Se ajusta con
 // junio y julio y se comprueba con agosto y septiembre (solo datos anteriores a cada
 // partido). Error: log-loss (menos es mejor; 0.693 = tirar una moneda).
 import { goalsModel } from '../docs/js/analysis/models.js';
@@ -89,6 +89,18 @@ const old = (c) => goalsModel(c.ev, { lastHome: c.d.lastHome.slice(0, 10), lastA
 console.log(`Anterior: ajuste ${fmt(score(train, old))}\n          prueba ${fmt(score(testSet, old))}`);
 console.log(`Nuevo (ajustes actuales): ajuste ${fmt(score(train, model({})))}\n          prueba ${fmt(score(testSet, model({})))}`);
 
+// Referencias por mercado: la frecuencia del ajuste como probabilidad fija.
+const rate = (f) => train.filter(f).length / train.length;
+const fixed = { ml: rate((c) => c.hs > c.as), o75: rate((c) => c.hs + c.as > 7.5), o85: rate((c) => c.hs + c.as > 8.5), o95: rate((c) => c.hs + c.as > 9.5), rl: rate((c) => c.hs - c.as > 1.5) };
+const fixedScore = (list) => {
+  const n = list.length;
+  const ml = list.reduce((s, c) => s + ll(fixed.ml, c.hs > c.as), 0) / n;
+  const ou = list.reduce((s, c) => s + (ll(fixed.o75, c.hs + c.as > 7.5) + ll(fixed.o85, c.hs + c.as > 8.5) + ll(fixed.o95, c.hs + c.as > 9.5)) / 3, 0) / n;
+  const hcp = list.reduce((s, c) => s + ll(fixed.rl, c.hs - c.as > 1.5), 0) / n;
+  return { ml, ou, hcp, sum: ml + ou + hcp, n };
+};
+console.log(`Frecuencias fijas: ajuste ${fmt(fixedScore(train))}\n          prueba ${fmt(fixedScore(testSet))}`);
+
 // Etapa 1: forma de los equipos.
 let best = { ...BASEBALL };
 let bestScore = score(train, model(best)).sum;
@@ -103,11 +115,13 @@ const tryOpts = (label, changes) => {
   return improved;
 };
 const grid = [];
-for (const formN of [10, 20, 40, 60]) for (const formDecay of [0.85, 0.93, 0.97, 1]) for (const formPrior of [3, 10, 25, 50, 100]) grid.push({ formN, formDecay, formPrior });
+for (const formN of [10, 20, 30, 40, 60]) for (const formDecay of [0.93, 0.97, 1]) for (const formPrior of [25, 50, 100, 200, 400]) grid.push({ formN, formDecay, formPrior });
 console.log('');
 tryOpts('forma', grid);
-for (let round = 0; round < 2; round++) {
-  tryOpts('abridor', [15, 30, 60, 100].flatMap((spPriorIp) => [0.25, 0.5, 0.75].map((spRawWeight) => ({ spPriorIp, spRawWeight }))));
+for (let round = 0; round < 3; round++) {
+  tryOpts('separación', [0.8, 1, 1.25, 1.5, 1.75, 2, 2.5].map((stretch) => ({ stretch })));
+  tryOpts('escala del total', [0.94, 0.97, 1, 1.03, 1.06].map((totalScale) => ({ totalScale })));
+  tryOpts('abridor', [5, 10, 15, 30, 60, 100].flatMap((spPriorIp) => [0.25, 0.5, 0.75, 1].map((spRawWeight) => ({ spPriorIp, spRawWeight }))));
   tryOpts('local/visita', [0, 0.2, 0.4].map((venueWeight) => ({ venueWeight })));
   tryOpts('localía', [1.0, 1.02, 1.04, 1.06, 1.08].map((ha) => ({ ha })));
   tryOpts('enfrentamientos', [0, 0.1, 0.2].map((h2hWeight) => ({ h2hWeight })));
@@ -129,3 +143,19 @@ for (const c of testSet) {
   b.y += c.hs > c.as ? 1 : 0;
 }
 console.log('Calibración (prueba, ganador local): ' + bins.filter((b) => b.n).map((b) => `pred ${(b.p / b.n).toFixed(2)} real ${(b.y / b.n).toFixed(2)} (n ${b.n})`).join(' · '));
+// Total: medio esperado frente al real, y calibración de Más de 8.5.
+let et = 0;
+let at = 0;
+const ob = Array.from({ length: 5 }, () => ({ n: 0, p: 0, y: 0 }));
+for (const c of testSet) {
+  const m = model(best)(c);
+  et += m.expected.total;
+  at += c.hs + c.as;
+  const p = m.candidates.find((x) => x.market === 'OU' && x.sel === 'over' && x.line === 8.5).p;
+  const b = ob[Math.min(4, Math.max(0, Math.floor((p - 0.3) / 0.1)))];
+  b.n++;
+  b.p += p;
+  b.y += c.hs + c.as > 8.5 ? 1 : 0;
+}
+console.log(`Total esperado medio ${(et / testSet.length).toFixed(2)} · real ${(at / testSet.length).toFixed(2)}`);
+console.log('Calibración (prueba, Más de 8.5): ' + ob.filter((b) => b.n).map((b) => `pred ${(b.p / b.n).toFixed(2)} real ${(b.y / b.n).toFixed(2)} (n ${b.n})`).join(' · '));

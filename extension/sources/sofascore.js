@@ -192,7 +192,7 @@ function lastMatches(events, teamId, sport, before) {
     .filter((e) => (e.homeTeam?.id === teamId || e.awayTeam?.id === teamId) && e.status?.type === 'finished' && e.startTimestamp * 1000 < before)
     .filter((e) => !isExhibition(e.tournament?.uniqueTournament?.name || e.tournament?.name))
     .sort((a, b) => b.startTimestamp - a.startTimestamp)
-    .slice(0, 15)
+    .slice(0, sport === 'baseball' ? 30 : 15)
     .map((e) => {
       const isHome = e.homeTeam?.id === teamId;
       const pick = (s) => (regular ? s?.normaltime ?? s?.current : s?.current) ?? null;

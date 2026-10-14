@@ -21,7 +21,9 @@ export const MLB_RA9 = 4.4; // carreras por equipo y partido (9 entradas) en la 
 //  venueWeight: peso de los partidos de local (o de visita) en la forma.
 //  spPriorIp / spRawWeight: entradas "virtuales" del abridor con la media de la liga
 //    y peso de sus carreras reales (el resto, su FIP).
-export const BASEBALL = { formN: 10, formDecay: 0.85, formPrior: 3, venueWeight: 0.4, spPriorIp: 30, spRawWeight: 0.5, ha: 1.04, h2hWeight: 0.15, nbSize: 4, parkWeight: 0.5 };
+//  stretch: separa (>1) o junta (<1) las carreras de los dos equipos sin cambiar el total.
+//  totalScale: corrige el total esperado.
+export const BASEBALL = { formN: 10, formDecay: 0.85, formPrior: 3, venueWeight: 0.4, spPriorIp: 30, spRawWeight: 0.5, ha: 1.04, h2hWeight: 0.15, nbSize: 4, parkWeight: 0.5, stretch: 1, totalScale: 1 };
 
 // ¿Partido de la MLB? (sus abridores y contexto salen de la API oficial de la MLB).
 export const isMlb = (ev) => ev?.sport === 'baseball' && /\bmlb\b/i.test([ev.tournament?.name, ev.category?.name, ev.league].filter(Boolean).join(' '));
@@ -221,8 +223,15 @@ export function baseballModel(ev, d, cfg, ctx = {}, opts = {}) {
   const pf = mlb?.park?.factor;
   const park = Number.isFinite(pf) ? 1 + o.parkWeight * (clamp(pf, 0.8, 1.3) - 1) : 1;
   const weather = weatherFactor(mlb?.weather);
-  lh = clamp(lh * park * weather, 0.3, 15);
-  la = clamp(la * park * weather, 0.3, 15);
+  lh *= park * weather * o.totalScale;
+  la *= park * weather * o.totalScale;
+  if (o.stretch !== 1) {
+    const g = Math.sqrt(lh * la);
+    lh = g * (lh / g) ** o.stretch;
+    la = g * (la / g) ** o.stretch;
+  }
+  lh = clamp(lh, 0.3, 15);
+  la = clamp(la, 0.3, 15);
 
   const r = runsOutcomes(lh, la, o.nbSize);
   const c = [

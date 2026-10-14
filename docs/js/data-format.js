@@ -6,6 +6,8 @@ import { compactTeamStats, expandTeamStats } from './analysis/teamstats.js';
 
 export const FORMAT_VERSION = 2; // 2: grupos de cuotas, estadísticas de equipo y registros
 const LAST_MATCHES = 10;
+// Béisbol: más partidos (la forma de 10 partidos es casi ruido; ver baseball.js).
+const LAST_BY_SPORT = { baseball: 30 };
 
 const fsUrl = (id) => `https://www.flashscore.pe/partido/${String(id).replace(/^fs:/, '')}/`;
 
@@ -43,7 +45,7 @@ export function expandEvent(c) {
   };
 }
 
-const compactMatches = (list = []) => list.slice(0, LAST_MATCHES).map((m) => [Math.round(m.start / 1000), m.home ? 1 : 0, m.gf, m.ga, m.r]);
+const compactMatches = (list = [], n = LAST_MATCHES) => list.slice(0, n).map((m) => [Math.round(m.start / 1000), m.home ? 1 : 0, m.gf, m.ga, m.r]);
 const expandMatches = (list = []) => list.map(([st, home, gf, ga, r]) => ({ start: st * 1000, home: Boolean(home), gf, ga, r }));
 
 // Últimos partidos de los jugadores de un equipo (básquet, ESPN): [partidos del
@@ -60,8 +62,9 @@ const expandPlayers = (c) => ({
   })),
 });
 
-export function compactDetails(d) {
-  const out = { h: compactMatches(d.lastHome), a: compactMatches(d.lastAway), d: d.h2h ? [d.h2h.homeWins, d.h2h.draws, d.h2h.awayWins] : null };
+export function compactDetails(d, sport = null) {
+  const n = LAST_BY_SPORT[sport] || LAST_MATCHES;
+  const out = { h: compactMatches(d.lastHome, n), a: compactMatches(d.lastAway, n), d: d.h2h ? [d.h2h.homeWins, d.h2h.draws, d.h2h.awayWins] : null };
   if (d.teamStats) out.ts = { h: compactTeamStats(d.teamStats.home), a: compactTeamStats(d.teamStats.away) };
   if (d.players) out.pl = { s: d.players.source || 'espn', h: compactPlayers(d.players.home), a: compactPlayers(d.players.away) };
   if (d.h2hGames?.length) out.hg = d.h2hGames.map((m) => [Math.round(m.start / 1000), m.gf, m.ga, m.home ? 1 : 0]);
@@ -131,7 +134,7 @@ export const expandXg = (c) => ({ home: { xgFor: c.h[0], xgAgainst: c.h[1] }, aw
 // Archivo de un día y un deporte.
 export function compactDay({ date, sport, generated, events, offers = {}, details = {}, xg = {} }) {
   const map = (obj, fn) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, fn(v)]));
-  return { v: FORMAT_VERSION, date, sport, generated, events: events.map(compactEvent), offers: map(offers, compactOffers), details: map(details, compactDetails), xg: map(xg, compactXg) };
+  return { v: FORMAT_VERSION, date, sport, generated, events: events.map(compactEvent), offers: map(offers, compactOffers), details: map(details, (d) => compactDetails(d, sport)), xg: map(xg, compactXg) };
 }
 
 export function expandDay(c) {
