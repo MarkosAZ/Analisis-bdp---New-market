@@ -18,6 +18,7 @@
     "https://*.kmianko.com/*",
     "https://www.fotmob.com/*",
     "https://site.api.espn.com/*",
+    "https://site.web.api.espn.com/*",
     "https://understat.com/*",
     "https://api.github.com/*"
   ],

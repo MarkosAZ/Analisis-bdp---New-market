@@ -224,7 +224,10 @@ const PLAYER_GAMES = 10; // últimos partidos de cada jugador
 // Últimos partidos de los jugadores de ambos equipos: ESPN en la NBA y la WNBA;
 // Sofascore (con sus ids de partido) en las demás ligas. details[id].players =
 // { source, home: { teamGames, players }, away: { teamGames, players } }.
-async function addPlayerLogs(events, details, sources, progress) {
+// Jugadores con Más/Menos en las cuotas de un partido (nombres como los escribe la casa).
+export const offeredPlayers = (list = []) => [...new Set(list.filter((o) => isPlayerMarket(o.market)).map((o) => parseMarketId(o.market)?.n).filter(Boolean))];
+
+async function addPlayerLogs(events, details, sources, progress, offers = new Map()) {
   if (!events.length) return;
   progress('Jugadores: últimos partidos', 0.8);
   let found = 0;
@@ -239,7 +242,8 @@ async function addPlayerLogs(events, details, sources, progress) {
     const league = basketballLeague(ev);
     if (league) {
       try {
-        set(ev, await ext.call('espn', 'getPlayerLogs', { league, home: ev.home.name, away: ev.away.name, start: ev.start, n: PLAYER_GAMES }, { timeout: 180000 }), 'espn');
+        const names = offeredPlayers(offers.get(ev.id));
+        set(ev, await ext.call('espn', 'getPlayerLogs', { league, home: ev.home.name, away: ev.away.name, start: ev.start, n: PLAYER_GAMES, names }, { timeout: 180000 }), 'espn');
       } catch (e) {
         errors.push(`ESPN ${ev.home.name}: ${e.message}`);
       }
@@ -554,7 +558,7 @@ export async function analyzeMany(events, { methods = ['estadistico'], settings 
     if (p.xg) xg.set(ev.id, p.xg);
   }
   // Básquet con cuotas de jugador (Apuesta Total o Betano): últimos partidos de cada jugador.
-  if (withExt) await addPlayerLogs(pending.filter((ev) => ev.sport === 'basketball' && (offers.get(ev.id) || []).some((o) => isPlayerMarket(o.market))), details, sources, onProgress);
+  if (withExt) await addPlayerLogs(pending.filter((ev) => ev.sport === 'basketball' && (offers.get(ev.id) || []).some((o) => isPlayerMarket(o.market))), details, sources, onProgress, offers);
   if (usedPublished) {
     const at = sources.apuestatotal;
     sources.apuestatotal = { ok: true, matched: (at?.ok ? at.matched : 0) + usedPublished, published: true };

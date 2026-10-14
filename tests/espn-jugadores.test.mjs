@@ -5,12 +5,14 @@ import {
   eventsFromScoreboard,
   findGame,
   finishedGames,
+  gamesFromGamelog,
   getBoxScore,
   getPlayerLogs,
   getScoreboard,
   matchEspnTeam,
   outFromSummary,
   playersFromSummary,
+  sameAthlete,
   teamLogs,
   teamPlayersFromSummary,
 } from '../extension/sources/espn.js';
@@ -477,6 +479,71 @@ test('getPlayerLogs: pretemporada + temporada regular anterior, box scores y baj
   assert.equal(r2.home.teamGames, 10);
   assert.equal(countCalls('/summary?event=4017') - before, 1, 'solo se repite el que falló');
   assert.equal(calls.filter((u) => u === `${NBA}/teams`).length, 1, 'equipos en caché');
+});
+
+// Registro de un jugador (gamelog) con la forma real de site.web.api.espn.com (sondeo del 14-10-2026).
+const LOG_NAMES = ['minutes', 'fieldGoalsMade-fieldGoalsAttempted', 'fieldGoalPct', 'threePointFieldGoalsMade-threePointFieldGoalsAttempted', 'threePointPct', 'freeThrowsMade-freeThrowsAttempted', 'freeThrowPct', 'totalRebounds', 'assists', 'blocks', 'steals', 'fouls', 'turnovers', 'points'];
+const LOG_LABELS = ['MIN', 'FG', 'FG%', '3PT', '3P%', 'FT', 'FT%', 'REB', 'AST', 'BLK', 'STL', 'PF', 'TO', 'PTS'];
+const gamelog = (regular, pre = []) => {
+  const row = (g) => ({ eventId: g.id, stats: [String(g.min), '8-16', '50.0', '2-6', '33.3', '5-6', '83.3', String(g.reb), '7', '0', '1', '3', '2', String(g.pts)] });
+  return {
+    labels: LOG_LABELS,
+    names: LOG_NAMES,
+    events: Object.fromEntries([...regular, ...pre].map((g) => [g.id, { id: g.id, gameDate: g.date }])),
+    seasonTypes: [
+      ...(regular.length ? [{ displayName: '2025-26 Regular Season', categories: [{ displayName: 'april', events: regular.map(row) }] }] : []),
+      ...(pre.length ? [{ displayName: '2026-27 Preseason', categories: [{ displayName: 'Preseason', events: pre.map(row) }] }] : []),
+    ],
+  };
+};
+const WEB = 'https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba';
+
+test('registro de un jugador: temporada regular sin la pretemporada, intentos y sin rebotes ofensivos', () => {
+  const games = gamesFromGamelog(gamelog([{ id: 'a', date: '2026-04-10T23:30Z', min: 36, pts: 30, reb: 9 }], [{ id: 'c', date: '2026-10-08T00:00Z', min: 20, pts: 12, reb: 3 }]));
+  assert.deepEqual(games, [{ start: Date.parse('2026-04-10T23:30Z'), min: 36, pts: 30, reb: 9, ast: 7, tpm: 2, stl: 1, blk: 0, tov: 2, oreb: null, dreb: null, ftm: 5, fgm: 8, fga: 16, tpa: 6, fta: 6 }]);
+  assert.deepEqual(gamesFromGamelog({}), []);
+});
+
+test('nombres de jugador de la casa frente a ESPN', () => {
+  const luka = { displayName: 'Luka Dončić' };
+  assert.equal(sameAthlete('Luka Doncic', luka), true);
+  assert.equal(sameAthlete('L. Doncic', luka), true);
+  assert.equal(sameAthlete('Doncic L.', luka), true);
+  assert.equal(sameAthlete('Dereck Lively', { displayName: 'Dereck Lively II' }), true);
+  assert.equal(sameAthlete('Jalen Williams', { displayName: 'Jaylin Williams' }), false);
+  assert.equal(sameAthlete('J. Williams', { displayName: 'Luka Dončić' }), false);
+});
+
+test('getPlayerLogs: los jugadores ofrecidos con pocos partidos en el equipo se completan con su registro', async () => {
+  // Plantel actual de Dallas: Lively (5 partidos en los del equipo), un traspasado que
+  // nunca jugó con Dallas y un novato sin partidos en la NBA.
+  routes.set(`${NBA}/teams/6/roster`, {
+    athletes: [
+      { id: '4432816', displayName: 'Dereck Lively II', shortName: 'D. Lively II' },
+      { id: '6583', displayName: 'Anthony Davis', shortName: 'A. Davis' },
+      { id: '5000', displayName: 'Cooper Flagg', shortName: 'C. Flagg' },
+      { id: '3', displayName: 'Klay Thompson', shortName: 'K. Thompson' },
+    ],
+  });
+  // Davis: esta temporada solo la pretemporada (no cuenta); la anterior, 12 partidos con otro equipo.
+  routes.set(`${WEB}/athletes/6583/gamelog?season=2027`, gamelog([], [{ id: 'p1', date: '2026-10-10T00:00Z', min: 22, pts: 14, reb: 6 }]));
+  routes.set(`${WEB}/athletes/6583/gamelog?season=2026`, gamelog(Array.from({ length: 12 }, (_, k) => ({ id: `d${k}`, date: day('2026-04-12T23:30Z', k), min: 35, pts: 25 + k, reb: 11 }))));
+  // Lively: el registro de la anterior repite sus partidos con Dallas y suma los que faltan.
+  routes.set(`${WEB}/athletes/4432816/gamelog?season=2026`, gamelog(Array.from({ length: 12 }, (_, k) => ({ id: `l${k}`, date: day('2026-04-12T23:30Z', k), min: 18, pts: 6, reb: 8 }))));
+  const r = await getPlayerLogs({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, n: 10, names: ['Anthony Davis', 'D. Lively', 'Cooper Flagg', 'Klay Thompson', 'Alperen Sengun'] });
+  const by = Object.fromEntries(r.away.players.map((p) => [p.name, p]));
+  assert.equal(by['Anthony Davis'].games.length, 10, 'traspasado: sus partidos con el otro equipo');
+  assert.equal(by['Anthony Davis'].games[0].pts, 25);
+  assert.equal(by['Anthony Davis'].short, 'A. Davis');
+  assert.equal(by['Dereck Lively II'].games.length, 10, 'los 5 con Dallas y 5 del registro, sin repetir partidos');
+  assert.ok(!by['Cooper Flagg'], 'novato sin partidos: no se inventa');
+  assert.equal(countCalls('/athletes/3/gamelog'), 0, 'Klay ya tiene 10 partidos con el equipo');
+  assert.equal(countCalls('/athletes/4432816/gamelog?season=2027'), 1);
+  // Houston sin plantel en ESPN (404): quedan sus partidos con el equipo.
+  assert.equal(r.home.players.length, 2);
+  // Sin nombres no se piden planteles ni registros.
+  const plain = await getPlayerLogs({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, n: 10 });
+  assert.ok(!plain.away.players.some((p) => p.name === 'Anthony Davis'));
 });
 
 test('getPlayerLogs: errores claros con liga o equipo desconocidos', async () => {
