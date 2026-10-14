@@ -8,6 +8,7 @@
 //  - generic: forma reciente y H2H.
 import { clamp, logit, normCdf, sigmoid } from '../util.js';
 import { isHalfLine } from './markets.js';
+import { baseballModel } from './baseball.js';
 
 const DECAY = 0.85; // peso de cada partido anterior respecto del siguiente
 
@@ -226,6 +227,8 @@ export const genericModel = (ev, d, cfg) => winnerModel(ev, d, cfg, { useRanking
 
 export function predict(ev, details, cfg, ctx) {
   const d = details || {};
+  // Béisbol: carreras con los abridores, el bullpen y el contexto (baseball.js).
+  if (ev.sport === 'baseball') return baseballModel(ev, d, cfg, ctx);
   switch (cfg.model) {
     case 'goals':
       return goalsModel(ev, d, cfg, ctx);

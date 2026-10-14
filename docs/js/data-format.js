@@ -64,8 +64,31 @@ export function compactDetails(d) {
   const out = { h: compactMatches(d.lastHome), a: compactMatches(d.lastAway), d: d.h2h ? [d.h2h.homeWins, d.h2h.draws, d.h2h.awayWins] : null };
   if (d.teamStats) out.ts = { h: compactTeamStats(d.teamStats.home), a: compactTeamStats(d.teamStats.away) };
   if (d.players) out.pl = { s: d.players.source || 'espn', h: compactPlayers(d.players.home), a: compactPlayers(d.players.away) };
+  if (d.h2hGames?.length) out.hg = d.h2hGames.map((m) => [Math.round(m.start / 1000), m.gf, m.ga, m.home ? 1 : 0]);
+  if (d.mlb) out.mlb = compactMlb(d.mlb);
   return out;
 }
+
+// Contexto de la MLB (béisbol): abridores con sus aperturas, bullpen, estadio, clima y serie.
+const START_FIELDS = ['ip', 'r', 'er', 'h', 'bb', 'k', 'hr', 'hbp'];
+const compactSide = (s) =>
+  s
+    ? {
+        t: s.team,
+        p: s.pitcher ? [s.pitcher.id, s.pitcher.name, s.pitcher.hand || null, (s.pitcher.starts || []).map((g) => [Math.round(g.start / 1000), ...START_FIELDS.map((f) => (f === 'ip' ? Math.round(g.ip * 1000) / 1000 : g[f] ?? 0)), g.opp || null])] : null,
+        b: s.bullpen ? [s.bullpen.ip, s.bullpen.np, s.bullpen.games] : null,
+      }
+    : null;
+const expandSide = (c) =>
+  c
+    ? {
+        team: c.t,
+        pitcher: c.p ? { id: c.p[0], name: c.p[1], hand: c.p[2], starts: (c.p[3] || []).map(([st, ...v]) => ({ start: st * 1000, ...Object.fromEntries(START_FIELDS.map((f, i) => [f, v[i]])), opp: v[START_FIELDS.length] ?? null })) } : null,
+        bullpen: c.b ? { ip: c.b[0], np: c.b[1], games: c.b[2] } : null,
+      }
+    : null;
+export const compactMlb = (m) => ({ g: m.gamePk, v: m.venue, w: m.weather, s: m.series, pk: m.park, h: compactSide(m.home), a: compactSide(m.away) });
+export const expandMlb = (c) => ({ source: 'mlb', gamePk: c.g, venue: c.v ?? null, weather: c.w ?? null, series: c.s ?? null, park: c.pk ?? null, home: expandSide(c.h), away: expandSide(c.a) });
 
 export function expandDetails(c) {
   return {
@@ -78,6 +101,8 @@ export function expandDetails(c) {
     lastAway: expandMatches(c.a),
     teamStats: c.ts ? { home: expandTeamStats(c.ts.h) || {}, away: expandTeamStats(c.ts.a) || {} } : null,
     ...(c.pl ? { players: { source: c.pl.s || 'espn', home: expandPlayers(c.pl.h), away: expandPlayers(c.pl.a) } } : {}),
+    ...(c.hg ? { h2hGames: c.hg.map(([st, gf, ga, home]) => ({ start: st * 1000, gf, ga, home: Boolean(home) })) } : {}),
+    ...(c.mlb ? { mlb: expandMlb(c.mlb) } : {}),
   };
 }
 

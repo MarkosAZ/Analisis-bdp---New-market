@@ -340,6 +340,9 @@ export function h2hData(sections, homeId, awayId) {
   };
   const duel = sections.find((x) => /enfrentamientos/i.test(x.title));
   let h2h = null;
+  // Enfrentamientos con su marcador visto desde el local del partido a analizar
+  // (gf: lo que anotó el local de hoy), del más reciente al más antiguo.
+  const h2hGames = [];
   if (duel?.rows.length) {
     h2h = { homeWins: 0, draws: 0, awayWins: 0 };
     for (const row of duel.rows) {
@@ -350,9 +353,12 @@ export function h2hData(sections, homeId, awayId) {
         if (winner === homeId) h2h.homeWins++;
         else if (winner === awayId) h2h.awayWins++;
       }
+      const ours = row.homeId === homeId ? 'home' : row.awayId === homeId ? 'away' : null;
+      if (ours) h2hGames.push({ start: row.start, gf: ours === 'home' ? row.hs : row.as, ga: ours === 'home' ? row.as : row.hs, home: ours === 'home' });
     }
   }
-  return { lastHome: last(homeId), lastAway: last(awayId), h2h };
+  h2hGames.sort((a, b) => b.start - a.start);
+  return { lastHome: last(homeId), lastAway: last(awayId), h2h, h2hGames: h2hGames.slice(0, 10) };
 }
 
 export async function getNews() {

@@ -10,13 +10,14 @@ import { sportOf } from '../sports.js';
 import { fmtDateTime, fmtTime, groupBy, h, pct } from '../util.js';
 import { bySportAndLeague } from './grupos.js';
 
-const SOURCE_NAMES = { sofascore: 'Sofascore', flashscore: 'Flashscore', apuestatotal: 'Apuesta Total', betano: 'Betano', understat: 'Understat', jugadores: 'Jugadores', simulacion: 'Simulación', noticias: 'Noticias' };
+const SOURCE_NAMES = { sofascore: 'Sofascore', flashscore: 'Flashscore', apuestatotal: 'Apuesta Total', betano: 'Betano', understat: 'Understat', jugadores: 'Jugadores', mlb: 'MLB', simulacion: 'Simulación', noticias: 'Noticias' };
 const UNITS = { simulacion: 'selecciones', noticias: 'noticias' };
 const LEVEL_NAME = Object.fromEntries(LEVELS.map((l) => [l.id, l.name]));
 const TITLES = {
   simulacion: 'Primer tiempo del básquet: estimado simulando el partido con lo esperado del modelo',
   noticias: 'Noticias de Flashscore, ESPN y FotMob: solo las usa la red neuronal',
-  jugadores: 'Últimos partidos de cada jugador (ESPN en la NBA y la WNBA; Sofascore en las demás ligas) para los Más/Menos de jugador de Betano',
+  jugadores: 'Últimos partidos de cada jugador (ESPN en la NBA y la WNBA; Sofascore en las demás ligas) para los Más/Menos de jugador',
+  mlb: 'Béisbol de la MLB: abridores con sus últimas aperturas, bullpen, estadio y clima (API oficial de la MLB)',
 };
 const MODE = { 'direct-api': 'directo', direct: 'directo', tab: 'pestaña', navigate: 'navegando' };
 const PRICE_SHORT = { apuestatotal: 'AT', betano: 'Betano', sofascore: 'Sofascore' };
@@ -337,7 +338,7 @@ function renderMethod(root, app, a) {
       `${analyzed} partidos analizados · ${a.picks.length} picks · ${a.combos.length} combinadas · ${fmtDateTime(Date.parse(a.created))}`,
       a.skipped ? ` · ${a.skipped} omitidos (ya empezaron)` : '',
     ),
-    h('div', { class: 'row' }, ['sofascore', 'flashscore', 'apuestatotal', 'betano', 'understat', 'jugadores', 'simulacion', ...(a.method === 'red_neuronal' ? ['noticias'] : [])].map((id) => sourceChip(id, a.sources[id]))),
+    h('div', { class: 'row' }, ['sofascore', 'flashscore', 'apuestatotal', 'betano', 'understat', 'jugadores', 'mlb', 'simulacion', ...(a.method === 'red_neuronal' ? ['noticias'] : [])].map((id) => sourceChip(id, a.sources[id]))),
     levelFilter(app, a),
     sportFilter(app, a),
     a.method === 'red_neuronal' ? networksBanner(net) : null,

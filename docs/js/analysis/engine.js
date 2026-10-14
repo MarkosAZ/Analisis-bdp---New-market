@@ -34,6 +34,7 @@ import {
 import { familyOf, parseMarketId, STAT_NAME } from './catalog.js';
 import { bestByName, matchEvent } from './matching.js';
 import { predict } from './models.js';
+import { isMlb } from './baseball.js';
 import { acceptsOffer, BOOKMAKERS, buildCombos, DEFAULT_SETTINGS, isPlayerMarket, selectPicks } from './picks.js';
 import { networkOf } from './networks.js';
 import { basketballLeague, isPreseason, matchPlayer, playerProbability, statValue } from './players.js';
@@ -90,6 +91,29 @@ function playerFactors(c, cand, chosen, ev) {
 }
 
 // Datos que explican el pick (se muestran en la tarjeta).
+// Béisbol: abridores, bullpen, estadio, clima, enfrentamientos y serie.
+function baseballFactors(ev, b) {
+  const out = [];
+  const f1 = (x) => (Math.round(x * 10) / 10).toFixed(1);
+  const starter = (team, p) =>
+    p.starter
+      ? `${team}: ${p.name} — ${f1(p.starter.ra9)} carreras/9 esperadas (últimas ${p.starter.n} aperturas: ${f1(p.starter.rawRa9)} carreras/9, FIP ${f1(p.starter.fip / 1.08)}), ${f1(p.starter.ip)} entradas por apertura`
+      : `${team}: ${p.name ? `${p.name} (sin aperturas recientes)` : 'abridor sin anunciar'}`;
+  out.push(`Abridores: ${starter(ev.home.name, b.home)} · ${starter(ev.away.name, b.away)}`);
+  const pen = (team, p) => (p.bullpenIp == null ? null : `${team} ${f1(p.bullpenIp)} entradas${p.penFactor > 1 ? ' (cansado)' : p.penFactor < 1 ? ' (descansado)' : ''}`);
+  const pens = [pen(ev.home.name, b.home), pen(ev.away.name, b.away)].filter(Boolean);
+  if (pens.length) out.push(`Bullpen en los 3 días anteriores: ${pens.join(' · ')}`);
+  if (b.park) out.push(`Estadio${b.venue ? ` (${b.venue})` : ''}: ${Math.round(b.park.factor * 100)} carreras por cada 100 de visita (${b.park.n} partidos)`);
+  const w = b.weather;
+  if (w && (w.temp != null || w.wind)) {
+    const temp = Number.isFinite(w.temp) ? `${Math.round(((w.temp - 32) * 5) / 9)} °C` : null;
+    out.push(`Clima: ${[w.condition, temp, w.wind].filter(Boolean).join(', ')}${b.weatherFactor !== 1 ? ` (carreras ×${b.weatherFactor.toFixed(2)})` : ''}`);
+  }
+  if (b.h2h) out.push(`Últimos ${b.h2h.n} enfrentamientos: ${f1(b.h2h.home)} – ${f1(b.h2h.away)} carreras en promedio`);
+  if (b.series) out.push(`Serie: ${b.series}`);
+  return out;
+}
+
 function factorsFor(ev, d, model, c, chosen = []) {
   const out = [];
   const fh = model?.form?.home;
@@ -97,6 +121,7 @@ function factorsFor(ev, d, model, c, chosen = []) {
   if (fh && fa) out.push(`Forma: ${ev.home.name} ${formText(fh)} · ${ev.away.name} ${formText(fa)}`);
   const e = model?.expected;
   if (e && model.kind === 'goals') out.push(`Esperado: ${e.home.toFixed(2)} – ${e.away.toFixed(2)}${e.xg ? ' (con xG)' : ''}`);
+  if (model?.baseball) out.push(...baseballFactors(ev, model.baseball));
   if (e && model.kind === 'points') out.push(`Esperado: ${e.home.toFixed(0)} – ${e.away.toFixed(0)} (total ${e.total.toFixed(1)})`);
   if (d?.h2h && d.h2h.homeWins + d.h2h.draws + d.h2h.awayWins > 0) out.push(`H2H: ${d.h2h.homeWins}-${d.h2h.draws}-${d.h2h.awayWins}`);
   if (ev.home.ranking && ev.away.ranking) out.push(`Ranking: ${ev.home.ranking} vs ${ev.away.ranking}`);
@@ -274,6 +299,26 @@ async function addPlayerLogs(events, details, sources, progress, offers = new Ma
     }
   }
   sources.jugadores = found || !errors.length ? { ok: true, matched: found, ...(errors.length ? { partial: errors } : {}) } : { ok: false, error: errors.join(' | ') };
+}
+
+// Béisbol de la MLB: abridores probables con sus últimas aperturas, bullpen,
+// estadio, clima y serie (API oficial de la MLB). details[id].mlb.
+async function addMlbContext(events, details, sources, progress) {
+  if (!events.length) return;
+  progress('MLB: abridores y contexto', 0.82);
+  let found = 0;
+  const errors = [];
+  for (const ev of events) {
+    try {
+      const ctx = await ext.call('mlb', 'getGameContext', { home: ev.home.name, away: ev.away.name, start: ev.start }, { timeout: 90000 });
+      if (!ctx) continue;
+      details[ev.id] = { ...(details[ev.id] || {}), mlb: ctx };
+      found++;
+    } catch (e) {
+      errors.push(`${ev.home.name}: ${e.message}`);
+    }
+  }
+  sources.mlb = found || !errors.length ? { ok: true, matched: found, ...(errors.length ? { partial: errors } : {}) } : { ok: false, error: errors.join(' | ') };
 }
 
 async function understatXg(events, sources, progress) {
@@ -578,6 +623,10 @@ export async function analyzeMany(events, { methods = ['estadistico'], settings 
   }
   // Básquet con cuotas de jugador (Apuesta Total o Betano): últimos partidos de cada jugador.
   if (withExt) await addPlayerLogs(pending.filter((ev) => ev.sport === 'basketball' && (offers.get(ev.id) || []).some((o) => isPlayerMarket(o.market))), details, sources, onProgress, offers);
+  // Béisbol de la MLB: abridores y contexto en vivo (sin la extensión, los publicados).
+  if (withExt) await addMlbContext(pending.filter(isMlb), details, sources, onProgress);
+  const publishedMlb = withExt ? 0 : auto.filter((ev) => details[ev.id]?.mlb).length;
+  if (publishedMlb) sources.mlb = { ok: true, matched: publishedMlb, published: true };
   // Sin la extensión: los últimos partidos de los jugadores publicados por GitHub Actions.
   const publishedPlayers = withExt ? 0 : auto.filter((ev) => details[ev.id]?.players).length;
   if (publishedPlayers) sources.jugadores = { ok: true, matched: publishedPlayers, published: true };

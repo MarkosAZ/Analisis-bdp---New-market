@@ -23,6 +23,8 @@ import { getTeamStrength } from '../extension/sources/understat.js';
 import { basicNorm, bestByName, countryCode, matchEvent } from '../docs/js/analysis/matching.js';
 import { offeredPlayers, offersFromApuestaTotal } from '../docs/js/analysis/markets.js';
 import { basketballLeague, isPreseason, matchPlayer } from '../docs/js/analysis/players.js';
+import { isMlb } from '../docs/js/analysis/baseball.js';
+import { getGameContext } from '../extension/sources/mlb.js';
 import { addDays, limaToday } from '../docs/js/util.js';
 import { ACTIVE_SPORTS } from '../docs/js/sports.js';
 import { marketsOf } from '../docs/js/analysis/picks.js';
@@ -31,7 +33,7 @@ import { parseFsGames, parseFsIncidents, parseFsStats, periodsFromRow, recordFro
 import { teamStatsFrom } from '../docs/js/analysis/teamstats.js';
 
 const OUT = path.resolve(process.argv[2] || 'site', 'data/fuente');
-const CACHE = path.resolve('.cache/h2h-v4'); // subir la versión si cambia getH2H (v4: sin la Summer League)
+const CACHE = path.resolve('.cache/h2h-v5'); // subir la versión si cambia getH2H (v4: sin la Summer League; v5: carreras de cada enfrentamiento)
 const DETAIL_CACHE = path.resolve('.cache/detalle-v1'); // feeds de partidos terminados (no cambian)
 const PLAYERS_CACHE = path.resolve('.cache/jugadores-v2'); // jugadores de partidos terminados de ESPN (no cambian; v2: con los intentos)
 const PLAYER_LOGS_CACHE = path.resolve('.cache/jugadores-ultimos-v1'); // últimos partidos de los jugadores ofrecidos (partidos por jugar)
@@ -341,6 +343,28 @@ async function main() {
     2,
   );
   log(`Jugadores (ESPN): ${withLogs} partidos con sus últimos partidos (${logErrors} errores)`);
+
+  // 3d) Béisbol de la MLB: abridores con sus últimas aperturas, bullpen, estadio,
+  //     clima y serie (API oficial de la MLB), para el modelo de carreras.
+  let withMlb = 0;
+  let mlbErrors = 0;
+  await pool(
+    withOdds.filter(isMlb),
+    async (ev) => {
+      try {
+        const ctx = await getGameContext({ home: ev.home.name, away: ev.away.name, start: ev.start });
+        if (ctx) {
+          (details[ev.id] ||= { lastHome: [], lastAway: [], h2h: null }).mlb = ctx;
+          withMlb++;
+        }
+      } catch (e) {
+        mlbErrors++;
+        log(`MLB ${ev.home.name} - ${ev.away.name}: ${e.message}`);
+      }
+    },
+    2,
+  );
+  log(`MLB: ${withMlb} partidos con abridores y contexto (${mlbErrors} errores)`);
 
   // 4) xG de Understat (fútbol, 5 grandes ligas).
   const xg = {};
