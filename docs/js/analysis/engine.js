@@ -154,6 +154,7 @@ async function bookmakerOffers(events, sources, progress, { allMarkets = true } 
   progress('Apuesta Total: cuotas', 0.65);
   let atMatched = 0;
   const atStats = {}; // mercados reconocidos / sin modelar (de jugador, de torneo...)
+  const atErrors = [];
   for (const [sport, evs] of bySport) {
     try {
       const from = Math.min(...evs.map((e) => e.start)) - 3 * 3600000;
@@ -171,34 +172,43 @@ async function bookmakerOffers(events, sources, progress, { allMarkets = true } 
         if (list2.length) atMatched++;
         add(ev.id, list2);
       }
-      sources.apuestatotal = { ok: true, matched: atMatched, markets: atStats };
     } catch (e) {
-      sources.apuestatotal = { ok: false, error: e.message };
+      atErrors.push(`${sportOf(sport).name}: ${e.message}`);
     }
   }
-  sources.apuestatotal ||= { ok: true, matched: 0 };
+  // Basta con que responda en algún deporte; el error de otro no borra lo leído.
+  sources.apuestatotal =
+    atErrors.length && atErrors.length === bySport.size ? { ok: false, error: atErrors.join(' | ') } : { ok: true, matched: atMatched, markets: atStats, ...(atErrors.length ? { partial: atErrors } : {}) };
 
   progress('Betano: cuotas', 0.72);
   let bMatched = 0;
   const matched = []; // { ev, m } para abrir la página de cada partido
   const bErrors = [];
+  // Por deporte: partidos en la lista de Betano, emparejados y sus ligas (para ver
+  // si la página del deporte trae, por ejemplo, la NBA).
+  const bySportInfo = {};
   for (const [sport, evs] of bySport) {
     try {
       const list = (await ext.call('betano', 'getOdds', { sport }, { timeout: 90000 })).items;
+      let k = 0;
       for (const ev of evs) {
         const m = matchEvent(ev, list, { toleranceMin: sport === 'tennis' ? 90 : 25 });
-        if (m) matched.push({ ev, m });
+        if (m) (matched.push({ ev, m }), k++);
       }
+      bySportInfo[sport] = { listed: list.length, matched: k, of: evs.length, leagues: [...new Set(list.map((x) => x.league).filter(Boolean))].slice(0, 5) };
     } catch (e) {
-      bErrors.push(`${sport}: ${e.message}`);
+      bErrors.push(`${sportOf(sport).name}: ${e.message}`);
+      bySportInfo[sport] = { error: e.message };
     }
   }
   // Basta con que responda en algún deporte.
-  sources.betano = bErrors.length === bySport.size ? { ok: false, error: bErrors.join(' | ') } : { ok: true, matched: 0, ...(bErrors.length ? { partial: bErrors } : {}) };
+  sources.betano = bErrors.length === bySport.size ? { ok: false, error: bErrors.join(' | ') } : { ok: true, matched: 0 };
   // Todos los mercados: la lista del deporte trae solo los principales; se abre
-  // la página de cada partido (pestañas Goles, Córners, Tarjetas...).
+  // la página de cada partido (pestañas Goles, Córners, Tarjetas, Jugadores...).
+  // Primero el básquet: sus jugadores y el 1.er tiempo solo están en esa página.
   const full = {};
-  const withUrl = allMarkets ? matched.filter((x) => x.m.item.url).slice(0, BETANO_PAGES) : [];
+  const first = (x) => (x.ev.sport === 'basketball' ? 0 : 1);
+  const withUrl = allMarkets ? matched.filter((x) => x.m.item.url).sort((a, b) => first(a) - first(b)).slice(0, BETANO_PAGES) : [];
   for (let i = 0; i < withUrl.length; i += 4) {
     progress(`Betano: todos los mercados ${Math.min(i + 4, withUrl.length)} de ${withUrl.length}`, 0.74 + (0.06 * i) / withUrl.length);
     const chunk = withUrl.slice(i, i + 4);
@@ -216,7 +226,7 @@ async function bookmakerOffers(events, sources, progress, { allMarkets = true } 
     if (list2.length) bMatched++;
     add(ev.id, list2);
   }
-  if (sources.betano?.ok) sources.betano = { ok: true, matched: bMatched, pages: Object.keys(full).length, markets: stats };
+  if (sources.betano?.ok) sources.betano = { ok: true, matched: bMatched, pages: Object.keys(full).length, markets: stats, bySport: bySportInfo, ...(bErrors.length ? { partial: bErrors } : {}) };
   return offers;
 }
 

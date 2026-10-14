@@ -44,3 +44,23 @@ test('busca equipos de Understat por nombre', () => {
   assert.equal(bestByName('Wolverhampton', items).team, 'Wolverhampton Wanderers');
   assert.equal(bestByName('Liverpool', items), null);
 });
+
+test('NBA: ciudades abreviadas, apodos cortos y nombres en español', () => {
+  const same = [
+    ['Golden State Warriors', 'GS Warriors'],
+    ['Oklahoma City Thunder', 'OKC Thunder'],
+    ['New York Knicks', 'NY Knicks'],
+    ['New Orleans Pelicans', 'NO Pelicans'],
+    ['San Antonio Spurs', 'SA Spurs'],
+    ['Brooklyn Nets', 'BKN Nets'],
+    ['Cleveland Cavaliers', 'Cleveland Cavs'],
+    ['Philadelphia 76ers', 'Philadelphia Sixers'],
+    ['New York Knicks', 'Nueva York Knicks'],
+    ['Philadelphia 76ers', 'Filadelfia 76ers'],
+  ];
+  for (const [a, b] of same) assert.equal(similarity(a, b), 1, `${a} = ${b}`);
+  // Los dos equipos abreviados a la vez también se emparejan (antes ~0.45 cada uno).
+  const ev = { start: Date.parse('2026-10-21T00:00:00Z'), home: { name: 'Oklahoma City Thunder' }, away: { name: 'New Orleans Pelicans' } };
+  assert.ok(matchEvent(ev, [{ start: ev.start, home: 'OKC Thunder', away: 'NO Pelicans' }]));
+  assert.equal(similarity('Los Angeles Lakers', 'LA Clippers'), 0);
+});

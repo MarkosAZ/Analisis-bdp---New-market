@@ -38,6 +38,12 @@ function sourceChip(id, s) {
     const parts = [[m.ok, 'analizados'], [m.player, 'de jugador'], [m.outright, 'de torneo'], [m.special, 'especiales sin datos'], [m.unknown, 'sin reconocer']].filter(([n]) => n);
     title = `Mercados: ${parts.map(([n, t]) => `${n} ${t}`).join(' · ')}${s.pages ? ` · páginas de partido abiertas: ${s.pages}` : ''}`;
   }
+  // Por deporte (Betano): cuántos partidos trae su lista, cuántos se emparejaron y de qué ligas.
+  const bySport = Object.entries(s.bySport || {}).map(([sport, x]) =>
+    x.error ? `${sportOf(sport).name}: ${x.error}` : `${sportOf(sport).name}: ${x.matched} de ${x.of} emparejados (${x.listed} en su lista${x.leagues?.length ? `: ${x.leagues.join(', ')}` : ''})`,
+  );
+  if (bySport.length) title += `${title ? '\n' : ''}${bySport.join('\n')}`;
+  if (s.partial?.length) title += `${title ? '\n' : ''}Con error: ${s.partial.join(' | ')}`;
   return h('span', { class: 'chip ok', title }, `${SOURCE_NAMES[id]}${extra}${s.published ? ' (publicadas)' : ''}`);
 }
 

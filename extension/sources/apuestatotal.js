@@ -138,6 +138,8 @@ export async function getEventList({ sport = 'football', from = 0, to = Infinity
   return { mode, items };
 }
 
+const lineOf = (v) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null);
+
 function toMarket(m) {
   return {
     name: m.Name || m.MarketType?.Name || '',
@@ -148,8 +150,9 @@ function toMarket(m) {
         name: s.BetslipLine || s.Name || '',
         outcome: s.OutcomeType || '',
         side: s.Side ?? null,
-        // Línea del mercado (si el nombre de la selección no la trae).
-        line: s.QAParam1 != null && s.QAParam1 !== '' && Number.isFinite(Number(s.QAParam1)) ? Number(s.QAParam1) : null,
+        // Línea del mercado (si el nombre de la selección no la trae): Points es la
+        // línea real (81.5, -3.5); QAParam1 suele ser 0 (o la línea × 100 en los de jugador).
+        line: lineOf(s.Points) ?? lineOf(s.QAParam1),
         price: Number(s.DisplayOdds?.Decimal ?? s.TrueOdds),
       }))
       .filter((s) => s.price > 1),
