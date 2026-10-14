@@ -1,4 +1,4 @@
-// Sondeo temporal (21): ajuste con separación de equipos y escala del total (sin fuga) del modelo de béisbol con la MLB 2026. Se ajusta con
+// Sondeo temporal (22): comparación de configuraciones del béisbol en tres periodos de la MLB 2026 del modelo de béisbol con la MLB 2026. Se ajusta con
 // junio y julio y se comprueba con agosto y septiembre (solo datos anteriores a cada
 // partido). Error: log-loss (menos es mejor; 0.693 = tirar una moneda).
 import { goalsModel } from '../docs/js/analysis/models.js';
@@ -37,7 +37,7 @@ async function starts(id) {
   }
   return logs.get(id);
 }
-const targets = done.filter((g) => ms(g.gameDate) >= ms('2026-06-01') && ms(g.gameDate) < ms('2026-09-29'));
+const targets = done.filter((g) => ms(g.gameDate) >= ms('2026-04-15') && ms(g.gameDate) < ms('2026-09-29'));
 const pids = [...new Set(targets.flatMap((g) => [g.teams.home.probablePitcher?.id, g.teams.away.probablePitcher?.id]).filter(Boolean))];
 for (let i = 0; i < pids.length; i += 10) await Promise.all(pids.slice(i, i + 10).map(starts));
 // Datos de cada partido (solo lo anterior a su inicio).
@@ -101,61 +101,30 @@ const fixedScore = (list) => {
 };
 console.log(`Frecuencias fijas: ajuste ${fmt(fixedScore(train))}\n          prueba ${fmt(fixedScore(testSet))}`);
 
-// Etapa 1: forma de los equipos.
-let best = { ...BASEBALL };
-let bestScore = score(train, model(best)).sum;
-const tryOpts = (label, changes) => {
-  let improved = false;
-  for (const ch of changes) {
-    const opts = { ...best, ...ch };
-    const s = score(train, model(opts)).sum;
-    if (s < bestScore - 1e-5) (best = opts), (bestScore = s), (improved = true);
-  }
-  console.log(`${label}: ${JSON.stringify(best)} → ${bestScore.toFixed(4)}`);
-  return improved;
+// Configuraciones razonables (la búsqueda del sondeo 20 generalizó mejor que la 21,
+// que se sobreajustó a junio y julio): se comparan en tres periodos.
+const A = { formN: 20, formDecay: 1, formPrior: 100, venueWeight: 0.4, spPriorIp: 30, spRawWeight: 0.75, ha: 1, h2hWeight: 0, nbSize: 3, parkWeight: 0.5, stretch: 1, totalScale: 1 };
+const configs = {
+  A,
+  'A localía 1.02': { ...A, ha: 1.02 },
+  'A localía 1.04': { ...A, ha: 1.04 },
+  'A separación 1.15': { ...A, stretch: 1.15 },
+  'A dispersión 4': { ...A, nbSize: 4 },
+  'A enfrentamientos 0.1': { ...A, h2hWeight: 0.1 },
+  'A forma 200': { ...A, formPrior: 200 },
+  'A forma 30 partidos': { ...A, formN: 30 },
+  'A abridor 0.5 real': { ...A, spRawWeight: 0.5 },
+  'A estadio 1': { ...A, parkWeight: 1 },
+  'A sin local/visita': { ...A, venueWeight: 0 },
+  'A localía 1.02 + separación 1.15 + dispersión 4': { ...A, ha: 1.02, stretch: 1.15, nbSize: 4 },
 };
-const grid = [];
-for (const formN of [10, 20, 30, 40, 60]) for (const formDecay of [0.93, 0.97, 1]) for (const formPrior of [25, 50, 100, 200, 400]) grid.push({ formN, formDecay, formPrior });
-console.log('');
-tryOpts('forma', grid);
-for (let round = 0; round < 3; round++) {
-  tryOpts('separación', [0.8, 1, 1.25, 1.5, 1.75, 2, 2.5].map((stretch) => ({ stretch })));
-  tryOpts('escala del total', [0.94, 0.97, 1, 1.03, 1.06].map((totalScale) => ({ totalScale })));
-  tryOpts('abridor', [5, 10, 15, 30, 60, 100].flatMap((spPriorIp) => [0.25, 0.5, 0.75, 1].map((spRawWeight) => ({ spPriorIp, spRawWeight }))));
-  tryOpts('local/visita', [0, 0.2, 0.4].map((venueWeight) => ({ venueWeight })));
-  tryOpts('localía', [1.0, 1.02, 1.04, 1.06, 1.08].map((ha) => ({ ha })));
-  tryOpts('enfrentamientos', [0, 0.1, 0.2].map((h2hWeight) => ({ h2hWeight })));
-  tryOpts('estadio', [0, 0.5, 1].map((parkWeight) => ({ parkWeight })));
-  tryOpts('dispersión', [3, 4, 5, 6].map((nbSize) => ({ nbSize })));
-  tryOpts('forma (2)', grid.filter((g) => Math.abs(g.formN - best.formN) <= 20));
+const periods = { 'abr-may': cases.filter((c) => c.month <= 5), 'jun-jul': cases.filter((c) => c.month >= 6 && c.month <= 7), 'ago-sep': cases.filter((c) => c.month >= 8), todo: cases };
+console.log('\n' + Object.entries(periods).map(([k, v]) => `${k}: ${v.length}`).join(' · '));
+for (const [k, list] of Object.entries(periods)) console.log(`Frecuencias fijas ${k}: suma ${fixedScore(list).sum.toFixed(4)} · ganador ${fixedScore(list).ml.toFixed(4)}`);
+for (const [name, opts] of Object.entries(configs)) {
+  const r = Object.fromEntries(Object.entries(periods).map(([k, list]) => [k, score(list, model(opts))]));
+  console.log(`\n${name}\n` + Object.entries(r).map(([k, v]) => `  ${k.padEnd(8)} ${fmt(v)}`).join('\n'));
 }
-console.log(`\nAjustes elegidos: ${JSON.stringify(best)}`);
-console.log(`Nuevo ajustado: ajuste ${fmt(score(train, model(best)))}\n               prueba ${fmt(score(testSet, model(best)))}`);
-console.log(`Sin abridores (mismos ajustes): prueba ${fmt(score(testSet, (c) => baseballModel(c.ev, { ...c.d, mlb: null }, cfg, { lines }, best)))}`);
-// Calibración en la prueba: ganador local por tramos.
-const bins = Array.from({ length: 6 }, () => ({ n: 0, p: 0, y: 0 }));
-for (const c of testSet) {
-  const m = model(best)(c);
-  const p = m.candidates.find((x) => x.market === 'ML' && x.sel === 'home').p;
-  const b = bins[Math.min(5, Math.max(0, Math.floor((p - 0.25) / 0.1)))];
-  b.n++;
-  b.p += p;
-  b.y += c.hs > c.as ? 1 : 0;
-}
-console.log('Calibración (prueba, ganador local): ' + bins.filter((b) => b.n).map((b) => `pred ${(b.p / b.n).toFixed(2)} real ${(b.y / b.n).toFixed(2)} (n ${b.n})`).join(' · '));
-// Total: medio esperado frente al real, y calibración de Más de 8.5.
-let et = 0;
-let at = 0;
-const ob = Array.from({ length: 5 }, () => ({ n: 0, p: 0, y: 0 }));
-for (const c of testSet) {
-  const m = model(best)(c);
-  et += m.expected.total;
-  at += c.hs + c.as;
-  const p = m.candidates.find((x) => x.market === 'OU' && x.sel === 'over' && x.line === 8.5).p;
-  const b = ob[Math.min(4, Math.max(0, Math.floor((p - 0.3) / 0.1)))];
-  b.n++;
-  b.p += p;
-  b.y += c.hs + c.as > 8.5 ? 1 : 0;
-}
-console.log(`Total esperado medio ${(et / testSet.length).toFixed(2)} · real ${(at / testSet.length).toFixed(2)}`);
-console.log('Calibración (prueba, Más de 8.5): ' + ob.filter((b) => b.n).map((b) => `pred ${(b.p / b.n).toFixed(2)} real ${(b.y / b.n).toFixed(2)} (n ${b.n})`).join(' · '));
+const nopitch = (opts) => (c) => baseballModel(c.ev, { ...c.d, mlb: null }, cfg, { lines }, opts);
+console.log(`\nA sin abridores: todo ${fmt(score(cases, nopitch(A)))}`);
+console.log(`Anterior: todo ${fmt(score(cases, old))}`);

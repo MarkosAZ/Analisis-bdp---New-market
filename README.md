@@ -43,8 +43,9 @@ historial de resultados. Funciona en el **celular y en la PC**:
   Menos 2.5 @1.80 (diferencia 0.05) gana a Más 3.5 @1.90 / Menos 3.5 @2.05
   (0.15). Si las dos casas eligen la misma línea, el pick muestra la mejor cuota.
 - **Análisis estadístico** (datos de Sofascore y Flashscore, sin noticias): la
-  probabilidad sale **solo de la estadística**, las cuotas no la cambian. Goles,
-  ambos marcan y béisbol: modelo de Poisson con la forma reciente, H2H y xG;
+  probabilidad sale **solo de la estadística**, las cuotas no la cambian. Goles y
+  ambos marcan: modelo de Poisson con la forma reciente, H2H y xG; béisbol: ver
+  abajo (abridores);
   básquet: modelo de puntos (sin los partidos de la Summer League, que duran 40
   minutos); córners (total y hándicap), tarjetas y tiros:
   promedios de cada equipo (lo que hace y lo que le permite el rival); primer
@@ -53,6 +54,19 @@ historial de resultados. Funciona en el **celular y en la PC**:
   equipo. Jugadores: sus últimos 10 partidos (los más recientes pesan más; al
   menos 5 jugados). Si figura como baja, no se analiza. La probabilidad que dan
   las cuotas se muestra solo como referencia.
+- **Béisbol: gira en torno a los abridores.** Carreras esperadas de cada equipo
+  con su ofensiva (últimos partidos, muy acercados a la media de la liga: en
+  béisbol la forma reciente es casi ruido) frente al pitcheo del rival: su
+  **abridor** en las entradas que suele lanzar (carreras por 9 entradas y FIP de
+  sus últimas aperturas, de la API oficial de la MLB) y su **bullpen** en el resto
+  (peor si lanzó mucho en los 3 días anteriores). **Contexto**: localía, estadio
+  (carreras de local frente a visita), clima (temperatura y viento) y serie de
+  playoffs; los **enfrentamientos** recientes entre ambos se muestran y pueden
+  pesar. Binomial negativa (las carreras varían más que una Poisson) y entradas
+  extra para el ganador, el total y el run line. Los ajustes salen de una prueba
+  retrospectiva con la MLB 2026 (ajuste con junio y julio, prueba con agosto y
+  septiembre). Sin datos de abridores (Japón, Corea, ligas de invierno) se usa
+  lo mismo sin el abridor.
 - **Análisis con red neuronal**: **36 redes especializadas** y ninguna mezcla
   mercados (los córners del primer tiempo no aprenden de los del partido, ni los
   tiros al arco de los remates, ni los rebotes de un jugador de sus puntos):
