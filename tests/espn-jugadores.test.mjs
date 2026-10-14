@@ -546,6 +546,17 @@ test('getPlayerLogs: los jugadores ofrecidos con pocos partidos en el equipo se 
   assert.ok(!plain.away.players.some((p) => p.name === 'Anthony Davis'));
 });
 
+test('getPlayerLogs: un traspasado que enfrenta a su equipo anterior queda solo en su equipo actual', async () => {
+  // Gafford pasó de Dallas a Houston: está en los partidos de Dallas y en el plantel de Houston.
+  routes.set(`${NBA}/teams/10/roster`, { athletes: [{ id: '4278049', displayName: 'Daniel Gafford', shortName: 'D. Gafford' }, { id: '2991230', displayName: 'Fred VanVleet', shortName: 'F. VanVleet' }] });
+  routes.set(`${WEB}/athletes/4278049/gamelog?season=2026`, gamelog(Array.from({ length: 10 }, (_, k) => ({ id: `g${k}`, date: day('2026-04-12T23:30Z', k), min: 22, pts: 11, reb: 7 }))));
+  const r = await getPlayerLogs({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, n: 10, names: ['Daniel Gafford'] });
+  assert.ok(!r.away.players.some((p) => p.name === 'Daniel Gafford'), 'ya no es de Dallas');
+  const g = r.home.players.find((p) => p.name === 'Daniel Gafford');
+  assert.equal(g?.games.length, 10, 'en Houston, con su registro');
+  assert.ok(r.away.players.some((p) => p.name === 'Klay Thompson'), 'los demás no cambian');
+});
+
 test('getPlayerLogs: en la temporada regular no cuenta la pretemporada aunque ESPN todavía la muestre', async () => {
   const r = await getPlayerLogs({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, n: 10, regular: true });
   const gafford = r.away.players.find((p) => p.name === 'Daniel Gafford');

@@ -611,15 +611,19 @@ export async function loadNetwork() {
 // Reentrena todas las redes, cada una con los resultados de sus mercados (solo
 // filas de la versión actual de variables).
 export async function trainNetwork() {
-  const rows = [];
+  // Una fila por clave (partido y mercado): un partido analizado a fin de mes y otra
+  // vez al comenzar el siguiente queda en los dos archivos; se usa la más reciente.
+  const byKey = new Map();
   for (const month of monthsBack(6)) {
     const file = await readRows(month);
     for (const r of file?.rows || []) {
       if (!isResult(r.y)) continue;
       const x = upgradeFeatures(r.x, r.fv);
-      if (x) rows.push({ ...r, x });
+      const old = byKey.get(r.key);
+      if (x && (!old || month > old.month)) byKey.set(r.key, { month, row: { ...r, x } });
     }
   }
+  const rows = [...byKey.values()].map((v) => v.row);
   const set = NetworkSet.train(rows);
   const s = set.summary();
   await store.write(MODEL, set.toJSON(), `Redes especializadas: ${s.trained} de ${s.total} corrigen (${s.samples} resultados)`);

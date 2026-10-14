@@ -565,7 +565,18 @@ export async function getPlayerLogs({ league, home, away, start, n = 10, names =
     const logs = teamLogs(games, team.id, outs[team.id] || []);
     return { team: team.displayName, ...(await fillFromGamelogs({ league, team, logs, names, before, n, season: seasonOf(league, before), out: outs[team.id] })) };
   };
-  const [hs, as] = await Promise.all([side(h, home), side(a, away)]);
+  // Si falla un equipo, el otro conserva sus jugadores (el error solo si fallan los dos).
+  const sides = await Promise.allSettled([side(h, home), side(a, away)]);
+  if (sides.every((x) => x.status === 'rejected')) throw sides[0].reason;
+  const [hs, as] = sides.map((x, i) => (x.status === 'fulfilled' ? x.value : { team: [h, a][i]?.displayName || [home, away][i], teamGames: 0, players: [] }));
+  // Un traspasado que enfrenta a su equipo anterior aparece en los partidos de los dos:
+  // queda solo en el equipo de su plantel actual (si no, su nombre empata y se descarta).
+  if (names?.length) {
+    const rosters = await Promise.all([h, a].map((t) => (t ? teamRoster(league, t.id).catch(() => null) : null)));
+    const onRoster = (p, roster) => Boolean(roster?.some((r) => sameAthlete(p.name, r)));
+    hs.players = hs.players.filter((p) => !onRoster(p, rosters[1]) || onRoster(p, rosters[0]));
+    as.players = as.players.filter((p) => !onRoster(p, rosters[0]) || onRoster(p, rosters[1]));
+  }
   return { mode: 'direct', home: hs, away: as };
 }
 
