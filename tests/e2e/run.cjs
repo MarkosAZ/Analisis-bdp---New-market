@@ -281,6 +281,19 @@ async function withoutExtension(browser, errors) {
     check('analiza los jugadores de Apuesta Total (asistencias y triples)', rowMarkets.some((m) => m.startsWith('OU.pl_ast#')) && rowMarkets.some((m) => m.startsWith('OU.pl_3pm#') && !m.endsWith('#por')), rowMarkets.filter((m) => /^OU\.pl_(ast|3pm)#/.test(m)).join(' '));
     check('básquet: 1.er tiempo con las líneas extra .5 de Apuesta Total (la principal es entera)', rowMarkets.includes('OU@h1') && rowMarkets.includes('HCP@h1'), rowMarkets.filter((m) => m.includes('@h1')).join(' '));
     check('"Double-double" no se analiza como Más/Menos', !rowMarkets.some((m) => /double/i.test(m)));
+    // Béisbol: el análisis gira en torno a los abridores (y el contexto) de la MLB.
+    const baseballFactors = await page.evaluate(async () => {
+      const st = await import(new URL('js/storage.js', location.href).href);
+      const out = [];
+      for (const p of await st.localPaths()) if (p.includes('historial/2')) for (const a of (await st.read(p))?.analyses || []) for (const k of a.picks || []) if (k.sport === 'baseball') out.push(...(k.factors || []));
+      return out;
+    });
+    check(
+      'béisbol: abridores, bullpen, estadio y clima en los datos de cada pick',
+      ['Abridores: ', 'Bullpen en los 3 días anteriores', 'Estadio', 'Clima: '].every((t) => baseballFactors.some((f) => f.startsWith(t))) && baseballFactors.some((f) => f.includes('Gerrit Cole')),
+      [...new Set(baseballFactors.filter((f) => /Abridores|Bullpen|Estadio|Clima/.test(f)))].slice(0, 4).join(' | '),
+    );
+    check('fuente MLB en el análisis', /MLB · \d+ partidos/.test(summary), summary.match(/MLB[^A-Z]*/)?.[0]);
     const levels = await page.$$eval('#tab-analisis .mrow', (rows) => rows.map((c) => c.className));
     const combos = await page.$$('#tab-analisis .card.combo');
     const matchCards = await page.$$('#tab-analisis .match-card');

@@ -109,11 +109,13 @@ const gameLog = (id, season, type) =>
   memo(logCache, `${id}|${season}|${type}`, async () => startsFromGameLog(await getJson(`${API}/people/${id}/stats?stats=gameLog&group=pitching&season=${season}&gameType=${type}`)));
 
 // Últimas `n` aperturas antes de `before`: temporada regular y playoffs de esta
-// temporada y, si no alcanzan, la temporada regular anterior.
+// temporada y, si no alcanzan, la temporada regular anterior. El registro trae solo
+// la fecha (sin hora): las de las 30 horas anteriores no cuentan (no puede ser otra
+// apertura del mismo lanzador y evita tomar el partido a analizar).
 async function lastStarts(id, season, before, n = 10) {
   const found = [];
   const add = (list) => {
-    for (const g of list) if (g.start < before && !found.some((x) => Math.abs(x.start - g.start) < 6 * 3600000)) found.push(g);
+    for (const g of list) if (g.start < before - 30 * 3600000 && !found.some((x) => Math.abs(x.start - g.start) < 6 * 3600000)) found.push(g);
   };
   for (const [year, type] of [
     [season, 'R'],

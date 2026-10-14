@@ -1,4 +1,4 @@
-// Sondeo temporal (19): ajuste del modelo de béisbol con la MLB 2026. Se ajusta con
+// Sondeo temporal (20): ajuste (sin la fuga del sondeo 19: la apertura del mismo día) del modelo de béisbol con la MLB 2026. Se ajusta con
 // junio y julio y se comprueba con agosto y septiembre (solo datos anteriores a cada
 // partido). Error: log-loss (menos es mejor; 0.693 = tirar una moneda).
 import { goalsModel } from '../docs/js/analysis/models.js';
@@ -52,7 +52,8 @@ for (const g of targets) {
   if (lastHome.length < 20 || lastAway.length < 20) continue;
   const side = async (key) => {
     const p = g.teams[key].probablePitcher;
-    return { pitcher: p ? { name: p.fullName, starts: (await starts(p.id)).filter((s) => s.start < t0).slice(0, 10) } : null, bullpen: null };
+    // El registro trae solo la fecha: las de las 30 horas anteriores no cuentan (sería este partido).
+    return { pitcher: p ? { name: p.fullName, starts: (await starts(p.id)).filter((s) => s.start < t0 - 30 * 3600000).slice(0, 10) } : null, bullpen: null };
   };
   const w = g.weather || {};
   const mlb = { source: 'mlb', park: parks[H] || null, weather: w.temp ? { condition: w.condition, temp: Number(w.temp), wind: w.wind } : null, home: await side('home'), away: await side('away') };

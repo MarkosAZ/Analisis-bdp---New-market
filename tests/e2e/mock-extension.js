@@ -407,6 +407,22 @@
       const ids = [...last('h'), ...last('a')].map((m) => m.fsId);
       return { lastHome: last('h'), lastAway: last('a'), h2h: null, st: Object.fromEntries(ids.map((id, i) => [id, st(7 + (i % 4), 5 + (i % 3))])) };
     },
+    // MLB (API oficial): abridores con sus últimas aperturas, bullpen, estadio y clima.
+    'mlb.getGameContext': ({ home, away, start }) => {
+      const e = events.find((x) => x.sport === 'baseball' && x.home.name === home && x.away.name === away);
+      if (!e) return null;
+      const starts = (ip, r, k, bb, hr) => Array.from({ length: 8 }, (_, i) => ({ start: start - (i + 1) * 5 * 864e5, ip, r, er: r, h: 5, bb, k, hr, hbp: 0, opp: 'Rival' }));
+      return {
+        source: 'mlb',
+        gamePk: `g${e.id}`,
+        venue: `${home} Park`,
+        weather: { condition: 'Clear', temp: 78, wind: '8 mph, Out To CF' },
+        series: null,
+        park: { factor: 1.04, n: 320 },
+        home: { team: home, pitcher: { id: `p${e.id}h`, name: 'Gerrit Cole', hand: 'R', starts: starts(6.33, 1, 8, 1, 0) }, bullpen: { ip: 6, np: 95, games: 2 } },
+        away: { team: away, pitcher: { id: `p${e.id}a`, name: 'Kyle Freeland', hand: 'L', starts: starts(4.67, 4, 3, 3, 1) }, bullpen: { ip: 13, np: 210, games: 3 } },
+      };
+    },
     // Noticias (solo para la red neuronal).
     'flashscore.getNews': () => ({ mode: 'direct', items: [{ source: 'flashscore', title: 'Arsenal pierde a su capitán por lesión', summary: '', published: new Date(Date.now() - 3600000).toISOString() }] }),
     'espn.getAllNews': () => ({ mode: 'direct', items: [{ source: 'espn', title: 'Liverpool llega en racha y con su plantel completo', summary: '', published: new Date(Date.now() - 7200000).toISOString() }], errors: [] }),
