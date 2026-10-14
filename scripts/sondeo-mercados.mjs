@@ -1,86 +1,107 @@
-// Sondeo temporal (17): béisbol. Qué ligas hay (Apuesta Total y Flashscore), qué datos
-// de lanzadores da la API oficial de MLB (abridores probables, registro por partido,
-// temporada, ligas de invierno) y ESPN, y el H2H de Flashscore con carreras.
-import { getEventList } from '../extension/sources/apuestatotal.js';
-import { getH2H, getSportDay } from '../extension/sources/flashscore.js';
+// Sondeo temporal (18): béisbol.
+// (1) Prueba retrospectiva con la MLB 2026 (agosto y septiembre): modelo anterior
+//     (Poisson con la forma) frente al nuevo (binomial negativa, abridores, estadio,
+//     clima y enfrentamientos), solo con datos anteriores a cada partido.
+// (2) Contexto real de los próximos partidos de la MLB (getGameContext).
+import { goalsModel } from '../docs/js/analysis/models.js';
+import { baseballModel } from '../docs/js/analysis/baseball.js';
+import { sportOf } from '../docs/js/sports.js';
+import { getGameContext, parkRuns, startsFromGameLog } from '../extension/sources/mlb.js';
 
-const get = async (url) => {
-  const r = await fetch(url, { signal: AbortSignal.timeout(30000) });
-  const text = await r.text();
-  let data = null;
-  try { data = JSON.parse(text); } catch {}
-  return { status: r.status, data, text };
-};
-const ymd = (ms) => new Date(ms).toISOString().slice(0, 10);
-const now = Date.now();
-
-// (a) Apuesta Total y Flashscore: ligas de béisbol.
-const { items: at } = await getEventList({ sport: 'baseball', from: now, to: now + 7 * 86400000 });
-const atLeagues = {};
-for (const e of at) atLeagues[`${e.country} · ${e.league}`] = (atLeagues[`${e.country} · ${e.league}`] || 0) + 1;
-console.log(`Apuesta Total béisbol 7 días: ${at.length} partidos | ${JSON.stringify(atLeagues)}`);
-for (const day of [0, 1, 2]) {
-  const { items } = await getSportDay({ sport: 'baseball', day });
-  const lg = {};
-  for (const e of items) lg[`${e.category.name} · ${e.tournament.name}`] = (lg[`${e.category.name} · ${e.tournament.name}`] || 0) + 1;
-  console.log(`Flashscore béisbol día ${day}: ${items.length} | ${JSON.stringify(lg)}`);
-  if (day === 0) {
-    const mlb = items.find((e) => /MLB/.test(e.tournament.name)) || items[0];
-    if (mlb) {
-      const d = await getH2H({ fsId: mlb.id.replace(/^fs:/, ''), homeId: mlb.home.id, awayId: mlb.away.id }).catch((e) => ({ error: e.message }));
-      console.log(`  H2H ${mlb.home.name} vs ${mlb.away.name} [${mlb.tournament.name}]: ${JSON.stringify(d.h2h)} | local ${d.lastHome?.length} | visita ${d.lastAway?.length}`);
-      for (const m of (d.lastHome || []).slice(0, 12)) console.log(`     ${ymd(m.start)} ${m.league} ${m.home ? 'L' : 'V'} vs ${m.opp} ${m.gf}-${m.ga}`);
-    }
-  }
-}
-
-// (b) API oficial de MLB.
 const API = 'https://statsapi.mlb.com/api/v1';
-for (const sportId of [1, 17]) {
-  const s = await get(`${API}/schedule?sportId=${sportId}&startDate=${ymd(now - 86400000)}&endDate=${ymd(now + 4 * 86400000)}&hydrate=probablePitcher,team,venue,linescore,weather,seriesStatus`);
-  const games = (s.data?.dates || []).flatMap((d) => d.games || []);
-  const leagues = {};
-  for (const g of games) {
-    const k = g.teams?.home?.team?.league?.name || g.teams?.home?.team?.sport?.name || g.gameType;
-    leagues[k] = (leagues[k] || 0) + 1;
+const get = async (url) => (await fetch(url, { signal: AbortSignal.timeout(60000) })).json();
+const cfg = sportOf('baseball');
+const ms = (d) => Date.parse(d);
+
+const all = (await get(`${API}/schedule?sportId=1&startDate=2026-03-20&endDate=2026-09-30&gameType=R&hydrate=probablePitcher,team,weather,venue`)).dates.flatMap((d) => d.games);
+const done = all.filter((g) => g.status?.abstractGameState === 'Final' && g.teams.home.score != null);
+console.log(`MLB 2026: ${done.length} partidos terminados`);
+const prev = (await get(`${API}/schedule?sportId=1&season=2025&gameType=R`)).dates.flatMap((d) => d.games);
+const parks = {};
+for (const t of new Set(done.map((g) => g.teams.home.team.id))) {
+  const r = parkRuns(prev, t);
+  if (r.nHome >= 20 && r.nAway >= 20) parks[t] = { factor: r.home / r.away, n: r.nHome + r.nAway };
+}
+// Partidos de cada equipo (para su forma y los enfrentamientos).
+const byTeam = new Map();
+for (const g of done) for (const side of ['home', 'away']) {
+  const id = g.teams[side].team.id;
+  const other = side === 'home' ? 'away' : 'home';
+  const gf = g.teams[side].score;
+  const ga = g.teams[other].score;
+  (byTeam.get(id) || byTeam.set(id, []).get(id)).push({ start: ms(g.gameDate), home: side === 'home', gf, ga, r: gf > ga ? 'W' : 'L', opp: g.teams[other].team.id });
+}
+for (const list of byTeam.values()) list.sort((a, b) => b.start - a.start);
+const logs = new Map();
+async function starts(id) {
+  if (!logs.has(id)) {
+    const [a, b] = await Promise.all([2026, 2025].map((y) => get(`${API}/people/${id}/stats?stats=gameLog&group=pitching&season=${y}&gameType=R`).then(startsFromGameLog).catch(() => [])));
+    logs.set(id, [...a, ...b].sort((x, y) => y.start - x.start));
   }
-  console.log(`\n==== statsapi sportId=${sportId}: HTTP ${s.status}, ${games.length} partidos | ligas ${JSON.stringify(leagues)}`);
-  for (const g of games.slice(0, 8)) {
-    const side = (t) => `${t.team?.name} (${t.probablePitcher ? `${t.probablePitcher.fullName} #${t.probablePitcher.id}` : 'sin abridor'})`;
-    console.log(`  ${g.gameDate} ${g.gameType} ${g.status?.detailedState} | ${side(g.teams.away)} @ ${side(g.teams.home)} | estadio ${g.venue?.name} | clima ${JSON.stringify(g.weather || null)} | serie ${g.seriesStatus?.description || ''}`);
-  }
-  const withP = games.find((g) => g.teams.home.probablePitcher || g.teams.away.probablePitcher);
-  if (!withP) continue;
-  const p = withP.teams.home.probablePitcher || withP.teams.away.probablePitcher;
-  const season = new Date(withP.gameDate).getUTCFullYear();
-  for (const stats of ['gameLog', 'season']) {
-    const r = await get(`${API}/people/${p.id}/stats?stats=${stats}&group=pitching&season=${season}`);
-    const splits = r.data?.stats?.[0]?.splits || [];
-    console.log(`  ${p.fullName} ${stats} ${season}: HTTP ${r.status}, ${splits.length} filas | claves stat: ${Object.keys(splits[0]?.stat || {}).join(',')}`);
-    for (const x of splits.slice(-3)) console.log(`     ${x.date || ''} ${x.opponent?.name || ''} ${x.isHome ? 'L' : 'V'} | IP ${x.stat?.inningsPitched} R ${x.stat?.runs} ER ${x.stat?.earnedRuns} H ${x.stat?.hits} BB ${x.stat?.baseOnBalls} K ${x.stat?.strikeOuts} HR ${x.stat?.homeRuns} NP ${x.stat?.numberOfPitches} ERA ${x.stat?.era} WHIP ${x.stat?.whip} GS ${x.stat?.gamesStarted}`);
-  }
-  // Postemporada y temporada anterior (para el comienzo de temporada).
-  const r2 = await get(`${API}/people/${p.id}/stats?stats=gameLog&group=pitching&season=${season}&gameType=P`);
-  console.log(`  ${p.fullName} gameLog postemporada: ${(r2.data?.stats?.[0]?.splits || []).length} filas`);
-  // Partidos de un equipo en la temporada (factor de estadio con sus marcadores).
-  const team = withP.teams.home.team;
-  const ts = await get(`${API}/schedule?sportId=${sportId}&teamId=${team.id}&season=${season}&gameType=R`);
-  const tg = (ts.data?.dates || []).flatMap((d) => d.games || []).filter((g) => g.status?.abstractGameState === 'Final');
-  console.log(`  ${team.name} temporada ${season}: ${tg.length} partidos terminados | ejemplo ${JSON.stringify(tg[0]?.teams?.home?.score)}-${JSON.stringify(tg[0]?.teams?.away?.score)} en ${tg[0]?.venue?.name}`);
-  // Bullpen: box score del último partido (lanzadores usados y entradas).
-  const last = tg.at(-1);
-  if (last) {
-    const b = await get(`${API}/game/${last.gamePk}/boxscore`);
-    const side = b.data?.teams?.home?.team?.id === team.id ? 'home' : 'away';
-    const pitchers = b.data?.teams?.[side]?.pitchers || [];
-    const players = b.data?.teams?.[side]?.players || {};
-    console.log(`  boxscore ${last.gamePk}: HTTP ${b.status} | lanzadores ${pitchers.length}: ${pitchers.map((id) => `${players['ID' + id]?.person?.fullName} ${players['ID' + id]?.stats?.pitching?.inningsPitched}IP ${players['ID' + id]?.stats?.pitching?.numberOfPitches}NP`).join('; ')}`);
+  return logs.get(id);
+}
+const targets = done.filter((g) => ms(g.gameDate) >= ms('2026-08-01') && ms(g.gameDate) < ms('2026-09-29'));
+const pitcherIds = [...new Set(targets.flatMap((g) => [g.teams.home.probablePitcher?.id, g.teams.away.probablePitcher?.id]).filter(Boolean))];
+for (let i = 0; i < pitcherIds.length; i += 8) await Promise.all(pitcherIds.slice(i, i + 8).map(starts));
+console.log(`partidos a evaluar: ${targets.length} · abridores: ${pitcherIds.length}`);
+
+const ll = (p, y) => -Math.log(Math.min(0.999, Math.max(0.001, y ? p : 1 - p)));
+const acc = {};
+const add = (name, key, p, y) => {
+  const a = (acc[name] ||= {});
+  const b = (a[key] ||= { n: 0, ll: 0, brier: 0 });
+  b.n++;
+  b.ll += ll(p, y);
+  b.brier += (p - (y ? 1 : 0)) ** 2;
+};
+let used = 0;
+const totals = [];
+for (const g of targets) {
+  const t0 = ms(g.gameDate);
+  const H = g.teams.home.team.id;
+  const A = g.teams.away.team.id;
+  const before = (id) => (byTeam.get(id) || []).filter((m) => m.start < t0 - 3600000);
+  const lastHome = before(H).slice(0, 10);
+  const lastAway = before(A).slice(0, 10);
+  if (lastHome.length < 8 || lastAway.length < 8) continue;
+  const h2hGames = before(H).filter((m) => m.opp === A).slice(0, 10);
+  const ev = { sport: 'baseball', start: t0, tournament: { name: 'MLB' } };
+  const side = async (key) => {
+    const p = g.teams[key].probablePitcher;
+    return { team: g.teams[key].team.name, pitcher: p ? { id: p.id, name: p.fullName, starts: (await starts(p.id)).filter((s) => s.start < t0 - 3600000).slice(0, 10) } : null, bullpen: null };
+  };
+  const w = g.weather || {};
+  const mlb = { source: 'mlb', park: parks[H] || null, weather: w.temp ? { condition: w.condition, temp: Number(w.temp), wind: w.wind } : null, home: await side('home'), away: await side('away') };
+  const hs = g.teams.home.score;
+  const as = g.teams.away.score;
+  const lines = { OU: [7.5, 8.5, 9.5], HCP: [-1.5, 1.5] };
+  const models = {
+    anterior: goalsModel(ev, { lastHome, lastAway }, cfg, { lines }),
+    'nuevo sin contexto MLB': baseballModel(ev, { lastHome, lastAway, h2hGames }, cfg, { lines }),
+    'nuevo con abridores y contexto': baseballModel(ev, { lastHome, lastAway, h2hGames, mlb }, cfg, { lines }),
+    'nuevo solo abridores': baseballModel(ev, { lastHome, lastAway, mlb: { ...mlb, park: null, weather: null } }, cfg, { lines }),
+  };
+  used++;
+  totals.push(hs + as);
+  for (const [name, m] of Object.entries(models)) {
+    if (!m) continue;
+    const p = (market, sel, line = null) => m.candidates.find((c) => c.market === market && c.sel === sel && c.line === line)?.p;
+    add(name, 'Ganador (local)', p('ML', 'home'), hs > as);
+    for (const L of [7.5, 8.5, 9.5]) add(name, `Más de ${L}`, p('OU', 'over', L), hs + as > L);
+    add(name, 'Local −1.5', p('HCP', 'home', -1.5), hs - as > 1.5);
   }
 }
+console.log(`\nEvaluados: ${used} partidos · total medio real ${(totals.reduce((a, b) => a + b, 0) / totals.length).toFixed(2)}`);
+const base = Object.fromEntries(Object.entries(acc.anterior).map(([k, v]) => [k, v.ll / v.n]));
+for (const [name, a] of Object.entries(acc)) {
+  console.log(`\n${name}`);
+  for (const [k, v] of Object.entries(a)) console.log(`  ${k.padEnd(18)} log-loss ${(v.ll / v.n).toFixed(4)} (${((v.ll / v.n - base[k]) * 1000).toFixed(1)} milésimas vs anterior) · Brier ${(v.brier / v.n).toFixed(4)} · n ${v.n}`);
+}
 
-// (c) ESPN MLB: abridores probables en el marcador.
-const espn = await get(`https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates=${ymd(now).replace(/-/g, '')}`);
-for (const e of (espn.data?.events || []).slice(0, 3)) {
-  const c = e.competitions?.[0];
-  console.log(`\nESPN ${e.name} | probables: ${(c?.competitors || []).map((t) => `${t.team?.abbreviation}: ${(t.probables || []).map((p) => `${p.athlete?.displayName} ${(p.statistics || []).map((s) => `${s.abbreviation}=${s.displayValue}`).join(' ')}`).join(', ')}`).join(' | ')}`);
+// (2) Contexto real de los próximos partidos.
+const next = all.length ? (await get(`${API}/schedule?sportId=1&startDate=${new Date().toISOString().slice(0, 10)}&endDate=${new Date(Date.now() + 4 * 864e5).toISOString().slice(0, 10)}&hydrate=team`)).dates.flatMap((d) => d.games).filter((g) => g.status?.abstractGameState !== 'Final') : [];
+for (const g of next.slice(0, 3)) {
+  const ctx = await getGameContext({ home: g.teams.home.team.name, away: g.teams.away.team.name, start: g.gameDate });
+  const s = (x) => (x?.pitcher ? `${x.pitcher.name} (${x.pitcher.starts.length} aperturas, última ${new Date(x.pitcher.starts[0]?.start).toISOString().slice(0, 10)} vs ${x.pitcher.starts[0]?.opp})` : 'sin abridor');
+  console.log(`\nContexto ${g.teams.away.team.name} @ ${g.teams.home.team.name}: ${s(ctx?.home)} vs ${s(ctx?.away)} | bullpen ${JSON.stringify(ctx?.home?.bullpen)} / ${JSON.stringify(ctx?.away?.bullpen)} | estadio ${JSON.stringify(ctx?.park)} | clima ${JSON.stringify(ctx?.weather)} | serie ${ctx?.series}`);
 }
