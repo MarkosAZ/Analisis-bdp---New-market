@@ -21,9 +21,12 @@ export const MLB_RA9 = 4.4; // carreras por equipo y partido (9 entradas) en la 
 //  venueWeight: peso de los partidos de local (o de visita) en la forma.
 //  spPriorIp / spRawWeight: entradas "virtuales" del abridor con la media de la liga
 //    y peso de sus carreras reales (el resto, su FIP).
+//  h2hWeight: peso de lo que anotó cada uno en los últimos enfrentamientos (en la
+//    prueba casi no cambia el acierto: peso chico).
 //  stretch: separa (>1) o junta (<1) las carreras de los dos equipos sin cambiar el total.
-//  totalScale: corrige el total esperado.
-export const BASEBALL = { formN: 10, formDecay: 0.85, formPrior: 3, venueWeight: 0.4, spPriorIp: 30, spRawWeight: 0.5, ha: 1.04, h2hWeight: 0.15, nbSize: 4, parkWeight: 0.5, stretch: 1, totalScale: 1 };
+//  totalScale: corrige el total esperado (1: subirlo o bajarlo empeoró la prueba
+//    en otros meses).
+export const BASEBALL = { formN: 20, formDecay: 1, formPrior: 100, venueWeight: 0.4, spPriorIp: 30, spRawWeight: 0.75, ha: 1.02, h2hWeight: 0.1, nbSize: 4, parkWeight: 0.5, stretch: 1.15, totalScale: 1 };
 
 // ¿Partido de la MLB? (sus abridores y contexto salen de la API oficial de la MLB).
 export const isMlb = (ev) => ev?.sport === 'baseball' && /\bmlb\b/i.test([ev.tournament?.name, ev.category?.name, ev.league].filter(Boolean).join(' '));

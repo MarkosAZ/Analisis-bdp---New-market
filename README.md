@@ -61,12 +61,25 @@ historial de resultados. Funciona en el **celular y en la PC**:
   sus últimas aperturas, de la API oficial de la MLB) y su **bullpen** en el resto
   (peor si lanzó mucho en los 3 días anteriores). **Contexto**: localía, estadio
   (carreras de local frente a visita), clima (temperatura y viento) y serie de
-  playoffs; los **enfrentamientos** recientes entre ambos se muestran y pueden
-  pesar. Binomial negativa (las carreras varían más que una Poisson) y entradas
-  extra para el ganador, el total y el run line. Los ajustes salen de una prueba
-  retrospectiva con la MLB 2026 (ajuste con junio y julio, prueba con agosto y
-  septiembre). Sin datos de abridores (Japón, Corea, ligas de invierno) se usa
-  lo mismo sin el abridor.
+  playoffs; los **enfrentamientos** recientes entre ambos (últimos 2 años) se
+  muestran y pesan poco. Binomial negativa (las carreras varían más que una
+  Poisson) y entradas extra para el ganador, el total y el run line. Sin datos de
+  abridores (Japón, Corea, ligas de invierno) se usa lo mismo sin el abridor.
+  Los ajustes salen de una prueba retrospectiva con los 2176 partidos de la MLB
+  2026 (abril a septiembre, cada partido solo con lo que se sabía antes de
+  jugarse), revisada por periodos para no ajustarse a unos meses. Pérdida
+  logarítmica (menos es mejor):
+
+  | | Ganador | Total | Run line |
+  |---|---|---|---|
+  | Modelo anterior | 0.838 | 0.750 | 0.804 |
+  | Siempre la frecuencia de la liga | 0.692 | 0.683 | 0.652 |
+  | Sin abridores | 0.690 | 0.682 | 0.651 |
+  | **Actual** | **0.684** | **0.673** | **0.645** |
+
+  El ganador de un partido de béisbol es difícil de anticipar: la mejora sobre
+  la frecuencia de la liga es chica (lo normal en este deporte) y viene sobre
+  todo de los abridores; la ventaja frente a la casa suele ser pequeña.
 - **Análisis con red neuronal**: **36 redes especializadas** y ninguna mezcla
   mercados (los córners del primer tiempo no aprenden de los del partido, ni los
   tiros al arco de los remates, ni los rebotes de un jugador de sus puntos):
