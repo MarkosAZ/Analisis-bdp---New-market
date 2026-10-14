@@ -10,32 +10,60 @@
 // (tamaño 4, como en la MLB: media ~4.4 y desvío ~3.1 por equipo y partido).
 import { clamp } from '../util.js';
 import { isHalfLine } from './markets.js';
-import { scoreOutcomes, teamForm } from './models.js';
+import { scoreOutcomes } from './models.js';
 
 export const MLB_RA9 = 4.4; // carreras por equipo y partido (9 entradas) en la MLB
 
+// Ajustes del modelo (elegidos con la prueba retrospectiva de la MLB 2026; ver README).
+//  formN/formDecay: partidos de cada equipo y peso de cada uno respecto del siguiente.
+//  formPrior: partidos "virtuales" con la media de la liga (en béisbol la forma
+//    reciente es casi ruido: hay que acercarla mucho a la media).
+//  venueWeight: peso de los partidos de local (o de visita) en la forma.
+//  spPriorIp / spRawWeight: entradas "virtuales" del abridor con la media de la liga
+//    y peso de sus carreras reales (el resto, su FIP).
+export const BASEBALL = { formN: 10, formDecay: 0.85, formPrior: 3, venueWeight: 0.4, spPriorIp: 30, spRawWeight: 0.5, ha: 1.04, h2hWeight: 0.15, nbSize: 4, parkWeight: 0.5 };
+
 // ¿Partido de la MLB? (sus abridores y contexto salen de la API oficial de la MLB).
 export const isMlb = (ev) => ev?.sport === 'baseball' && /\bmlb\b/i.test([ev.tournament?.name, ev.category?.name, ev.league].filter(Boolean).join(' '));
-const NB_SIZE = 4;
 const START_DECAY = 0.85; // peso de cada apertura anterior respecto de la siguiente
-const PRIOR_IP = 30; // entradas "virtuales" con la media de la liga (pocas aperturas → cerca de la media)
 const FIP_CONST = 3.15; // constante del FIP (escala de carreras limpias)
 const RA_PER_ER = 1.08; // carreras totales por carrera limpia
 
+// Carreras anotadas y recibidas por partido (ponderadas: más peso a lo reciente).
+export function runsForm(matches = [], { n = 10, decay = 0.85, home = null } = {}) {
+  const list = (matches || []).filter((m) => m.gf != null && m.ga != null && (home == null || m.home === home)).slice(0, n);
+  if (!list.length) return null;
+  let w = 0;
+  let gf = 0;
+  let ga = 0;
+  let wins = 0;
+  list.forEach((m, k) => {
+    const wk = decay ** k;
+    w += wk;
+    gf += wk * m.gf;
+    ga += wk * m.ga;
+    wins += wk * (m.gf > m.ga ? 1 : 0);
+  });
+  // Partidos "efectivos" (con el peso): para acercar a la media según cuántos hay.
+  const eff = (w * w) / list.reduce((s, _, k) => s + decay ** (2 * k), 0);
+  return { n: list.length, eff, gf: gf / w, ga: ga / w, winRate: wins / w, ppg: (3 * wins) / w, last5: list.slice(0, 5).map((m) => (m.gf > m.ga ? 'W' : 'L')) };
+}
+
 // Forma general mezclada con la de local (o de visitante) si hay datos.
-function venueForm(matches, isHome) {
-  const all = teamForm(matches);
+function venueForm(matches, isHome, o) {
+  const all = runsForm(matches, { n: o.formN, decay: o.formDecay });
   if (!all) return null;
-  const venue = teamForm(matches, { home: isHome });
+  const venue = o.venueWeight > 0 ? runsForm(matches, { n: o.formN, decay: o.formDecay, home: isHome }) : null;
   if (!venue || venue.n < 3) return all;
-  return { ...all, gf: 0.6 * all.gf + 0.4 * venue.gf, ga: 0.6 * all.ga + 0.4 * venue.ga };
+  const v = o.venueWeight;
+  return { ...all, gf: (1 - v) * all.gf + v * venue.gf, ga: (1 - v) * all.ga + v * venue.ga };
 }
 
 // Perfil del abridor con sus últimas aperturas (más recientes primero):
 // { ra9, rawRa9, fip, ip, n } — ra9: carreras que se esperan por 9 entradas (la mitad
 // carreras reales y la mitad FIP, acercadas a la media de la liga según las entradas
 // lanzadas); ip: entradas que suele lanzar por apertura.
-export function starterProfile(starts = [], lgRa9 = MLB_RA9) {
+export function starterProfile(starts = [], lgRa9 = MLB_RA9, { spPriorIp = BASEBALL.spPriorIp, spRawWeight = BASEBALL.spRawWeight } = {}) {
   const list = (starts || []).filter((s) => s && s.ip > 0).slice(0, 10);
   if (!list.length) return null;
   let w = 0;
@@ -51,8 +79,8 @@ export function starterProfile(starts = [], lgRa9 = MLB_RA9) {
   });
   const rawRa9 = (9 * r) / ip;
   const fip = (fipNum / ip + FIP_CONST) * RA_PER_ER;
-  const raw = 0.5 * rawRa9 + 0.5 * Math.max(0, fip);
-  const ra9 = (raw * ip + lgRa9 * PRIOR_IP) / (ip + PRIOR_IP);
+  const raw = spRawWeight * rawRa9 + (1 - spRawWeight) * Math.max(0, fip);
+  const ra9 = (raw * ip + lgRa9 * spPriorIp) / (ip + spPriorIp);
   const perStart = ip / w;
   const n = list.length;
   return { ra9, rawRa9, fip, ip: clamp((perStart * n + 5.2 * 2) / (n + 2), 3.5, 7.5), n };
@@ -99,7 +127,7 @@ export function h2hRuns(games = [], now = Date.now()) {
 }
 
 // Probabilidad de 0..max carreras con una binomial negativa de media `mean`.
-export function nbPmf(mean, size = NB_SIZE, max = 30) {
+export function nbPmf(mean, size = BASEBALL.nbSize, max = 30) {
   const p = new Array(max + 1).fill(0);
   if (!(mean > 0)) {
     p[0] = 1;
@@ -126,9 +154,9 @@ const EXTRA = [
 
 // ML, Más/Menos y run line con las carreras esperadas de cada equipo (9 entradas)
 // y las entradas extra si empatan.
-export function runsOutcomes(lh, la) {
-  const ph = nbPmf(lh);
-  const pa = nbPmf(la);
+export function runsOutcomes(lh, la, size = BASEBALL.nbSize) {
+  const ph = nbPmf(lh, size);
+  const pa = nbPmf(la, size);
   const m = ph.map((x) => pa.map((y) => x * y));
   const o = scoreOutcomes(m);
   const tie = o.draw;
@@ -155,20 +183,21 @@ export function runsOutcomes(lh, la) {
 
 // Modelo del béisbol: devuelve lo mismo que goalsModel (models.js) y, además,
 // `baseball` con lo usado (abridores, bullpen, estadio, clima, enfrentamientos).
-export function baseballModel(ev, d, cfg, ctx = {}) {
-  const fh = venueForm(d.lastHome || [], true);
-  const fa = venueForm(d.lastAway || [], false);
+export function baseballModel(ev, d, cfg, ctx = {}, opts = {}) {
+  const o = { ...BASEBALL, ...opts };
+  const fh = venueForm(d.lastHome || [], true, o);
+  const fa = venueForm(d.lastAway || [], false, o);
   if (!fh || !fa) return null;
-  const n = Math.min(fh.n, fa.n);
+  const n = Math.min(fh.eff, fa.eff);
   // Carreras por equipo y partido de estos equipos: referencia (en la MLB, junto a la de la liga).
   const mlb = d.mlb || null;
   const teamsMu = clamp((fh.gf + fh.ga + fa.gf + fa.ga) / 4, 1.5, 12);
   const mu = mlb ? 0.5 * teamsMu + 0.5 * MLB_RA9 : teamsMu;
-  const shrink = (x) => (n * x + 3 * mu) / (n + 3);
+  const shrink = (x) => (n * x + o.formPrior * mu) / (n + o.formPrior);
   const lg = mlb ? MLB_RA9 : mu;
   // Pitcheo que enfrenta cada ofensiva: abridor del rival en sus entradas y bullpen en el resto.
   const pitching = (side, teamAllowed) => {
-    const sp = starterProfile(mlb?.[side]?.pitcher?.starts, lg);
+    const sp = starterProfile(mlb?.[side]?.pitcher?.starts, lg, o);
     const pen = bullpenFactor(mlb?.[side]?.bullpen);
     const bullpen = teamAllowed * pen;
     const allowed = sp ? (sp.ip / 9) * sp.ra9 + (1 - sp.ip / 9) * bullpen : bullpen;
@@ -176,46 +205,46 @@ export function baseballModel(ev, d, cfg, ctx = {}) {
   };
   const homeP = pitching('home', shrink(fh.ga));
   const awayP = pitching('away', shrink(fa.ga));
-  const ha = cfg.neutral ? 1 : cfg.ha || 1.04;
+  const ha = cfg.neutral ? 1 : o.ha;
   let lh = (shrink(fh.gf) * awayP.allowed) / mu;
   let la = (shrink(fa.gf) * homeP.allowed) / mu;
   lh *= Math.sqrt(ha);
   la /= Math.sqrt(ha);
   // Últimos enfrentamientos: un poco de peso a lo que anotó cada uno contra el otro.
   const h2h = h2hRuns(d.h2hGames, ev.start || Date.now());
-  if (h2h) {
-    const w = 0.15 * Math.min(1, h2h.n / 6);
+  if (h2h && o.h2hWeight > 0) {
+    const w = o.h2hWeight * Math.min(1, h2h.n / 6);
     lh = (1 - w) * lh + w * shrink(h2h.home);
     la = (1 - w) * la + w * shrink(h2h.away);
   }
   // Estadio (la forma de local ya trae una parte) y clima.
   const pf = mlb?.park?.factor;
-  const park = Number.isFinite(pf) ? 1 + 0.5 * (clamp(pf, 0.8, 1.3) - 1) : 1;
+  const park = Number.isFinite(pf) ? 1 + o.parkWeight * (clamp(pf, 0.8, 1.3) - 1) : 1;
   const weather = weatherFactor(mlb?.weather);
   lh = clamp(lh * park * weather, 0.3, 15);
   la = clamp(la * park * weather, 0.3, 15);
 
-  const o = runsOutcomes(lh, la);
+  const r = runsOutcomes(lh, la, o.nbSize);
   const c = [
-    ['ML', 'home', null, o.home],
-    ['ML', 'away', null, o.away],
+    ['ML', 'home', null, r.home],
+    ['ML', 'away', null, r.away],
   ];
   for (const line of new Set([...(cfg.lines || []), ...(ctx.lines?.OU || [])])) {
     if (!isHalfLine(line) || line <= 0) continue;
-    const p = o.over(line);
+    const p = r.over(line);
     c.push(['OU', 'over', line, p], ['OU', 'under', line, 1 - p]);
   }
   for (const line of ctx.lines?.HCP || []) {
     if (!isHalfLine(line)) continue;
-    const p = o.handicap(line);
+    const p = r.handicap(line);
     c.push(['HCP', 'home', line, p], ['HCP', 'away', line, 1 - p]);
   }
-  const variance = (x) => x + (x * x) / NB_SIZE;
+  const variance = (x) => x + (x * x) / o.nbSize;
   const sd = Math.sqrt(variance(lh) + variance(la));
   const starters = Number(Boolean(homeP.starter)) + Number(Boolean(awayP.starter));
   return {
     kind: 'goals',
-    quality: Math.min(1, n / 10) * (mlb ? 0.85 + 0.075 * starters : 0.85),
+    quality: Math.min(1, Math.min(fh.n, fa.n) / 10) * (mlb ? 0.85 + 0.075 * starters : 0.85),
     form: { home: fh, away: fa },
     expected: { home: lh, away: la, total: lh + la, sdTotal: sd, margin: lh - la, sdMargin: sd },
     strength: (lh - la) / sd,
