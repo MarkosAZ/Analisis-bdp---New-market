@@ -46,9 +46,24 @@ export function expandEvent(c) {
 const compactMatches = (list = []) => list.slice(0, LAST_MATCHES).map((m) => [Math.round(m.start / 1000), m.home ? 1 : 0, m.gf, m.ga, m.r]);
 const expandMatches = (list = []) => list.map(([st, home, gf, ga, r]) => ({ start: st * 1000, home: Boolean(home), gf, ga, r }));
 
+// Últimos partidos de los jugadores de un equipo (básquet, ESPN): [partidos del
+// equipo, [[nombre, nombre corto, de baja, [[inicio, min, pts, ...], ...]], ...]].
+const PLAYER_FIELDS = ['min', 'pts', 'reb', 'ast', 'tpm', 'stl', 'blk', 'tov', 'oreb', 'dreb', 'ftm', 'fgm', 'fga', 'tpa', 'fta'];
+const compactPlayers = (side) => [side?.teamGames || 0, (side?.players || []).map((p) => [p.name, p.short || null, p.out ? 1 : 0, (p.games || []).map((g) => [Math.round(g.start / 1000), ...PLAYER_FIELDS.map((f) => g[f] ?? null)])])];
+const expandPlayers = (c) => ({
+  teamGames: c?.[0] || 0,
+  players: (c?.[1] || []).map(([name, short, out, games]) => ({
+    name,
+    short,
+    out: Boolean(out),
+    games: (games || []).map(([st, ...v]) => ({ start: st * 1000, ...Object.fromEntries(PLAYER_FIELDS.map((f, i) => [f, v[i] ?? null])) })),
+  })),
+});
+
 export function compactDetails(d) {
   const out = { h: compactMatches(d.lastHome), a: compactMatches(d.lastAway), d: d.h2h ? [d.h2h.homeWins, d.h2h.draws, d.h2h.awayWins] : null };
   if (d.teamStats) out.ts = { h: compactTeamStats(d.teamStats.home), a: compactTeamStats(d.teamStats.away) };
+  if (d.players) out.pl = { s: d.players.source || 'espn', h: compactPlayers(d.players.home), a: compactPlayers(d.players.away) };
   return out;
 }
 
@@ -62,6 +77,7 @@ export function expandDetails(c) {
     lastHome: expandMatches(c.h),
     lastAway: expandMatches(c.a),
     teamStats: c.ts ? { home: expandTeamStats(c.ts.h) || {}, away: expandTeamStats(c.ts.a) || {} } : null,
+    ...(c.pl ? { players: { source: c.pl.s || 'espn', home: expandPlayers(c.pl.h), away: expandPlayers(c.pl.a) } } : {}),
   };
 }
 

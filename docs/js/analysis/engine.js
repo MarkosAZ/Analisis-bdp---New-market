@@ -24,6 +24,7 @@ import {
   candidateKey,
   isHalfLine,
   marketProbabilities,
+  offeredPlayers,
   offersFromApuestaTotal,
   offersFromBetano,
   offersFromSofascore,
@@ -35,7 +36,7 @@ import { bestByName, matchEvent } from './matching.js';
 import { predict } from './models.js';
 import { acceptsOffer, BOOKMAKERS, buildCombos, DEFAULT_SETTINGS, isPlayerMarket, selectPicks } from './picks.js';
 import { networkOf } from './networks.js';
-import { basketballLeague, matchPlayer, playerProbability, statValue } from './players.js';
+import { basketballLeague, isPreseason, matchPlayer, playerProbability, statValue } from './players.js';
 import { estimate, simParams } from './simulate.js';
 import { MIN_MATCHES, statProbability } from './stats.js';
 import { xgFromTeamStats } from './teamstats.js';
@@ -224,9 +225,6 @@ const PLAYER_GAMES = 10; // últimos partidos de cada jugador
 // Últimos partidos de los jugadores de ambos equipos: ESPN en la NBA y la WNBA;
 // Sofascore (con sus ids de partido) en las demás ligas. details[id].players =
 // { source, home: { teamGames, players }, away: { teamGames, players } }.
-// Jugadores con Más/Menos en las cuotas de un partido (nombres como los escribe la casa).
-export const offeredPlayers = (list = []) => [...new Set(list.filter((o) => isPlayerMarket(o.market)).map((o) => parseMarketId(o.market)?.n).filter(Boolean))];
-
 async function addPlayerLogs(events, details, sources, progress, offers = new Map()) {
   if (!events.length) return;
   progress('Jugadores: últimos partidos', 0.8);
@@ -243,7 +241,7 @@ async function addPlayerLogs(events, details, sources, progress, offers = new Ma
     if (league) {
       try {
         const names = offeredPlayers(offers.get(ev.id));
-        set(ev, await ext.call('espn', 'getPlayerLogs', { league, home: ev.home.name, away: ev.away.name, start: ev.start, n: PLAYER_GAMES, names }, { timeout: 180000 }), 'espn');
+        set(ev, await ext.call('espn', 'getPlayerLogs', { league, home: ev.home.name, away: ev.away.name, start: ev.start, n: PLAYER_GAMES, names, regular: !isPreseason(ev) }, { timeout: 180000 }), 'espn');
       } catch (e) {
         errors.push(`ESPN ${ev.home.name}: ${e.message}`);
       }
@@ -559,6 +557,9 @@ export async function analyzeMany(events, { methods = ['estadistico'], settings 
   }
   // Básquet con cuotas de jugador (Apuesta Total o Betano): últimos partidos de cada jugador.
   if (withExt) await addPlayerLogs(pending.filter((ev) => ev.sport === 'basketball' && (offers.get(ev.id) || []).some((o) => isPlayerMarket(o.market))), details, sources, onProgress, offers);
+  // Sin la extensión: los últimos partidos de los jugadores publicados por GitHub Actions.
+  const publishedPlayers = withExt ? 0 : auto.filter((ev) => details[ev.id]?.players).length;
+  if (publishedPlayers) sources.jugadores = { ok: true, matched: publishedPlayers, published: true };
   if (usedPublished) {
     const at = sources.apuestatotal;
     sources.apuestatotal = { ok: true, matched: (at?.ok ? at.matched : 0) + usedPublished, published: true };

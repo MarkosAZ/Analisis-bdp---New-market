@@ -15,13 +15,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getH2H, getMatchFeeds, getNews as flashscoreNews, getSportDay, SPORT_IDS } from '../extension/sources/flashscore.js';
-import { getAllNews as espnNews, getBoxScore } from '../extension/sources/espn.js';
+import { getAllNews as espnNews, getBoxScore, getPlayerLogs } from '../extension/sources/espn.js';
 import { getNews as fotmobNews } from '../extension/sources/fotmob.js';
 import { compactNews } from '../docs/js/analysis/news.js';
 import { getEventList, getMarkets } from '../extension/sources/apuestatotal.js';
 import { getTeamStrength } from '../extension/sources/understat.js';
 import { basicNorm, bestByName, countryCode, matchEvent } from '../docs/js/analysis/matching.js';
-import { offersFromApuestaTotal } from '../docs/js/analysis/markets.js';
+import { offeredPlayers, offersFromApuestaTotal } from '../docs/js/analysis/markets.js';
+import { basketballLeague, isPreseason, matchPlayer } from '../docs/js/analysis/players.js';
 import { addDays, limaToday } from '../docs/js/util.js';
 import { ACTIVE_SPORTS } from '../docs/js/sports.js';
 import { marketsOf } from '../docs/js/analysis/picks.js';
@@ -33,6 +34,8 @@ const OUT = path.resolve(process.argv[2] || 'site', 'data/fuente');
 const CACHE = path.resolve('.cache/h2h-v4'); // subir la versión si cambia getH2H (v4: sin la Summer League)
 const DETAIL_CACHE = path.resolve('.cache/detalle-v1'); // feeds de partidos terminados (no cambian)
 const PLAYERS_CACHE = path.resolve('.cache/jugadores-v2'); // jugadores de partidos terminados de ESPN (no cambian; v2: con los intentos)
+const PLAYER_LOGS_CACHE = path.resolve('.cache/jugadores-ultimos-v1'); // últimos partidos de los jugadores ofrecidos (partidos por jugar)
+const PLAYER_LOGS_HOURS = 6;
 const HISTORY = path.resolve('docs/data/historial');
 // Deportes con estadísticas por partido en Flashscore (para los mercados de estadísticas).
 const STAT_SPORTS = new Set(['football', 'basketball', 'ice-hockey', 'tennis', 'baseball', 'american-football', 'handball', 'rugby']);
@@ -120,7 +123,10 @@ async function espnPlayers(ev) {
     // sin caché
   }
   let failed = false;
-  for (const league of ['nba', 'wnba']) {
+  // Liga conocida (NBA o WNBA): solo esa; si no aparece en su marcador se reintenta
+  // durante 2 días (puede ser un atraso de ESPN) antes de darlo por perdido.
+  const known = basketballLeague(ev);
+  for (const league of known ? [known] : ['nba', 'wnba']) {
     try {
       const box = await getBoxScore({ league, home: ev.home.name, away: ev.away.name, start: ev.start, maxAgeMs: Infinity });
       if (!box) continue;
@@ -132,8 +138,28 @@ async function espnPlayers(ev) {
       failed = true;
     }
   }
-  if (!failed) await writeJson(file, { at: Date.now(), league: null, players: null });
+  if (!failed && (!known || Date.now() - ev.start > 2 * 86400000)) await writeJson(file, { at: Date.now(), league: null, players: null });
   return null;
+}
+
+// Últimos partidos de los jugadores que ofrece la casa (NBA y WNBA, de ESPN) de un
+// partido por jugar, solo esos jugadores: { source, home, away } o null. En caché
+// unas horas (mientras no aparezcan jugadores nuevos en las cuotas).
+async function playerLogsCached(ev, names) {
+  const league = basketballLeague(ev);
+  if (!league || !names.length) return null;
+  const file = path.join(PLAYER_LOGS_CACHE, `${String(ev.id).replace(/[^\w.-]/g, '_')}.json`);
+  try {
+    const cached = JSON.parse(await fs.readFile(file, 'utf8'));
+    if (Date.now() - cached.at < PLAYER_LOGS_HOURS * 3600000 && names.every((n) => cached.names.includes(n))) return cached.data;
+  } catch {
+    // sin caché
+  }
+  const r = await getPlayerLogs({ league, home: ev.home.name, away: ev.away.name, start: ev.start, n: 10, names, regular: !isPreseason(ev) });
+  const keep = (side) => ({ teamGames: side.teamGames, players: side.players.filter((p) => names.some((n) => matchPlayer(n, [p]))) });
+  const data = { source: 'espn', home: keep(r.home), away: keep(r.away) };
+  await writeJson(file, { at: Date.now(), names, data });
+  return data;
 }
 
 // Partidos analizados en los últimos días (del historial del repositorio):
@@ -181,6 +207,7 @@ async function main() {
   const today = limaToday();
   await pruneCache(DETAIL_CACHE);
   await pruneCache(PLAYERS_CACHE);
+  await pruneCache(PLAYER_LOGS_CACHE, 3);
   const started = Date.now();
   const sports = Object.keys(SPORT_IDS).filter((s) => ACTIVE_SPORTS.includes(s)); // solo fútbol, básquet y béisbol
   const upcoming = {}; // fecha -> deporte -> partidos
@@ -288,6 +315,28 @@ async function main() {
     8,
   );
   log(`Estadísticas de equipo: ${withTeamStats} partidos (${fetches} feeds nuevos)`);
+
+  // 3c) Básquet (NBA y WNBA) con Más/Menos de jugador en Apuesta Total: últimos
+  //     partidos de esos jugadores en ESPN, para analizarlos sin la extensión.
+  let withLogs = 0;
+  let logErrors = 0;
+  await pool(
+    withOdds.filter((ev) => ev.sport === 'basketball' && basketballLeague(ev) && offeredPlayers(offers[ev.id]).length).sort((a, b) => a.start - b.start),
+    async (ev) => {
+      try {
+        const logs = await playerLogsCached(ev, offeredPlayers(offers[ev.id]));
+        if (logs && (logs.home.players.length || logs.away.players.length)) {
+          (details[ev.id] ||= { lastHome: [], lastAway: [], h2h: null }).players = logs;
+          withLogs++;
+        }
+      } catch (e) {
+        logErrors++;
+        log(`Jugadores ${ev.home.name} - ${ev.away.name}: ${e.message}`);
+      }
+    },
+    2,
+  );
+  log(`Jugadores (ESPN): ${withLogs} partidos con sus últimos partidos (${logErrors} errores)`);
 
   // 4) xG de Understat (fútbol, 5 grandes ligas).
   const xg = {};

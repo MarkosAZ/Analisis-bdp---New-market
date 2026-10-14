@@ -196,6 +196,9 @@ export function basketballLeague(ev) {
   return null;
 }
 
+// ¿El partido es de pretemporada? (en la temporada regular esos partidos no cuentan).
+export const isPreseason = (ev) => /pretemporada|pre-?season/i.test([ev?.tournament?.name ?? ev?.tournament, ev?.league].filter(Boolean).join(' '));
+
 // ---- Probabilidad ----
 
 const DECAY = 0.9; // peso de cada partido anterior respecto del siguiente

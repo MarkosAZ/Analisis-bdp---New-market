@@ -501,16 +501,18 @@ const seasonOf = (league, ms) => {
 
 // Últimos `n` partidos terminados de un equipo antes de `before`: calendario actual y,
 // si no alcanzan (p. ej. la NBA en pretemporada), temporada regular actual y anterior.
-async function lastGames(league, teamId, before, n) {
+// regular: el partido a analizar es de la temporada regular (o playoffs); si ESPN
+// todavía muestra la pretemporada (los primeros días), esos partidos no cuentan.
+async function lastGames(league, teamId, before, n, { regular = false } = {}) {
   const base = `${BASKET_API}/${league}/teams/${teamId}/schedule`;
   const found = new Map();
   const add = (data) => {
     for (const g of finishedGames(data, before)) if (!found.has(g.id)) found.set(g.id, g);
   };
   const first = await getJson(base);
-  add(first);
   const season = Number(first.requestedSeason?.year ?? first.season?.year) || seasonOf(league, before);
   const type = Number(first.requestedSeason?.type ?? first.season?.type);
+  if (!(regular && type === 1)) add(first);
   const more = [...(type !== 2 ? [`${base}?season=${season}&seasontype=2`] : []), `${base}?season=${season - 1}&seasontype=2`];
   for (const url of more) {
     if (found.size >= n) break;
@@ -529,8 +531,8 @@ async function lastGames(league, teamId, before, n) {
 // Un equipo que ESPN no tiene (amistosos de pretemporada con clubes de otras ligas)
 // queda sin jugadores; el error es solo si no está ninguno de los dos. `names`: los
 // jugadores que ofrece la casa; si les faltan partidos con el equipo se completan con
-// su registro de ESPN (fillFromGamelogs).
-export async function getPlayerLogs({ league, home, away, start, n = 10, names = [] } = {}) {
+// su registro de ESPN (fillFromGamelogs). regular: el partido no es de pretemporada.
+export async function getPlayerLogs({ league, home, away, start, n = 10, names = [], regular = false } = {}) {
   checkLeague(league);
   const before = Number.isFinite(toMs(start)) ? toMs(start) : Date.now();
   const teams = await leagueTeams(league);
@@ -549,7 +551,7 @@ export async function getPlayerLogs({ league, home, away, start, n = 10, names =
   }
   const side = async (team, name) => {
     if (!team) return { team: name, teamGames: 0, players: [] };
-    const list = await lastGames(league, team.id, before, n);
+    const list = await lastGames(league, team.id, before, n, { regular });
     const games = [];
     const errors = [];
     await pool(list, async (g) => {

@@ -173,6 +173,9 @@ function offersFromBookmaker(source, markets, other, ev, swapped, stats) {
 }
 
 export const offersFromApuestaTotal = (markets, at, ev, swapped = false, stats) => offersFromBookmaker('apuestatotal', markets, at, ev, swapped, stats);
+
+// Jugadores con Más/Menos en las cuotas de un partido (nombres como los escribe la casa).
+export const offeredPlayers = (list = []) => [...new Set(list.filter((o) => /^OU\.pl_/.test(o.market)).map((o) => parseMarketId(o.market)?.n).filter(Boolean))];
 export const offersFromBetano = (markets, b, ev, swapped = false, stats) => offersFromBookmaker('betano', markets, b, ev, swapped, stats);
 
 // Probabilidad implícita de cada selección sin el margen de la casa,

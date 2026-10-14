@@ -546,6 +546,13 @@ test('getPlayerLogs: los jugadores ofrecidos con pocos partidos en el equipo se 
   assert.ok(!plain.away.players.some((p) => p.name === 'Anthony Davis'));
 });
 
+test('getPlayerLogs: en la temporada regular no cuenta la pretemporada aunque ESPN todavía la muestre', async () => {
+  const r = await getPlayerLogs({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, n: 10, regular: true });
+  const gafford = r.away.players.find((p) => p.name === 'Daniel Gafford');
+  assert.equal(r.away.teamGames, 10);
+  assert.equal(gafford.games[0].start, Date.parse('2026-04-12T23:30Z'), 'el más reciente es de la regular 2026, no la pretemporada de octubre');
+});
+
 test('getPlayerLogs: errores claros con liga o equipo desconocidos', async () => {
   await assert.rejects(getPlayerLogs({ league: 'euroleague', home: 'Real Madrid', away: 'Barcelona', start: START }), /no soportada/);
   await assert.rejects(getPlayerLogs({ league: 'nba', home: 'Real Madrid', away: 'Barcelona', start: START }), /no se encontraron los equipos Real Madrid y Barcelona/);

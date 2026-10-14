@@ -3,6 +3,7 @@ import test from 'node:test';
 import { evaluate } from '../docs/js/analysis/outcomes.js';
 import {
   basketballLeague,
+  isPreseason,
   matchPlayer,
   normName,
   overProbability,
@@ -183,6 +184,15 @@ test('matchPlayer: lista de nombres (claves del box score) y jugadores sin "shor
   assert.equal(matchPlayer('Dorian Finney Smith', keys), 'Dorian Finney-Smith');
   assert.equal(matchPlayer('Rui Hachimura', keys), null);
   assert.equal(matchPlayer('Austin Reaves', [{ name: 'Austin Reaves' }, null, { short: 'L. James' }])?.name, 'Austin Reaves');
+});
+
+test('pretemporada por el nombre del torneo (Flashscore, Sofascore, Apuesta Total)', () => {
+  assert.equal(isPreseason({ tournament: { name: 'NBA - Pretemporada' } }), true);
+  assert.equal(isPreseason({ tournament: { name: 'NBA, Preseason' } }), true);
+  assert.equal(isPreseason({ league: 'Pretemporada NBA' }), true);
+  assert.equal(isPreseason({ tournament: { name: 'NBA' } }), false);
+  assert.equal(isPreseason({ tournament: { name: 'WNBA - Playoffs' } }), false);
+  assert.equal(isPreseason(null), false);
 });
 
 test('basketballLeague: NBA y WNBA, no otras ligas', () => {
