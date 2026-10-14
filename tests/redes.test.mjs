@@ -7,6 +7,7 @@ import { MARKETS } from '../docs/js/analysis/picks.js';
 import { rng } from '../docs/js/util.js';
 import { dropReplaced, hasPlayerFields, mergeRows, playerFieldsOf, rowCandidates, trainingRows } from '../docs/js/history.js';
 import { versionBefore } from '../docs/js/util.js';
+import { readFileSync } from 'node:fs';
 
 const Z = FEATURES.indexOf('zLine');
 
@@ -301,4 +302,12 @@ test('versión de la extensión: compara mayor, menor y parche', () => {
   assert.equal(versionBefore('1.0.0', '0.5.1'), false);
   assert.equal(versionBefore('0.4.9', '0.5.1'), true);
   assert.equal(versionBefore('0.5.10', '0.5.9'), false);
+});
+
+test('la página pide la versión de la extensión que está en el repositorio', () => {
+  // Si se cambia la extensión hay que subir su versión y la que pide la página (EXT_LATEST):
+  // así una extensión sin recargar muestra "Extensión: actualizar".
+  const manifest = JSON.parse(readFileSync(new URL('../extension/manifest.json', import.meta.url), 'utf8'));
+  const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+  assert.equal(app.match(/const EXT_LATEST = '([\d.]+)'/)?.[1], manifest.version);
 });

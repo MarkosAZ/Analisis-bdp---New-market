@@ -329,3 +329,19 @@ test('jugadores: un Más/Menos de jugador nunca se toma como el total del partid
   const { candidates } = analyzeEvent(basketEv, basketDetails, list, {});
   assert.ok(!candidates.some((c) => c.market === 'OU'), 'sin datos de jugadores no hay candidato, y nunca como total del partido');
 });
+
+test('básquet: el 1.er tiempo solo con línea entera queda anotado con ese motivo', () => {
+  const nba = { id: 'nba1', sport: 'basketball', start: Date.parse('2026-10-21T23:30:00Z'), home: { name: 'Orlando Magic' }, away: { name: 'Cleveland Cavaliers' } };
+  const at = { home: 'Orlando Magic', away: 'Cleveland Cavaliers' };
+  const sel = (name, price) => ({ name, price });
+  const markets = [
+    { name: 'Hándicap - 1° Mitad', selections: [sel('Orlando Magic +1', 1.78), sel('Cleveland Cavaliers -1', 1.83)] },
+    { name: '1ra Mitad Puntos Asiáticos', selections: [sel('Más de 116', 1.8), sel('Menos de 116', 1.8)] },
+    { name: 'Total de puntos (incl. prórroga)', selections: [sel('Más de 229.5', 1.85), sel('Menos de 229.5', 1.85)] },
+  ];
+  const r = baseCandidates(nba, {}, offersFromApuestaTotal(markets, at, nba), {});
+  assert.deepEqual(r.wholeOnly.sort(), ['HCP@h1', 'OU@h1']);
+  // Con una línea extra .5 ya no falta.
+  const extra = [...markets, { name: '1ra Mitad Total de Puntos (extra)', selections: [sel('Más de 115.5', 1.75), sel('Menos de 115.5', 1.95)] }];
+  assert.deepEqual(baseCandidates(nba, {}, offersFromApuestaTotal(extra, at, nba), {}).wholeOnly, ['HCP@h1']);
+});

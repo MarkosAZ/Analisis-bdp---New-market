@@ -75,7 +75,9 @@ function missingRow(m, ev) {
     ? 'Sin apuesta: sin línea .5 en las casas o sin datos suficientes.'
     : ev.noData.includes(m.market)
       ? 'Sin datos suficientes de los equipos para calcularlo.'
-      : 'Ni Apuesta Total ni Betano tienen una línea .5 de este mercado.';
+      : ev.wholeOnly?.includes(m.market)
+        ? 'Las casas solo tienen líneas enteras o asiáticas de este mercado (sin .5): no se apuesta.'
+        : 'Ni Apuesta Total ni Betano tienen una línea .5 de este mercado.';
   return h('div', { class: 'mrow missing' }, h('div', { class: 'mrow-head' }, h('span', {}, m.name), h('span', { class: 'lvl-badge none' }, 'Sin apuesta')), h('div', { class: 'meta' }, why));
 }
 

@@ -22,6 +22,7 @@ import {
   balancedLines,
   BETTABLE,
   candidateKey,
+  isHalfLine,
   marketProbabilities,
   offersFromApuestaTotal,
   offersFromBetano,
@@ -458,7 +459,12 @@ export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } 
   // (se muestran en el partido con ese motivo).
   const done = new Set(out.map((c) => c.market));
   const noData = [...new Set(items.filter((c) => c.pModel == null && !isPlayerMarket(c.market) && !done.has(c.market)).map((c) => c.market))];
-  return { model, candidates: out, simulated, noData };
+  // Mercados de la lista que las casas ofrecen solo con líneas enteras o asiáticas
+  // (p. ej. el 1.er tiempo de la NBA en 88 o +1): sin .5 no se apuestan.
+  const offered = offers.filter((o) => BETTABLE.includes(o.source) && !isPlayerMarket(o.market) && o.line != null && acceptsOffer(ev.sport, o.market, o.line));
+  const withHalf = new Set(offered.filter((o) => isHalfLine(o.line)).map((o) => o.market));
+  const wholeOnly = [...new Set(offered.map((o) => o.market))].filter((m) => !withHalf.has(m) && !done.has(m));
+  return { model, candidates: out, simulated, noData, wholeOnly };
 }
 
 // Aplica el método: con red neuronal, la red especializada de cada mercado
@@ -531,20 +537,23 @@ export async function analyzeMany(events, { methods = ['estadistico'], settings 
   const offers = withExt ? await bookmakerOffers(pending, sources, onProgress, { allMarkets: settings.betanoAllMarkets !== false }) : new Map();
   const xg = sofa.length && withExt ? await understatXg(sofa, sources, onProgress) : new Map();
 
-  // Partidos automáticos: cuotas publicadas de Apuesta Total si no se
-  // obtuvieron en vivo con la extensión.
+  // Partidos automáticos: cuotas publicadas de Apuesta Total que no se
+  // obtuvieron en vivo con la extensión (todas, o las selecciones que faltan:
+  // una extensión sin actualizar no pide los jugadores ni las líneas extra).
   let usedPublished = 0;
   for (const ev of auto) {
     const p = published.get(ev.id);
     if (!p) continue;
     const live = offers.get(ev.id) || [];
-    if (p.offers.length && !live.some((o) => o.source === 'apuestatotal')) {
-      offers.set(ev.id, [...live, ...p.offers]);
-      usedPublished++;
+    const have = new Set(live.filter((o) => o.source === 'apuestatotal').map((o) => candidateKey(o.market, o.sel, o.line)));
+    const missing = p.offers.filter((o) => !have.has(candidateKey(o.market, o.sel, o.line)));
+    if (missing.length) {
+      offers.set(ev.id, [...live, ...missing]);
+      if (!have.size) usedPublished++;
     }
     if (p.xg) xg.set(ev.id, p.xg);
   }
-  // Básquet con cuotas de jugador (Betano): últimos partidos de cada jugador.
+  // Básquet con cuotas de jugador (Apuesta Total o Betano): últimos partidos de cada jugador.
   if (withExt) await addPlayerLogs(pending.filter((ev) => ev.sport === 'basketball' && (offers.get(ev.id) || []).some((o) => isPlayerMarket(o.market))), details, sources, onProgress);
   if (usedPublished) {
     const at = sources.apuestatotal;
@@ -587,6 +596,7 @@ export async function analyzeMany(events, { methods = ['estadistico'], settings 
       teamStats: Boolean(details[ev.id]?.teamStats),
       players: Boolean(details[ev.id]?.players),
       noData: r.noData,
+      wholeOnly: r.wholeOnly,
       ...(details[ev.id]?.fsId ? { fsId: details[ev.id].fsId } : {}),
     };
   }

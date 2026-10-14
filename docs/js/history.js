@@ -12,7 +12,7 @@ import * as provider from './provider.js';
 import * as store from './storage.js';
 import { addDays, groupBy, limaDateOf, limaToday } from './util.js';
 import { FEATURE_VERSION, upgradeFeatures } from './analysis/features.js';
-import { settle } from './analysis/markets.js';
+import { recordFromResult, settle } from './analysis/markets.js';
 import { parseMarketId } from './analysis/catalog.js';
 import { profitOf } from './analysis/outcomes.js';
 import { mergeRecords, recordFromSofascore } from './analysis/records.js';
@@ -338,6 +338,23 @@ export { LEVELS };
 // Estado de una apuesta con el resultado; si el partido terminó pero no hay
 // datos para esa apuesta (p. ej. sin estadísticas de córners), se anula
 // pasado el plazo.
+// Resultado con las estadísticas de los jugadores (de un partido terminado) en su
+// registro. Sin marcador conocido el partido no se da por terminado: así solo se
+// liquidan las de jugador y las demás esperan su resultado. Sin registro completo se
+// arma con lo publicado (marcador por cuartos incluido): así también se liquidan el
+// 1.er tiempo y los cuartos.
+export function withPlayers(res = {}, players, sport, boxScore = null) {
+  const score = res.score || boxScore || null;
+  const final = score ? [score.home, score.away] : null;
+  const base = res.record || recordFromResult(res, sport) || { sport };
+  return {
+    ...res,
+    score,
+    ...(score ? { state: res.state || 'finalizado' } : {}),
+    record: { ...base, state: 'finalizado', ...(final && !base.final ? { final } : {}), players },
+  };
+}
+
 export function legStatus(leg, res, now) {
   const status = settle(leg, { ...res, final: now - leg.start > CANCEL_FINAL_MS }, leg.sport);
   if (status) return { status };
@@ -461,18 +478,7 @@ export async function updateResults({ onProgress = () => {} } = {}) {
   // Agrega las estadísticas de los jugadores (de un partido terminado) al
   // registro. Sin marcador conocido el partido no se da por terminado: así solo
   // se liquidan las de jugador y las demás esperan su resultado.
-  const attachPlayers = (id, players, boxScore = null) => {
-    const res = results[id] || {};
-    const score = res.score || boxScore || null;
-    const final = score ? [score.home, score.away] : null;
-    const base = res.record || { sport: sports.get(id) };
-    results[id] = {
-      ...res,
-      score,
-      ...(score ? { state: res.state || 'finalizado' } : {}),
-      record: { ...base, state: 'finalizado', ...(final && !base.final ? { final } : {}), players },
-    };
-  };
+  const attachPlayers = (id, players, boxScore = null) => (results[id] = withPlayers(results[id], players, sports.get(id), boxScore));
   // Partidos automáticos (Flashscore): resultados publicados cada 2 horas.
   const auto = list.filter(provider.isAuto);
   const starts = new Map();

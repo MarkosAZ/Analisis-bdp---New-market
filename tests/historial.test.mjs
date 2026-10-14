@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { daySummary, totals } from '../docs/js/history.js';
+import { daySummary, totals, withPlayers } from '../docs/js/history.js';
+import { settle } from '../docs/js/analysis/markets.js';
 
 const pick = (eventId, key, level, status, odds = 1.5) => ({ eventId, key, level, status, odds });
 const combo = (status, odds, legs) => ({ source: 'apuestatotal', status, odds, legs: legs.map(([eventId, key]) => ({ eventId, key })) });
@@ -121,4 +122,22 @@ test('el mismo mercado analizado otra vez con otro lado o línea cuenta una sola
   assert.equal(est.won, 2);
   assert.equal(est.byLevel.moderada?.n || 0, 0);
   assert.equal(est.byLevel.moderada_alta.n, 1);
+});
+
+test('NBA: con las estadísticas de ESPN se siguen liquidando el 1.er tiempo y los cuartos', () => {
+  // Resultado publicado por GitHub Actions: marcador y cuartos del feed del día, sin registro completo.
+  const published = { state: 'finalizado', score: { home: 110, away: 104, homeNT: null, awayNT: null }, per: [[30, 25], [28, 27], [26, 30], [26, 22]] };
+  const players = { 'Cade Cunningham': { min: 36, pts: 27, reb: 6, ast: 9, tpm: 2 } };
+  const res = withPlayers(published, players, 'basketball');
+  const c = (market, sel, line) => ({ market, sel, line });
+  // 1.er tiempo: 58 – 52 (110 puntos).
+  assert.equal(settle(c('OU@h1', 'over', 109.5), res, 'basketball'), 'won');
+  assert.equal(settle(c('HCP@h1', 'home', -5.5), res, 'basketball'), 'won');
+  assert.equal(settle(c('HCP@h1', 'away', -5.5), res, 'basketball'), 'lost'); // la línea es la del local
+  assert.equal(settle(c('OU', 'under', 215.5), res, 'basketball'), 'won');
+  assert.equal(settle(c('OU.pl_pts#Cade Cunningham', 'over', 24.5), res, 'basketball'), 'won');
+  // Sin marcador publicado: solo se liquidan las de jugador (el resto espera el resultado).
+  const early = withPlayers({}, players, 'basketball');
+  assert.equal(settle(c('OU.pl_pts#Cade Cunningham', 'under', 24.5), early, 'basketball'), 'lost');
+  assert.equal(settle(c('OU@h1', 'over', 109.5), early, 'basketball'), null);
 });
