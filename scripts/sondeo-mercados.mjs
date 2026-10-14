@@ -1,42 +1,31 @@
-// Sondeo temporal (14): de punta a punta con datos reales. Jugadores que ofrece
-// Apuesta Total en partidos de la temporada regular de la NBA → sus últimos partidos
-// en ESPN (con el registro de cada jugador si le faltan) → probabilidad.
-import { getEventList, getMarkets } from '../extension/sources/apuestatotal.js';
-import { getPlayerLogs } from '../extension/sources/espn.js';
-import { offersFromApuestaTotal } from '../docs/js/analysis/markets.js';
-import { parseMarketId } from '../docs/js/analysis/catalog.js';
-import { matchPlayer, playerProbability } from '../docs/js/analysis/players.js';
-import { isPlayerMarket } from '../docs/js/analysis/picks.js';
+// Sondeo temporal (15): corrida completa de collect-data con los cambios de la rama y
+// revisión de lo publicado para el básquet (cuotas de jugador, 1.er tiempo, jugadores
+// de ESPN y forma sin la Summer League).
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { expandDay } from '../docs/js/data-format.js';
 
-const now = Date.now();
-const { items } = await getEventList({ sport: 'basketball', from: now, to: now + 10 * 86400000 });
-const nba = items.filter((e) => e.league === 'NBA').sort((a, b) => a.start - b.start).slice(0, 6);
-const { items: markets } = await getMarkets({ eventIds: nba.map((e) => e.eventId), sport: 'basketball' });
-for (const ev of nba) {
-  const offers = offersFromApuestaTotal(markets[ev.eventId] || [], ev, { ...ev, sport: 'basketball' });
-  const players = offers.filter((o) => isPlayerMarket(o.market));
-  const names = [...new Set(players.map((o) => parseMarketId(o.market).n))];
-  console.log(`\n==== ${ev.home} vs ${ev.away} | ${new Date(ev.start).toISOString()} | ${players.length} cuotas de jugador | ${names.join(', ')}`);
-  if (!names.length) continue;
-  const t0 = Date.now();
-  let logs;
-  try {
-    logs = await getPlayerLogs({ league: 'nba', home: ev.home, away: ev.away, start: ev.start, n: 10, names });
-  } catch (e) {
-    console.log(`  ESPN: ${e.message}`);
-    continue;
-  }
-  console.log(`  ESPN en ${((Date.now() - t0) / 1000).toFixed(1)} s | local ${logs.home.team} ${logs.home.teamGames} partidos, visita ${logs.away.team} ${logs.away.teamGames}`);
-  const roster = [...logs.home.players, ...logs.away.players];
-  for (const name of names) {
-    const p = matchPlayer(name, roster);
-    if (!p) {
-      console.log(`  ${name}: NO está en los datos`);
-      continue;
-    }
-    const dates = p.games.map((g) => new Date(g.start).toISOString().slice(0, 10));
-    const line = players.find((o) => parseMarketId(o.market).n === name && o.market.startsWith('OU.pl_pts#'));
-    const r = line ? playerProbability(p.games, 'pl_pts', 'over', line.line) : null;
-    console.log(`  ${name} → ${p.name}: ${p.games.length} partidos (${dates[0]} … ${dates.at(-1)}) | pts ${p.games.map((g) => g.pts).join(',')}${r ? ` | Más de ${line.line} puntos p=${r.p.toFixed(2)} (media ${r.mean.toFixed(1)})` : ''}`);
+const OUT = path.resolve('sondeo-site');
+const t0 = Date.now();
+const run = spawnSync(process.execPath, ['scripts/collect-data.mjs', OUT], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+console.log(run.stdout.split('\n').filter((l) => /Apuesta Total|Jugadores|H2H|Registros|Listo|basketball|básquet|Error|error/i.test(l)).join('\n'));
+if (run.status !== 0) console.log(`collect-data terminó con ${run.status}\n${run.stderr.slice(-3000)}`);
+console.log(`collect-data: ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+const base = path.join(OUT, 'data/fuente');
+for (const date of fs.readdirSync(base).filter((d) => /^\d{4}-/.test(d)).sort()) {
+  const file = path.join(base, date, 'basketball.json');
+  if (!fs.existsSync(file)) continue;
+  const size = fs.statSync(file).size;
+  const day = expandDay(JSON.parse(fs.readFileSync(file, 'utf8')));
+  const nba = day.events.filter((e) => /NBA/.test(e.tournament.name));
+  console.log(`\n==== ${date} básquet: ${day.events.length} partidos, ${day.offers.size} con cuotas, archivo ${(size / 1024).toFixed(0)} KB | NBA: ${nba.length}`);
+  for (const e of nba) {
+    const offers = day.offers.get(e.id) || [];
+    const d = day.details.get(e.id);
+    const by = (re) => offers.filter((o) => re.test(o.market)).length;
+    const total = (list) => (list?.length ? (list.reduce((s, m) => s + m.gf + m.ga, 0) / list.length).toFixed(1) : '-');
+    const pl = d?.players;
+    console.log(`  ${e.home.name} vs ${e.away.name} [${e.tournament.name}] | cuotas ${offers.length}: OU ${by(/^OU$/)} HCP ${by(/^HCP$/)} OU@h1 ${by(/^OU@h1$/)} HCP@h1 ${by(/^HCP@h1$/)} jugador ${by(/^OU\.pl_/)} | total medio últimos: ${total(d?.lastHome)} / ${total(d?.lastAway)} | jugadores ESPN: ${pl ? `${pl.home.players.length}+${pl.away.players.length} (${[...pl.home.players, ...pl.away.players].map((p) => `${p.name}:${p.games.length}`).join(', ')})` : 'no'}`);
   }
 }
