@@ -30,7 +30,7 @@ import { parseFsGames, parseFsIncidents, parseFsStats, periodsFromRow, recordFro
 import { teamStatsFrom } from '../docs/js/analysis/teamstats.js';
 
 const OUT = path.resolve(process.argv[2] || 'site', 'data/fuente');
-const CACHE = path.resolve('.cache/h2h-v3'); // subir la versión si cambia getH2H
+const CACHE = path.resolve('.cache/h2h-v4'); // subir la versión si cambia getH2H (v4: sin la Summer League)
 const DETAIL_CACHE = path.resolve('.cache/detalle-v1'); // feeds de partidos terminados (no cambian)
 const PLAYERS_CACHE = path.resolve('.cache/jugadores-v2'); // jugadores de partidos terminados de ESPN (no cambian; v2: con los intentos)
 const HISTORY = path.resolve('docs/data/historial');

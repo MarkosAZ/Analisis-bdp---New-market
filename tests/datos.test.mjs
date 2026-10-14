@@ -123,3 +123,28 @@ test('formato compacto: resultados que liquidan apuestas', () => {
   assert.equal(settle({ market: 'FIRST', sel: 'away', line: null }, full, 'football'), 'won');
   assert.equal(settle({ market: 'COMEBACK:home', sel: 'yes', line: null }, full, 'football'), 'won');
 });
+
+test('H2H de Flashscore: la Summer League de la NBA no cuenta en la forma del equipo', () => {
+  // Nombres reales del sondeo: los 10 últimos partidos de octubre traían 5-8 de la Summer League.
+  const nba = (t, homeId, awayId, hs, as, league) => rec({ KC: t, UQ: homeId, UO: awayId, KJ: homeId, KK: awayId, KU: hs, KT: as, KF: league });
+  const feed = [
+    rec({ KA: 'General' }),
+    rec({ KB: 'Últimos partidos: Orlando Magic' }),
+    nba(1000, 'ORL', 'CLE', 105, 119, 'NBA'),
+    nba(900, 'ORL', 'BOS', 103, 97, 'NBA Las Vegas Summer League'),
+    nba(890, 'PHI', 'ORL', 92, 99, 'NBA Salt Lake City Summer League'),
+    nba(880, 'SAC', 'ORL', 80, 88, 'NBA 2K27 California Classic'),
+    nba(700, 'DET', 'ORL', 116, 94, 'NBA'),
+    rec({ KB: 'Últimos partidos: Cleveland Cavaliers' }),
+    nba(1000, 'ORL', 'CLE', 105, 119, 'NBA'),
+    nba(950, 'CLE', 'NOP', 82, 77, 'NBA Las Vegas Summer League'),
+    nba(800, 'CLE', 'NYK', 93, 130, 'NBA'),
+    rec({ KB: 'Enfrentamientos' }),
+    nba(1000, 'ORL', 'CLE', 105, 119, 'NBA'),
+    nba(850, 'CLE', 'ORL', 90, 80, 'NBA Las Vegas Summer League'),
+  ].join('');
+  const d = h2hData(parseH2H(feed), 'ORL', 'CLE');
+  assert.deepEqual(d.lastHome.map((m) => m.gf + m.ga), [224, 210]);
+  assert.deepEqual(d.lastAway.map((m) => m.gf + m.ga), [224, 223]);
+  assert.deepEqual(d.h2h, { homeWins: 0, draws: 0, awayWins: 1 });
+});

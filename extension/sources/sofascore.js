@@ -8,7 +8,7 @@
 // (page-hook.js): página del deporte para los partidos del día, página del
 // partido para sus estadísticas y, si hace falta, páginas de los equipos.
 import { fetchMany, FetchError, scanPage } from '../lib/net.js';
-import { findAll, fractionalToDecimal, limaDate } from '../lib/model.js';
+import { findAll, fractionalToDecimal, isExhibition, limaDate } from '../lib/model.js';
 
 const SITE = 'https://www.sofascore.com';
 const PAGE = `${SITE}/`;
@@ -190,6 +190,7 @@ function lastMatches(events, teamId, sport, before) {
   const regular = sport === 'football' || sport === 'futsal';
   return (events || [])
     .filter((e) => (e.homeTeam?.id === teamId || e.awayTeam?.id === teamId) && e.status?.type === 'finished' && e.startTimestamp * 1000 < before)
+    .filter((e) => !isExhibition(e.tournament?.uniqueTournament?.name || e.tournament?.name))
     .sort((a, b) => b.startTimestamp - a.startTimestamp)
     .slice(0, 15)
     .map((e) => {
