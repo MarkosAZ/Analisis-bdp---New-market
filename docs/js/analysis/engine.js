@@ -90,6 +90,35 @@ function playerFactors(c, cand, chosen, ev) {
   ].filter(Boolean);
 }
 
+// Clima de la API de la MLB en castellano: estado ("Partly Cloudy") y viento ("7 mph, Out To CF").
+const SKY = [
+  [/dome|roof closed/i, 'techado'],
+  [/partly cloudy/i, 'parcialmente nublado'],
+  [/overcast/i, 'cubierto'],
+  [/cloudy/i, 'nublado'],
+  [/clear/i, 'despejado'],
+  [/sunny/i, 'soleado'],
+  [/drizzle/i, 'llovizna'],
+  [/rain/i, 'lluvia'],
+  [/snow/i, 'nieve'],
+];
+const FIELD = { LF: 'el jardín izquierdo', CF: 'el jardín central', RF: 'el jardín derecho' };
+export function weatherText(w) {
+  const sky = w.condition ? SKY.find(([re]) => re.test(w.condition))?.[1] || w.condition : null;
+  const temp = Number.isFinite(w.temp) ? `${Math.round(((w.temp - 32) * 5) / 9)} °C` : null;
+  let wind = null;
+  const m = String(w.wind || '').match(/(\d+)\s*mph(?:,\s*(.+))?/i);
+  if (m) {
+    const kmh = Math.round(Number(m[1]) * 1.609);
+    const dir = (m[2] || '').trim();
+    const to = dir.match(/^out to (LF|CF|RF)$/i);
+    const from = dir.match(/^in from (LF|CF|RF)$/i);
+    const where = to ? `hacia ${FIELD[to[1].toUpperCase()]}` : from ? `desde ${FIELD[from[1].toUpperCase()]}` : /^(L To R|R To L)$/i.test(dir) ? 'cruzado' : null;
+    wind = kmh === 0 || /^none$|^calm$/i.test(dir) ? 'sin viento' : `viento de ${kmh} km/h${where ? ` ${where}` : ''}`;
+  }
+  return [sky, temp, wind].filter(Boolean).join(', ');
+}
+
 // Datos que explican el pick (se muestran en la tarjeta).
 // Béisbol: abridores, bullpen, estadio, clima, enfrentamientos y serie.
 function baseballFactors(ev, b) {
@@ -98,17 +127,16 @@ function baseballFactors(ev, b) {
   const starter = (team, p) =>
     p.starter
       ? `${team}: ${p.name} — ${f1(p.starter.ra9)} carreras/9 esperadas (últimas ${p.starter.n} aperturas: ${f1(p.starter.rawRa9)} carreras/9, FIP ${f1(p.starter.fip / 1.08)}), ${f1(p.starter.ip)} entradas por apertura`
-      : `${team}: ${p.name ? `${p.name} (sin aperturas recientes)` : 'abridor sin anunciar'}`;
-  out.push(`Abridores: ${starter(ev.home.name, b.home)} · ${starter(ev.away.name, b.away)}`);
+      : `${team}: ${p.name ? `${p.name} (${p.unread ? 'no se pudo leer su registro' : 'sin aperturas recientes'})` : 'abridor sin anunciar'}`;
+  // Abridores: solo con el contexto de la MLB (las otras ligas no tienen datos de sus lanzadores).
+  if (b.mlb) out.push(`Abridores: ${starter(ev.home.name, b.home)} · ${starter(ev.away.name, b.away)}`);
+  else if (isMlb(ev)) out.push('Abridores: sin datos de la MLB para este partido');
   const pen = (team, p) => (p.bullpenIp == null ? null : `${team} ${f1(p.bullpenIp)} entradas${p.penFactor > 1 ? ' (cansado)' : p.penFactor < 1 ? ' (descansado)' : ''}`);
   const pens = [pen(ev.home.name, b.home), pen(ev.away.name, b.away)].filter(Boolean);
   if (pens.length) out.push(`Bullpen en los 3 días anteriores: ${pens.join(' · ')}`);
   if (b.park) out.push(`Estadio${b.venue ? ` (${b.venue})` : ''}: ${Math.round(b.park.factor * 100)} carreras por cada 100 de visita (${b.park.n} partidos)`);
   const w = b.weather;
-  if (w && (w.temp != null || w.wind)) {
-    const temp = Number.isFinite(w.temp) ? `${Math.round(((w.temp - 32) * 5) / 9)} °C` : null;
-    out.push(`Clima: ${[w.condition, temp, w.wind].filter(Boolean).join(', ')}${b.weatherFactor !== 1 ? ` (carreras ×${b.weatherFactor.toFixed(2)})` : ''}`);
-  }
+  if (w && (w.temp != null || w.wind)) out.push(`Clima: ${weatherText(w)}${Math.abs(b.weatherFactor - 1) >= 0.005 ? ` (carreras ×${b.weatherFactor.toFixed(2)})` : ''}`);
   if (b.h2h) out.push(`Últimos ${b.h2h.n} enfrentamientos: ${f1(b.h2h.home)} – ${f1(b.h2h.away)} carreras en promedio`);
   if (b.series) out.push(`Serie: ${b.series}`);
   return out;
@@ -308,17 +336,24 @@ async function addMlbContext(events, details, sources, progress) {
   progress('MLB: abridores y contexto', 0.82);
   let found = 0;
   const errors = [];
+  let published = 0;
   for (const ev of events) {
     try {
       const ctx = await ext.call('mlb', 'getGameContext', { home: ev.home.name, away: ev.away.name, start: ev.start }, { timeout: 90000 });
-      if (!ctx) continue;
-      details[ev.id] = { ...(details[ev.id] || {}), mlb: ctx };
-      found++;
+      if (ctx) {
+        details[ev.id] = { ...(details[ev.id] || {}), mlb: ctx };
+        found++;
+        for (const p of ctx.partial || []) errors.push(`${ev.home.name}: ${p}`);
+        continue;
+      }
     } catch (e) {
       errors.push(`${ev.home.name}: ${e.message}`);
     }
+    // Sin el contexto en vivo: el publicado por GitHub Actions (partidos automáticos), si lo hay.
+    if (details[ev.id]?.mlb) published++;
   }
-  sources.mlb = found || !errors.length ? { ok: true, matched: found, ...(errors.length ? { partial: errors } : {}) } : { ok: false, error: errors.join(' | ') };
+  const matched = found + published;
+  sources.mlb = matched || !errors.length ? { ok: true, matched, ...(published ? { published: true } : {}), ...(errors.length ? { partial: errors } : {}) } : { ok: false, error: errors.join(' | ') };
 }
 
 async function understatXg(events, sources, progress) {

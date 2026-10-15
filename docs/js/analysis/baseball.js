@@ -33,6 +33,7 @@ export const isMlb = (ev) => ev?.sport === 'baseball' && /\bmlb\b/i.test([ev.tou
 const START_DECAY = 0.85; // peso de cada apertura anterior respecto de la siguiente
 const FIP_CONST = 3.15; // constante del FIP (escala de carreras limpias)
 const RA_PER_ER = 1.08; // carreras totales por carrera limpia
+const SP_IP = 5.2; // entradas de un abridor típico por apertura
 
 // Carreras anotadas y recibidas por partido (ponderadas: más peso a lo reciente).
 export function runsForm(matches = [], { n = 10, decay = 0.85, home = null } = {}) {
@@ -47,12 +48,15 @@ export function runsForm(matches = [], { n = 10, decay = 0.85, home = null } = {
     w += wk;
     gf += wk * m.gf;
     ga += wk * m.ga;
-    wins += wk * (m.gf > m.ga ? 1 : 0);
+    wins += wk * (result(m) === 'W' ? 1 : 0);
   });
   // Partidos "efectivos" (con el peso): para acercar a la media según cuántos hay.
   const eff = (w * w) / list.reduce((s, _, k) => s + decay ** (2 * k), 0);
-  return { n: list.length, eff, gf: gf / w, ga: ga / w, winRate: wins / w, ppg: (3 * wins) / w, last5: list.slice(0, 5).map((m) => (m.gf > m.ga ? 'W' : 'L')) };
+  return { n: list.length, eff, gf: gf / w, ga: ga / w, winRate: wins / w, ppg: (3 * wins) / w, last5: list.slice(0, 5).map(result) };
 }
+
+// Resultado de un partido: el guardado (en Japón y Corea hay empates) o el del marcador.
+const result = (m) => m.r || (m.gf > m.ga ? 'W' : m.gf < m.ga ? 'L' : 'D');
 
 // Forma general mezclada con la de local (o de visitante) si hay datos.
 function venueForm(matches, isHome, o) {
@@ -88,7 +92,7 @@ export function starterProfile(starts = [], lgRa9 = MLB_RA9, { spPriorIp = BASEB
   const ra9 = (raw * ip + lgRa9 * spPriorIp) / (ip + spPriorIp);
   const perStart = ip / w;
   const n = list.length;
-  return { ra9, rawRa9, fip, ip: clamp((perStart * n + 5.2 * 2) / (n + 2), 3.5, 7.5), n };
+  return { ra9, rawRa9, fip, ip: clamp((perStart * n + SP_IP * 2) / (n + 2), 3.5, 7.5), n };
 }
 
 // Bullpen cansado (muchas entradas de los relevistas en los 3 días anteriores) o descansado.
@@ -200,13 +204,16 @@ export function baseballModel(ev, d, cfg, ctx = {}, opts = {}) {
   const mu = mlb ? 0.5 * teamsMu + 0.5 * MLB_RA9 : teamsMu;
   const shrink = (x) => (n * x + o.formPrior * mu) / (n + o.formPrior);
   const lg = mlb ? MLB_RA9 : mu;
-  // Pitcheo que enfrenta cada ofensiva: abridor del rival en sus entradas y bullpen en el resto.
+  // Pitcheo que enfrenta cada ofensiva: abridor del rival en sus entradas y bullpen en el
+  // resto. Sin datos del abridor, lo que permite el equipo (y el bullpen solo en las
+  // entradas de los relevistas).
   const pitching = (side, teamAllowed) => {
-    const sp = starterProfile(mlb?.[side]?.pitcher?.starts, lg, o);
+    const p = mlb?.[side]?.pitcher;
+    const sp = starterProfile(p?.starts, lg, o);
     const pen = bullpenFactor(mlb?.[side]?.bullpen);
-    const bullpen = teamAllowed * pen;
-    const allowed = sp ? (sp.ip / 9) * sp.ra9 + (1 - sp.ip / 9) * bullpen : bullpen;
-    return { starter: sp, name: mlb?.[side]?.pitcher?.name || null, penFactor: pen, bullpenIp: mlb?.[side]?.bullpen?.ip ?? null, allowed };
+    const ip = sp ? sp.ip : SP_IP;
+    const allowed = (ip / 9) * (sp ? sp.ra9 : teamAllowed) + (1 - ip / 9) * teamAllowed * pen;
+    return { starter: sp, name: p?.name || null, unread: Boolean(p) && p.starts == null, penFactor: pen, bullpenIp: mlb?.[side]?.bullpen?.ip ?? null, allowed };
   };
   const homeP = pitching('home', shrink(fh.ga));
   const awayP = pitching('away', shrink(fa.ga));
@@ -260,7 +267,7 @@ export function baseballModel(ev, d, cfg, ctx = {}, opts = {}) {
     form: { home: fh, away: fa },
     expected: { home: lh, away: la, total: lh + la, sdTotal: sd, margin: lh - la, sdMargin: sd },
     strength: (lh - la) / sd,
-    baseball: { home: homeP, away: awayP, park: Number.isFinite(pf) ? { factor: pf, n: mlb.park.n } : null, weather: mlb?.weather || null, weatherFactor: weather, h2h, series: mlb?.series || null, venue: mlb?.venue || null },
+    baseball: { mlb: Boolean(mlb), home: homeP, away: awayP, park: Number.isFinite(pf) ? { factor: pf, n: mlb.park.n } : null, weather: mlb?.weather || null, weatherFactor: weather, h2h, series: mlb?.series || null, venue: mlb?.venue || null },
     candidates: c.map(([market, sel, line, p]) => ({ market, sel, line, p: clamp(p, 0.001, 0.999) })),
   };
 }

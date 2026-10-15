@@ -78,7 +78,8 @@ const compactSide = (s) =>
   s
     ? {
         t: s.team,
-        p: s.pitcher ? [s.pitcher.id, s.pitcher.name, s.pitcher.hand || null, (s.pitcher.starts || []).map((g) => [Math.round(g.start / 1000), ...START_FIELDS.map((f) => (f === 'ip' ? Math.round(g.ip * 1000) / 1000 : g[f] ?? 0)), g.opp || null])] : null,
+        // Aperturas null: no se pudo leer su registro (se conserva para no mostrarlo como "sin aperturas").
+        p: s.pitcher ? [s.pitcher.id, s.pitcher.name, s.pitcher.hand || null, s.pitcher.starts ? s.pitcher.starts.map((g) => [Math.round(g.start / 1000), ...START_FIELDS.map((f) => (f === 'ip' ? Math.round(g.ip * 1000) / 1000 : g[f] ?? 0)), g.opp || null]) : null] : null,
         b: s.bullpen ? [s.bullpen.ip, s.bullpen.np, s.bullpen.games] : null,
       }
     : null;
@@ -86,7 +87,7 @@ const expandSide = (c) =>
   c
     ? {
         team: c.t,
-        pitcher: c.p ? { id: c.p[0], name: c.p[1], hand: c.p[2], starts: (c.p[3] || []).map(([st, ...v]) => ({ start: st * 1000, ...Object.fromEntries(START_FIELDS.map((f, i) => [f, v[i]])), opp: v[START_FIELDS.length] ?? null })) } : null,
+        pitcher: c.p ? { id: c.p[0], name: c.p[1], hand: c.p[2], starts: c.p[3] ? c.p[3].map(([st, ...v]) => ({ start: st * 1000, ...Object.fromEntries(START_FIELDS.map((f, i) => [f, v[i]])), opp: v[START_FIELDS.length] ?? null })) : null } : null,
         bullpen: c.b ? { ip: c.b[0], np: c.b[1], games: c.b[2] } : null,
       }
     : null;
