@@ -21,72 +21,33 @@ async function get(url, { as = 'json', headers = {} } = {}) {
 const short = (v, n = 300) => JSON.stringify(v)?.slice(0, n);
 const ESPN = 'https://site.api.espn.com/apis/site/v2/sports';
 
-// ---- Fútbol en ESPN ----
-const LEAGUES = [
-  ['eng.1', '20250308'],
-  ['per.1', '20250510'],
-  ['usa.1', '20250510'],
-  ['bra.1', '20250510'],
-  ['nor.1', '20250511'],
-  ['swe.1', '20250511'],
-  ['bel.1', '20250308'],
-  ['por.1', '20250308'],
-  ['uefa.champions', '20250311'],
-  ['uefa.europa', '20250313'],
-  ['uefa.europa.conf', '20250313'],
-  ['uefa.nations', '20250320'],
-  ['fifa.world', '20221203'],
-  ['fifa.friendly', '20250606'],
-  ['fifa.worldq.uefa', '20250906'],
-  ['fifa.worldq.conmebol', '20250904'],
-  ['conmebol.libertadores', '20250507'],
-];
-
+// ---- Fútbol en ESPN: calendario de la temporada, medio tiempo y córners por tiempo ----
 async function espnSoccer() {
-  console.log('\n===== ESPN fútbol =====');
-  // Formas de pedir el calendario.
-  for (const q of ['dates=20250308', 'dates=20250301-20250331', 'dates=20250301-20250307', 'limit=100&dates=20250308', 'dates=202503']) {
-    const r = await get(`${ESPN}/soccer/eng.1/scoreboard?${q}`);
-    console.log(`eng.1 ?${q}: HTTP ${r.status} · partidos ${r.body?.events?.length} · ${r.status >= 400 ? short(r.body, 200) : ''}`);
-  }
-  const core = await get('https://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.1/events?dates=20250301-20250331&limit=100');
-  console.log(`core eng.1 marzo: HTTP ${core.status} · count ${core.body?.count} · items ${core.body?.items?.length} · ${short(core.body?.items?.[0], 150)}`);
-  const sched = await get(`${ESPN}/soccer/eng.1/teams/359/schedule?season=2024`);
-  console.log(`calendario de un equipo (Arsenal 2024): HTTP ${sched.status} · partidos ${sched.body?.events?.length} · ${short(sched.body?.events?.[0]?.competitions?.[0]?.competitors?.map((c) => [c.team?.displayName, c.score]), 200)}`);
-  let samples = 0;
-  for (const [lg, date] of LEAGUES) {
+  console.log('\n===== ESPN fútbol: calendario y resumen =====');
+  for (const [lg, date] of [['eng.1', '20231007'], ['per.1', '20240414'], ['usa.1', '20240518'], ['uefa.champions', '20231024'], ['nor.1', '20240512'], ['fifa.world', '20260620'], ['uefa.euro', '20240620'], ['conmebol.america', '20240625']]) {
+    const t0 = Date.now();
     const r = await get(`${ESPN}/soccer/${lg}/scoreboard?dates=${date}`);
-    const evs = r.body?.events || [];
-    const done = evs.filter((e) => e.status?.type?.completed);
-    const e = done[0];
-    const comp = e?.competitions?.[0];
-    const stats = comp?.competitors?.[0]?.statistics?.map((s) => `${s.name}=${s.displayValue}`) || [];
-    const details = comp?.details || [];
-    const types = [...new Set(details.map((d) => d.type?.text))];
-    console.log(`${lg} ${date}: HTTP ${r.status} · partidos ${evs.length} (terminados ${done.length}) · stats [${stats.join(', ')}] · detalles ${details.length} ${short(types, 200)} · linescores ${short(comp?.competitors?.map((c) => c.linescores), 120)} · odds ${short(comp?.odds?.[0], 200)}`);
-    for (const y of ['2023', '2024']) {
-      const back = lg === 'fifa.world' ? '20181203' : date.replace(/^2025/, y);
-      const rb = await get(`${ESPN}/soccer/${lg}/scoreboard?dates=${back}`);
-      const eb = rb.body?.events || [];
-      const sb = eb.find((x) => x.status?.type?.completed)?.competitions?.[0]?.competitors?.[0]?.statistics?.length || 0;
-      console.log(`   ${back}: HTTP ${rb.status} · partidos ${eb.length}, stats por equipo ${sb}`);
-    }
-    if (e && samples < 3 && ['eng.1', 'per.1', 'uefa.champions'].includes(lg)) {
-      samples++;
-      const s = await get(`${ESPN}/soccer/${lg}/summary?event=${e.id}`);
-      const b = s.body || {};
-      console.log(`   summary ${e.id}: HTTP ${s.status} · claves ${Object.keys(b).join(',')}`);
-      for (const t of b.boxscore?.teams || []) console.log(`   boxscore ${t.team?.displayName}: ${(t.statistics || []).map((x) => `${x.name}=${x.displayValue}`).join(', ')}`);
-      const com = b.commentary || [];
-      const corners = com.filter((c) => /corner/i.test(c.text || ''));
-      console.log(`   commentary ${com.length} · córners ${corners.length} · ejemplos ${short(corners.slice(0, 3).map((c) => [c.time?.displayValue, c.text]), 400)}`);
-      const ke = b.keyEvents || [];
-      console.log(`   keyEvents ${ke.length} · tipos ${short([...new Set(ke.map((k) => k.type?.text))], 400)}`);
-      console.log(`   plays ${b.plays?.length} · tipos ${short([...new Set((b.plays || []).map((k) => k.type?.text))], 400)}`);
-      console.log(`   odds/pickcenter ${short(b.pickcenter, 300)} | ${short(b.odds, 300)}`);
-      console.log(`   header linescores ${short(b.header?.competitions?.[0]?.competitors?.map((c) => c.linescores), 200)}`);
-    }
+    const ms = Date.now() - t0;
+    const L = r.body?.leagues?.[0];
+    const cal = L?.calendar || [];
+    console.log(`${lg} ${date}: HTTP ${r.status} (${ms} ms) · partidos ${r.body?.events?.length} · temporada ${short(L?.season, 200)} · calendario ${cal.length} ${short(cal.slice(0, 3), 200)} … ${short(cal.slice(-2), 120)} · calendarType ${L?.calendarType}`);
+    const e = (r.body?.events || []).find((x) => x.status?.type?.completed);
+    if (!e) continue;
+    const c = e.competitions[0];
+    console.log(`   evento ${e.id} ${e.date} · ${c.competitors.map((x) => `${x.homeAway}:${x.team?.id}:${x.team?.displayName}:${x.score}`).join(' | ')} · detalles ${short(c.details?.slice(0, 2).map((d) => ({ type: d.type?.text, clock: d.clock, team: d.team?.id, red: d.redCard, yellow: d.yellowCard, own: d.ownGoal, pen: d.penaltyKick })), 400)}`);
+    const s = await get(`${ESPN}/soccer/${lg}/summary?event=${e.id}`);
+    const b = s.body || {};
+    const com = b.commentary || [];
+    const ht = com.findIndex((x) => /first half ends|half-time|halftime/i.test(x.text || ''));
+    const corners = com.filter((x) => /^corner,/i.test(x.text || ''));
+    const h1 = ht >= 0 ? com.slice(0, ht).filter((x) => /^corner,/i.test(x.text || '')).length : null;
+    console.log(`   resumen: linescores ${short(b.header?.competitions?.[0]?.competitors?.map((x) => [x.homeAway, x.linescores?.map((l) => l.displayValue)]), 150)} · commentary ${com.length} (orden ${short(com.slice(0, 2).map((x) => [x.sequence, x.time?.displayValue]), 120)}) · fin 1T idx ${ht} ${short(com[ht]?.text, 80)} · córners ${corners.length} (1T ${h1}) · boxscore ${short(b.boxscore?.teams?.map((t) => t.statistics?.filter((x) => ['wonCorners', 'yellowCards', 'redCards'].includes(x.name)).map((x) => `${x.name}=${x.displayValue}`)), 300)}`);
+    console.log(`   gameInfo ${short(b.gameInfo, 200)} · odds ${short(b.odds?.[0], 300)}`);
   }
+  // NBA: calendario de la temporada.
+  const n = await get(`${ESPN}/basketball/nba/scoreboard?dates=20241105`);
+  const NL = n.body?.leagues?.[0];
+  console.log(`NBA calendario ${NL?.calendar?.length} ${short(NL?.calendar?.slice?.(0, 3), 200)} · temporada ${short(NL?.season, 200)}`);
 }
 
 // ---- football-data.co.uk ----
