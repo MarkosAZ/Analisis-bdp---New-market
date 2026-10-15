@@ -157,6 +157,10 @@ export function dropReplaced(oldRows = [], newRows = []) {
 
 // Una fila por clave: la del último análisis mientras no tenga resultado (la
 // selección o la línea pueden cambiar); con resultado ya no se toca.
+// Filas de otra versión de las variables: la red no las usa (upgradeFeatures) y no
+// se pueden convertir (no guardan los datos del partido); se quitan al guardar.
+export const currentRows = (rows = []) => rows.filter((r) => r.fv === FEATURE_VERSION);
+
 export function mergeRows(oldRows = [], newRows = []) {
   const map = new Map(oldRows.map((r) => [r.key, r]));
   for (const r of newRows) {
@@ -181,7 +185,7 @@ export async function saveAnalysis(input) {
 
   for (const [month, rows] of groupBy(results.flatMap(trainingRows), (r) => r.date.slice(0, 7))) {
     const file = (await readRows(month)) || { rows: [] };
-    file.rows = mergeRows(dropReplaced(file.rows, rows), rows);
+    file.rows = mergeRows(dropReplaced(currentRows(file.rows), rows), rows);
     await store.write(rowsPath(month), file, `Entrenamiento: selecciones del ${date}`);
   }
   await refreshIndex([day]);
@@ -431,7 +435,9 @@ export async function updateResults({ onProgress = () => {} } = {}) {
   for (const month of monthsBack(2)) {
     const file = await readRows(month);
     if (!file) continue;
-    rowFiles.push({ month, file });
+    const all = file.rows.length;
+    file.rows = currentRows(file.rows);
+    rowFiles.push({ month, file, pruned: file.rows.length !== all });
     for (const r of file.rows) {
       if (r.y != null || r.start >= now - GRACE_MS) continue;
       ids.add(r.eventId);
@@ -575,8 +581,8 @@ export async function updateResults({ onProgress = () => {} } = {}) {
     }
   }
   let newRows = 0;
-  for (const { month, file } of rowFiles) {
-    let changed = false;
+  for (const { month, file, pruned } of rowFiles) {
+    let changed = pruned;
     for (const r of file.rows) {
       if (r.y != null) continue;
       const res = results[r.eventId];

@@ -5,7 +5,7 @@ import { Corrector, MIN_SAMPLES } from '../docs/js/analysis/neural.js';
 import { NETWORKS, NetworkSet, networkOf, PLAYER_NETWORKS } from '../docs/js/analysis/networks.js';
 import { MARKETS } from '../docs/js/analysis/picks.js';
 import { rng } from '../docs/js/util.js';
-import { dropReplaced, hasPlayerFields, mergeRows, playerFieldsOf, rowCandidates, trainingRows } from '../docs/js/history.js';
+import { currentRows, dropReplaced, hasPlayerFields, mergeRows, playerFieldsOf, rowCandidates, trainingRows } from '../docs/js/history.js';
 import { versionBefore } from '../docs/js/util.js';
 import { readFileSync } from 'node:fs';
 
@@ -310,4 +310,14 @@ test('la página pide la versión de la extensión que está en el repositorio',
   const manifest = JSON.parse(readFileSync(new URL('../extension/manifest.json', import.meta.url), 'utf8'));
   const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
   assert.equal(app.match(/const EXT_LATEST = '([\d.]+)'/)?.[1], manifest.version);
+});
+
+test('entrenamiento: las filas de otra versión de las variables se quitan al guardar', async () => {
+  const { FEATURE_VERSION } = await import('../docs/js/analysis/features.js');
+  const rows = [
+    { key: 'a', fv: FEATURE_VERSION - 1, y: 1 },
+    { key: 'b', fv: FEATURE_VERSION, y: 0 },
+    { key: 'c', y: null },
+  ];
+  assert.deepEqual(currentRows(rows).map((r) => r.key), ['b']);
 });
