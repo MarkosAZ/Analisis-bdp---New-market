@@ -40,16 +40,16 @@ jobs:
         run: node scripts/historico/descargar.mjs mlb
       - name: Guardar MLB
         if: always()
-        run: scripts/historico/guardar.sh "Datos históricos: MLB"
+        run: scripts/historico/guardar.sh "Datos históricos - MLB"
       - name: NBA
         if: ${{ github.event.inputs.partes == '' || contains(github.event.inputs.partes, 'nba') }}
         run: node scripts/historico/descargar.mjs nba
       - name: Guardar NBA
         if: always()
-        run: scripts/historico/guardar.sh "Datos históricos: NBA"
+        run: scripts/historico/guardar.sh "Datos históricos - NBA"
       - name: Fútbol
         if: ${{ github.event.inputs.partes == '' || contains(github.event.inputs.partes, 'futbol') }}
         run: node scripts/historico/descargar.mjs futbol
       - name: Guardar fútbol
         if: always()
-        run: scripts/historico/guardar.sh "Datos históricos: fútbol"
+        run: scripts/historico/guardar.sh "Datos históricos - fútbol"
