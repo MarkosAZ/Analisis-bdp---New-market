@@ -280,11 +280,11 @@ export async function getGameContext({ home, away, start } = {}) {
       p?.id
         ? lastStarts(p.id, season, ms, { postseason: g.gameType == null || isPostseason(g.gameType) }).then(
             (r) => {
-              if (r.incomplete) partial.push({ side: key, part: 'starts', text: `aperturas de ${who} (incompletas): ${r.incomplete}` });
+              if (r.incomplete) partial.push({ side: key, part: 'starts', text: `aperturas de ${who} incompletas (solo las más recientes): ${r.incomplete}` });
               return r.starts;
             },
             (e) => {
-              partial.push({ side: key, part: 'starts', text: `aperturas de ${who}: ${e.message}` });
+              partial.push({ side: key, part: 'starts', text: `sin aperturas de ${who}: ${e.message}` });
               return null;
             },
           )
@@ -292,7 +292,7 @@ export async function getGameContext({ home, away, start } = {}) {
       // Pretemporada: sin bullpen (sus relevistas lanzan casi todo el partido).
       official
         ? bullpen(t.team.id, ms, g.officialDate).catch((e) => {
-            partial.push({ side: key, part: 'bullpen', text: `bullpen de ${t.team.name}: ${e.message}` });
+            partial.push({ side: key, part: 'bullpen', text: `sin bullpen de ${t.team.name}: ${e.message}` });
             return null;
           })
         : null,

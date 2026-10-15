@@ -243,7 +243,7 @@ test('MLB: contexto con un registro que falla — avisa y no lo publica como "si
     ctx.partial.map((p) => [p.side, p.part]),
     [['home', 'starts']],
   );
-  assert.match(ctx.partial[0].text, /^aperturas de Freddy Peralta: /);
+  assert.match(ctx.partial[0].text, /^sin aperturas de Freddy Peralta: /);
   assert.ok(urls.some((u) => u.includes('teamId=158') && u.includes('startDate=2026-10-11') && u.includes('endDate=2026-10-14')), 'bullpen por fecha local');
   // Se publica como "sin leer" (null) y la tarjeta lo dice.
   const event = { id: 'fs:mlb2', sport: 'baseball', start: BEFORE, tournament: { id: 'mlb', name: 'MLB - Playoffs', priority: 1 }, category: { name: 'Estados Unidos', alpha2: 'US' }, home: { id: 'h', name: 'Milwaukee Brewers' }, away: { id: 'a', name: 'Los Angeles Dodgers' }, state: 'pendiente' };
@@ -253,7 +253,7 @@ test('MLB: contexto con un registro que falla — avisa y no lo publica como "si
   assert.ok(m.baseball.home.unread && !m.baseball.away.unread);
   // En la página: lo que falló en vivo sale del contexto publicado (mismo abridor).
   const published = { ...ctx, partial: undefined, home: { ...ctx.home, pitcher: { ...ctx.home.pitcher, starts: ctx.away.pitcher.starts }, bullpen: { ip: 4, np: 60, games: 2 } } };
-  const merged = mergeMlb({ ...ctx, home: { ...ctx.home, bullpen: null }, partial: [...ctx.partial, { side: 'home', part: 'bullpen', text: 'bullpen de Milwaukee Brewers: HTTP 503' }] }, published);
+  const merged = mergeMlb({ ...ctx, home: { ...ctx.home, bullpen: null }, partial: [...ctx.partial, { side: 'home', part: 'bullpen', text: 'sin bullpen de Milwaukee Brewers: HTTP 503' }] }, published);
   assert.equal(merged.partial, undefined);
   assert.equal(merged.home.pitcher.starts.length, ctx.away.pitcher.starts.length);
   assert.deepEqual(merged.home.bullpen, { ip: 4, np: 60, games: 2 });
