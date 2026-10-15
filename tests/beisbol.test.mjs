@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bullpenDates, findGame, getGameContext, inningsOf, lastStarts, parkRuns, relieversOf, sameTeam, startsFromGameLog } from '../extension/sources/mlb.js';
-import { analyzeEvent, weatherText } from '../docs/js/analysis/engine.js';
+import { RETRY_MS, bullpenDates, findGame, getGameContext, inningsOf, lastStarts, parkRuns, relieversOf, sameTeam, startsFromGameLog } from '../extension/sources/mlb.js';
+import { analyzeEvent, mergeMlb, weatherText } from '../docs/js/analysis/engine.js';
 import { baseballModel, bullpenFactor, h2hRuns, isMlb, nbPmf, runsOutcomes, starterProfile, weatherFactor } from '../docs/js/analysis/baseball.js';
 import { predict } from '../docs/js/analysis/models.js';
 import { compactDay, expandDay } from '../docs/js/data-format.js';
@@ -176,27 +176,43 @@ const logRoute = (table) => (u) => {
 const BEFORE = Date.parse('2026-10-15T00:10:00Z');
 const sept = (n) => Array.from({ length: n }, (_, i) => `2025-09-${String(28 - i * 2).padStart(2, '0')}`);
 
-test('MLB: registro del abridor que falla — error (no las aperturas de la temporada anterior)', async () => {
-  // Falla la temporada regular de este año: no se rellena con la anterior.
-  const failed = await withFetch(logRoute({ '9001|2026|R': 503, '9001|2026|P': ['2026-10-07'], '9001|2025|R': sept(12) }), () => lastStarts(9001, 2026, BEFORE).then(() => 'ok', (e) => e));
+RETRY_MS.value = 0; // sin espera entre el intento y el reintento
+const days = (r) => r.starts.map((x) => new Date(x.start).toISOString().slice(0, 10));
+const regular = { postseason: false };
+
+test('MLB: registro del abridor que falla — error o las más recientes (nunca las viejas como últimas)', async () => {
+  // Falla la temporada regular de este año (también al reintentar): error, no la anterior.
+  const failed = await withFetch(logRoute({ '9001|2026|R': 503, '9001|2025|R': sept(12) }), () => lastStarts(9001, 2026, BEFORE, regular).then(() => 'ok', (e) => e));
   assert.ok(failed.value instanceof Error && /503/.test(failed.value.message), String(failed.value));
+  assert.equal(failed.urls.filter((u) => u.includes('people/9001') && u.includes('season=2026')).length, 2, 'un reintento');
+  assert.ok(!failed.urls.some((u) => u.includes('season=2026&gameType=P')), 'en temporada regular no se piden los playoffs de este año');
+  // Partido de playoffs: los playoffs se leen y la temporada regular falla → solo las de playoffs, con aviso.
+  const post = await withFetch(logRoute({ '9005|2026|P': ['2026-10-07'], '9005|2026|R': 503 }), () => lastStarts(9005, 2026, BEFORE));
+  assert.deepEqual(days(post.value), ['2026-10-07']);
+  assert.match(post.value.incomplete, /503/);
   // 404 = sin registro (un novato sin playoffs): no es un error.
   const rookie = await withFetch(logRoute({ '9002|2026|R': ['2026-09-20', '2026-09-26'], '9002|2026|P': 404, '9002|2025|R': 404, '9002|2025|P': 404 }), () => lastStarts(9002, 2026, BEFORE));
-  assert.equal(rookie.value.length, 2);
-  // Temporada anterior sin leer: solo las de esta (son las más recientes).
-  const partial = await withFetch(logRoute({ '9003|2026|R': ['2026-09-20'], '9003|2026|P': [], '9003|2025|R': 503, '9003|2025|P': [] }), () => lastStarts(9003, 2026, BEFORE));
-  assert.deepEqual(partial.value.map((s) => new Date(s.start).toISOString().slice(0, 10)), ['2026-09-20']);
+  assert.deepEqual([rookie.value.starts.length, rookie.value.incomplete], [2, null]);
+  // Temporada anterior sin leer: las de esta (son las más recientes), con aviso.
+  const partial = await withFetch(logRoute({ '9003|2026|R': ['2026-09-20'], '9003|2025|P': [], '9003|2025|R': 503 }), () => lastStarts(9003, 2026, BEFORE, regular));
+  assert.deepEqual(days(partial.value), ['2026-09-20']);
+  assert.match(partial.value.incomplete, /503/);
+  // Día inaugural (sin aperturas este año) y la temporada anterior sin leer: error, no "sin aperturas".
+  const opener = await withFetch(logRoute({ '9006|2027|R': [], '9006|2026|P': 429, '9006|2026|R': sept(12) }), () => lastStarts(9006, 2027, Date.parse('2027-03-26T20:00:00Z'), regular).then(() => 'ok', (e) => e));
+  assert.ok(opener.value instanceof Error, String(opener.value));
+  // Un error pasajero: el reintento lo resuelve.
+  let calls = 0;
+  const flaky = await withFetch((u) => (u.pathname.includes('people/9007') && u.searchParams.get('season') === '2026' ? (++calls === 1 ? json({}, 503) : json(logOf(['2026-09-20']))) : null), () => lastStarts(9007, 2026, BEFORE, regular));
+  assert.deepEqual([days(flaky.value), flaky.value.incomplete], [['2026-09-20'], null]);
 });
 
 test('MLB: a principio de temporada cuentan los playoffs de la temporada anterior', async () => {
   const { value } = await withFetch(
-    logRoute({ '9004|2026|R': ['2026-04-10', '2026-04-04'], '9004|2026|P': [], '9004|2025|R': sept(12), '9004|2025|P': ['2025-10-20', '2025-10-12', '2025-10-05'] }),
-    () => lastStarts(9004, 2026, Date.parse('2026-04-15T23:00:00Z')),
+    logRoute({ '9004|2026|R': ['2026-04-10', '2026-04-04'], '9004|2025|R': sept(12), '9004|2025|P': ['2025-10-20', '2025-10-12', '2025-10-05'] }),
+    () => lastStarts(9004, 2026, Date.parse('2026-04-15T23:00:00Z'), regular),
   );
-  assert.deepEqual(
-    value.slice(0, 6).map((s) => new Date(s.start).toISOString().slice(0, 10)),
-    ['2026-04-10', '2026-04-04', '2025-10-20', '2025-10-12', '2025-10-05', '2025-09-28'],
-  );
+  assert.deepEqual(days(value).slice(0, 6), ['2026-04-10', '2026-04-04', '2025-10-20', '2025-10-12', '2025-10-05', '2025-09-28']);
+  assert.equal(value.starts.length, 10);
 });
 
 test('MLB: bullpen de los 3 días anteriores según la fecha local del partido (no la de UTC)', () => {
@@ -209,6 +225,7 @@ test('MLB: bullpen de los 3 días anteriores según la fecha local del partido (
 test('MLB: contexto con un registro que falla — avisa y no lo publica como "sin aperturas"', async () => {
   const game = {
     gamePk: 1,
+    gameType: 'L',
     gameDate: '2026-10-15T00:10:00Z',
     officialDate: '2026-10-14',
     season: '2026',
@@ -222,7 +239,11 @@ test('MLB: contexto con un registro que falla — avisa y no lo publica como "si
   const { value: ctx, urls } = await withFetch(route, () => getGameContext({ home: 'Milwaukee Brewers', away: 'Los Angeles Dodgers', start: BEFORE }));
   assert.equal(ctx.home.pitcher.starts, null, 'registro sin leer');
   assert.ok(ctx.away.pitcher.starts.length > 0);
-  assert.ok(ctx.partial.some((p) => p.startsWith('aperturas de Freddy Peralta')), ctx.partial.join(' | '));
+  assert.deepEqual(
+    ctx.partial.map((p) => [p.side, p.part]),
+    [['home', 'starts']],
+  );
+  assert.match(ctx.partial[0].text, /^aperturas de Freddy Peralta: /);
   assert.ok(urls.some((u) => u.includes('teamId=158') && u.includes('startDate=2026-10-11') && u.includes('endDate=2026-10-14')), 'bullpen por fecha local');
   // Se publica como "sin leer" (null) y la tarjeta lo dice.
   const event = { id: 'fs:mlb2', sport: 'baseball', start: BEFORE, tournament: { id: 'mlb', name: 'MLB - Playoffs', priority: 1 }, category: { name: 'Estados Unidos', alpha2: 'US' }, home: { id: 'h', name: 'Milwaukee Brewers' }, away: { id: 'a', name: 'Los Angeles Dodgers' }, state: 'pendiente' };
@@ -230,6 +251,32 @@ test('MLB: contexto con un registro que falla — avisa y no lo publica como "si
   assert.equal(day.details.get(event.id).mlb.home.pitcher.starts, null);
   const m = baseballModel(ev, { ...base, mlb: day.details.get(event.id).mlb }, cfg, {});
   assert.ok(m.baseball.home.unread && !m.baseball.away.unread);
+  // En la página: lo que falló en vivo sale del contexto publicado (mismo abridor).
+  const published = { ...ctx, partial: undefined, home: { ...ctx.home, pitcher: { ...ctx.home.pitcher, starts: ctx.away.pitcher.starts }, bullpen: { ip: 4, np: 60, games: 2 } } };
+  const merged = mergeMlb({ ...ctx, home: { ...ctx.home, bullpen: null }, partial: [...ctx.partial, { side: 'home', part: 'bullpen', text: 'bullpen de Milwaukee Brewers: HTTP 503' }] }, published);
+  assert.equal(merged.partial, undefined);
+  assert.equal(merged.home.pitcher.starts.length, ctx.away.pitcher.starts.length);
+  assert.deepEqual(merged.home.bullpen, { ip: 4, np: 60, games: 2 });
+  assert.equal(ctx.home.pitcher.starts, null, 'sin cambiar el contexto en vivo');
+  const other = { ...published, home: { ...published.home, pitcher: { ...published.home.pitcher, id: '1' } } };
+  assert.equal(mergeMlb(ctx, other).home.pitcher.starts, null, 'otro abridor: no se usan sus aperturas');
+  assert.equal(mergeMlb(ctx, other).partial.length, 1);
+  assert.equal(mergeMlb(ctx, null), ctx);
+});
+
+test('MLB: el bullpen no cuenta la pretemporada', async () => {
+  const done = (pk, date, gameType) => ({ gamePk: pk, gameType, gameDate: date, status: { abstractGameState: 'Final', detailedState: 'Final' } });
+  const opener = { gamePk: 50, gameType: 'R', gameDate: '2027-03-26T20:10:00Z', officialDate: '2027-03-26', season: '2027', teams: { home: { team: MIL }, away: { team: LAD } } };
+  const box = { teams: { home: { team: { id: 158 }, pitchers: [1, 2], players: { ID1: { stats: { pitching: { inningsPitched: '2.0' } } }, ID2: { stats: { pitching: { inningsPitched: '7.0', numberOfPitches: 100 } } } } }, away: { team: { id: 1 }, pitchers: [] } } };
+  const route = (u) => {
+    if (u.pathname.endsWith('/schedule') && !u.searchParams.get('teamId')) return json({ dates: [{ games: [opener] }] });
+    if (u.pathname.endsWith('/schedule') && !u.searchParams.get('season')) return json({ dates: [{ games: [done(41, '2027-03-24T17:05:00Z', 'S'), done(42, '2027-03-25T17:05:00Z', 'E')] }] });
+    if (u.pathname.endsWith('/schedule')) return json({ dates: [] });
+    if (u.pathname.includes('/boxscore')) return json(box);
+    return null;
+  };
+  const { value: ctx } = await withFetch(route, () => getGameContext({ home: 'Milwaukee Brewers', away: 'Los Angeles Dodgers', start: Date.parse(opener.gameDate) }));
+  assert.deepEqual(ctx.home.bullpen, { ip: 0, np: 0, games: 0 });
 });
 
 test('béisbol: la tarjeta — abridores solo con datos de la MLB, clima en castellano, empates', () => {

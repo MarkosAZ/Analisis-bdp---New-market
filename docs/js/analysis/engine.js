@@ -329,6 +329,25 @@ async function addPlayerLogs(events, details, sources, progress, offers = new Ma
   sources.jugadores = found || !errors.length ? { ok: true, matched: found, ...(errors.length ? { partial: errors } : {}) } : { ok: false, error: errors.join(' | ') };
 }
 
+// Contexto de la MLB en vivo con partes sin leer (partial): esas partes del contexto
+// publicado por GitHub Actions, si las tiene (y el abridor es el mismo).
+export function mergeMlb(live, published) {
+  if (!published || !live?.partial?.length) return live;
+  const out = { ...live, home: live.home && { ...live.home }, away: live.away && { ...live.away } };
+  const left = [];
+  for (const p of live.partial) {
+    const l = out[p.side];
+    const pub = published[p.side];
+    const lp = l?.pitcher;
+    const pubStarts = pub?.pitcher?.id === lp?.id ? pub?.pitcher?.starts : null;
+    if (p.part === 'starts' && lp && pubStarts && pubStarts.length > (lp.starts?.length || 0)) l.pitcher = { ...lp, starts: pubStarts };
+    else if (p.part === 'bullpen' && l && !l.bullpen && pub?.bullpen) l.bullpen = pub.bullpen;
+    else left.push(p);
+  }
+  delete out.partial;
+  return left.length ? { ...out, partial: left } : out;
+}
+
 // Béisbol de la MLB: abridores probables con sus últimas aperturas, bullpen,
 // estadio, clima y serie (API oficial de la MLB). details[id].mlb.
 async function addMlbContext(events, details, sources, progress) {
@@ -341,9 +360,10 @@ async function addMlbContext(events, details, sources, progress) {
     try {
       const ctx = await ext.call('mlb', 'getGameContext', { home: ev.home.name, away: ev.away.name, start: ev.start }, { timeout: 90000 });
       if (ctx) {
-        details[ev.id] = { ...(details[ev.id] || {}), mlb: ctx };
+        const merged = mergeMlb(ctx, details[ev.id]?.mlb);
+        details[ev.id] = { ...(details[ev.id] || {}), mlb: merged };
         found++;
-        for (const p of ctx.partial || []) errors.push(`${ev.home.name}: ${p}`);
+        for (const p of merged.partial || []) errors.push(`${ev.home.name}: ${p.text}`);
         continue;
       }
     } catch (e) {

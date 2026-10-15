@@ -104,34 +104,62 @@ export function startsFromGameLog(data) {
   return out.sort((a, b) => b.start - a.start);
 }
 
+// Un 404 es "sin registro"; otro error (429, 503, tiempo agotado) se reintenta una vez.
+export const RETRY_MS = { value: 1500 };
+async function retryOnce(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e?.status === 404) throw e;
+    await new Promise((r) => setTimeout(r, RETRY_MS.value));
+    return fn();
+  }
+}
+
 const logCache = new Map();
 const gameLog = (id, season, type) =>
-  memo(logCache, `${id}|${season}|${type}`, async () => startsFromGameLog(await getJson(`${API}/people/${id}/stats?stats=gameLog&group=pitching&season=${season}&gameType=${type}`)));
+  memo(logCache, `${id}|${season}|${type}`, async () => startsFromGameLog(await retryOnce(() => getJson(`${API}/people/${id}/stats?stats=gameLog&group=pitching&season=${season}&gameType=${type}`))));
 
 // Registro de una temporada; un 404 es "sin registro" (lista vacía), otro error se propaga.
 const seasonLog = (id, year, type) => gameLog(id, year, type).catch((e) => (e?.status === 404 ? [] : Promise.reject(e)));
 
-// Últimas `n` aperturas antes de `before`: temporada regular y playoffs de esta
-// temporada y, si no alcanzan, los de la temporada anterior. El registro trae solo
-// la fecha (sin hora): las de las 30 horas anteriores no cuentan (no puede ser otra
-// apertura del mismo lanzador y evita tomar el partido a analizar).
-// Si no se puede leer el registro de esta temporada, error: las aperturas de la
-// temporada anterior pasarían por las últimas.
-export async function lastStarts(id, season, before, n = 10) {
+// Partidos de playoffs (los demás: R temporada regular, S/E/A pretemporada y exhibición).
+export const isPostseason = (gameType) => /^[FDLW]$/.test(gameType || '');
+
+// Últimas `n` aperturas antes de `before`: { starts, incomplete }. Se leen las partes
+// del registro de la más reciente a la más antigua: playoffs de esta temporada (solo
+// en un partido de playoffs: antes no puede haber), temporada regular, y playoffs y
+// temporada regular de la anterior. El registro trae solo la fecha (sin hora): las de
+// las 30 horas anteriores no cuentan (no puede ser otra apertura del mismo lanzador y
+// evita tomar el partido a analizar).
+// Si una parte no se puede leer, quedan las de las partes más recientes (incomplete:
+// el motivo); sin ninguna, error: las más viejas pasarían por las últimas.
+export async function lastStarts(id, season, before, { n = 10, postseason = true } = {}) {
   const found = [];
   const add = (list) => {
     for (const g of list) if (g.start < before - 30 * 3600000 && !found.some((x) => Math.abs(x.start - g.start) < 6 * 3600000)) found.push(g);
   };
-  for (const year of [season, season - 1]) {
-    if (year < season && found.length >= n) break;
-    const logs = await Promise.allSettled([seasonLog(id, year, 'R'), seasonLog(id, year, 'P')]);
-    const failed = logs.find((r) => r.status === 'rejected');
-    if (failed && year === season) throw failed.reason;
-    // Temporada anterior incompleta: solo las de esta temporada (son las más recientes).
-    if (failed) break;
-    for (const r of logs) add(r.value);
+  const done = (incomplete = null) => ({ starts: found.sort((a, b) => b.start - a.start).slice(0, n), incomplete });
+  const byYear = [
+    [...(postseason ? [[season, 'P']] : []), [season, 'R']],
+    [
+      [season - 1, 'P'],
+      [season - 1, 'R'],
+    ],
+  ];
+  for (const parts of byYear) {
+    if (found.length >= n) break;
+    const logs = await Promise.allSettled(parts.map(([year, type]) => seasonLog(id, year, type)));
+    for (const r of logs) {
+      if (found.length >= n) break;
+      if (r.status === 'rejected') {
+        if (!found.length) throw r.reason;
+        return done(r.reason?.message || String(r.reason));
+      }
+      add(r.value);
+    }
   }
-  return found.sort((a, b) => b.start - a.start).slice(0, n);
+  return done();
 }
 
 // ---- Bullpen ----
@@ -163,7 +191,9 @@ export function bullpenDates(officialDate, before) {
   return { from: ymd(base - 3 * DAY), to: ymd(base) };
 }
 
-const PLAYED = (g) => g.status?.abstractGameState === 'Final' && !/postponed|cancel/i.test(g.status?.detailedState || '');
+// Jugado y oficial: sin pretemporada (S), exhibición (E) ni Juego de Estrellas (A).
+const EXHIBITION = (gameType) => /^[SEA]$/.test(gameType || '');
+const PLAYED = (g) => g.status?.abstractGameState === 'Final' && !/postponed|cancel/i.test(g.status?.detailedState || '') && !EXHIBITION(g.gameType);
 
 async function bullpen(teamId, before, officialDate) {
   const { from, to } = bullpenDates(officialDate, before);
@@ -231,6 +261,7 @@ async function parkFactor(teamId, season) {
 // inicio, o null si no es de la MLB: { gamePk, venue, weather, series, park,
 // home: { team, pitcher: { id, name, starts }, bullpen }, away: {...}, partial? }.
 // starts null: no se pudo leer el registro del abridor (distinto de [] sin aperturas).
+// partial: [{ side, part ('starts' o 'bullpen'), text }] con lo que no se pudo leer.
 export async function getGameContext({ home, away, start } = {}) {
   const ms = toMs(start);
   if (!Number.isFinite(ms)) throw new Error('MLB: falta la hora de inicio del partido');
@@ -240,20 +271,31 @@ export async function getGameContext({ home, away, start } = {}) {
   const season = Number(g.season) || new Date(ms).getUTCFullYear();
   // Lo que no se pudo leer queda en `partial` (y sin datos: starts null, bullpen null).
   const partial = [];
+  const official = !EXHIBITION(g.gameType);
   const side = async (key) => {
     const t = g.teams[key];
     const p = t.probablePitcher;
+    const who = p?.fullName || p?.id;
     const [starts, pen] = await Promise.all([
       p?.id
-        ? lastStarts(p.id, season, ms).catch((e) => {
-            partial.push(`aperturas de ${p.fullName || p.id}: ${e.message}`);
+        ? lastStarts(p.id, season, ms, { postseason: g.gameType == null || isPostseason(g.gameType) }).then(
+            (r) => {
+              if (r.incomplete) partial.push({ side: key, part: 'starts', text: `aperturas de ${who} (incompletas): ${r.incomplete}` });
+              return r.starts;
+            },
+            (e) => {
+              partial.push({ side: key, part: 'starts', text: `aperturas de ${who}: ${e.message}` });
+              return null;
+            },
+          )
+        : [],
+      // Pretemporada: sin bullpen (sus relevistas lanzan casi todo el partido).
+      official
+        ? bullpen(t.team.id, ms, g.officialDate).catch((e) => {
+            partial.push({ side: key, part: 'bullpen', text: `bullpen de ${t.team.name}: ${e.message}` });
             return null;
           })
-        : [],
-      bullpen(t.team.id, ms, g.officialDate).catch((e) => {
-        partial.push(`bullpen de ${t.team.name}: ${e.message}`);
-        return null;
-      }),
+        : null,
     ]);
     return {
       team: t.team.name,

@@ -356,7 +356,7 @@ async function main() {
         if (ctx) {
           (details[ev.id] ||= { lastHome: [], lastAway: [], h2h: null }).mlb = ctx;
           withMlb++;
-          for (const p of ctx.partial || []) log(`MLB ${ev.home.name} - ${ev.away.name}: sin ${p}`);
+          for (const p of ctx.partial || []) log(`MLB ${ev.home.name} - ${ev.away.name}: sin ${p.text}`);
         }
       } catch (e) {
         mlbErrors++;
