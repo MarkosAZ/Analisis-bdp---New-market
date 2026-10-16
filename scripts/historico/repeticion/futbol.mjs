@@ -1,5 +1,5 @@
-// Fútbol: partidos de ESPN (todas las competiciones descargadas) con las cuotas de
-// cierre de football-data.co.uk (Más/Menos 2.5 goles) y el xG de Understat.
+// Fútbol: partidos de ESPN y de Sofascore (todas las competiciones descargadas) con las
+// cuotas de cierre de football-data.co.uk (Más/Menos 2.5 goles) y el xG de Understat.
 import { teamStatsFrom } from '../../../docs/js/analysis/teamstats.js';
 import { acceptsOffer } from '../../../docs/js/analysis/picks.js';
 import { analyzeReplay, countLine, finished, halfLine, listDir, log, mean, readJson, rowsOf } from './comun.mjs';
@@ -62,6 +62,9 @@ function matchOf(m, code) {
   return { id: m.id, code, t, neutral: Boolean(m.n), h: { id: m.h[0], name: m.h[1] }, a: { id: m.a[0], name: m.a[1] }, ft, ls: ls ? ls.slice(0, 2) : null, stats };
 }
 
+// Partidos de ESPN y de Sofascore (ligas que ESPN no tiene). Los equipos de Sofascore
+// unidos con ESPN (equipos.json) usan el id de ESPN; el resto, "sf:<id>". Un partido de
+// Sofascore que ya está en ESPN (mismo día y mismos equipos) se descarta.
 function loadMatches() {
   const byId = new Map();
   for (const code of listDir('futbol/espn')) {
@@ -69,6 +72,21 @@ function loadMatches() {
       for (const m of readJson(`futbol/espn/${code}/${f}`).matches) {
         const x = matchOf(m, code);
         if (x && !byId.has(x.id)) byId.set(x.id, { ...x, season: Number(f.slice(0, 4)) });
+      }
+    }
+  }
+  const map = listDir('futbol/sofascore').includes('equipos.json') ? readJson('futbol/sofascore/equipos.json').teams : {};
+  const teamId = (id) => map[id]?.[0] || `sf:${id}`;
+  const day = (m) => Math.floor(m.t / DAY);
+  const seen = new Set([...byId.values()].flatMap((m) => [-1, 0, 1].map((k) => `${day(m) + k}|${m.h.id}|${m.a.id}`)));
+  for (const code of listDir('futbol/sofascore')) {
+    if (code.endsWith('.json')) continue;
+    for (const f of listDir(`futbol/sofascore/${code}`)) {
+      const file = readJson(`futbol/sofascore/${code}/${f}`);
+      for (const m of file.matches) {
+        const x = matchOf({ ...m, h: [teamId(m.h[0]), m.h[1]], a: [teamId(m.a[0]), m.a[1]] }, code);
+        if (!x || byId.has(x.id) || seen.has(`${day(x)}|${x.h.id}|${x.a.id}`)) continue;
+        byId.set(x.id, { ...x, season: Number(f.slice(0, 4)), name: file.name });
       }
     }
   }
@@ -215,7 +233,7 @@ export function* footballCases({ from = 0, to = Infinity } = {}) {
       const xa = strength(m.code, m.season, m.a.id, m.t);
       if (xh && xa) xg = { home: xh, away: xa };
     }
-    const ev = { id: `h:espn:${m.id}`, sport: 'football', start: m.t, state: 'pendiente', tournament: { id: m.code, name: NAMES[m.code] || m.code }, category: { name: '' }, home: { id: m.h.id, name: m.h.name }, away: { id: m.a.id, name: m.a.name }, url: null };
+    const ev = { id: m.id.startsWith('sf:') ? `h:${m.id}` : `h:espn:${m.id}`, sport: 'football', start: m.t, state: 'pendiente', tournament: { id: m.code, name: NAMES[m.code] || m.name || m.code }, category: { name: '' }, home: { id: m.h.id, name: m.h.name }, away: { id: m.a.id, name: m.a.name }, url: null };
 
     // Líneas de una casa: la media reciente de ambos equipos.
     const plan = [];
@@ -253,7 +271,7 @@ export function* replayFootball(range = {}) {
     const record = { per: m.ls || undefined, nReg: 2, final: m.ft, stats: m.stats };
     if (!m.ls) delete record.per;
     const res = finished(m.ft, record);
-    const rows = rowsOf(ev, candidates, res, { src: 'espn', comp: m.code, realOdds: real.length ? 1 : 0 }, new Set(plan.map((p) => p.market)));
+    const rows = rowsOf(ev, candidates, res, { src: m.id.startsWith('sf:') ? 'sofascore' : 'espn', comp: m.code, realOdds: real.length ? 1 : 0 }, new Set(plan.map((p) => p.market)));
     yield { ev, rows, candidates };
   }
 }
