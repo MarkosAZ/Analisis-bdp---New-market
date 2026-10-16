@@ -34,11 +34,14 @@ historial de resultados. Funciona en el **celular y en la PC**:
     Flashscore), quién ganó cada uno y la misma estadística en cada uno; y un
     resumen de los dos equipos (ganados, goles, más de 2.5, ambos marcan, córners
     y tarjetas a favor y en contra).
-  - **Jugadores de la NBA y la WNBA** (ESPN), cuando la casa ofrece sus
-    Más/Menos: sus últimos 5, 10, 15 o 20 partidos o todos los que jugó contra el
-    rival de hoy en las dos últimas temporadas, en puntos, rebotes, asistencias,
-    triples, robos, tapones, pérdidas y los combinados (P+R+A, P+R, P+A, R+A,
-    robos+tapones), con la línea de la casa.
+  - **Jugadores de la NBA y la WNBA** (ESPN): en cada partido por jugar, los 8
+    de cada equipo con más minutos en sus últimos 30 partidos y los que ofrece la
+    casa (aunque no ofrezca a nadie, p. ej. en la pretemporada): sus últimos 5, 10,
+    15 o 20 partidos o todos los que jugó contra el rival de hoy en las dos
+    últimas temporadas, en puntos, rebotes, asistencias y los combinados (P+R+A,
+    P+R, P+A, R+A); tiros de campo, triples, de 2 y libres, anotados e intentados;
+    robos, tapones, robos+tapones, pérdidas y minutos. Con la línea de la casa si
+    la ofrece (si no, una cerca del promedio).
   - **Abridores de la MLB**: sus últimas 5, 10 o 20 aperturas en ponches, hits
     y carreras limpias permitidos, bases por bolas y entradas lanzadas.
   - Cada partido es un archivo `data/fuente/datos/<id>.json` (unos 4 KB) que la

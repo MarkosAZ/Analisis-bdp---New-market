@@ -84,7 +84,8 @@ async function fixtures() {
     h2h: Array.from({ length: 6 }, (_, i) => ({ start: at(-24 * (40 + 60 * i)), home: i % 2 === 0, gf: i % 3, ga: (i + 1) % 2, league: 'Liga 1', stats: compactMatchStats({ corners: { ft: [5 + i, 4] } }, i % 2 === 1) })),
   };
   const nba = { ...ev('b2', 'NBA', 'EE. UU.', 'US', 1000, 'New York Knicks', 'Cleveland Cavaliers', 21), sport: 'basketball' };
-  const game = (i, opp, pts, reb, ast) => ({ start: at(-24 * (2 + 3 * i)), opp, home: i % 2 === 0, min: 28, pts, reb, ast, tpm: 0, stl: 1, blk: 1, tov: 1 });
+  // Como el registro de ESPN: tiros anotados e intentados, sin rebotes ofensivos ni defensivos.
+  const game = (i, opp, pts, reb, ast) => ({ start: at(-24 * (2 + 3 * i)), opp, home: i % 2 === 0, min: 28, pts, reb, ast, tpm: 0, stl: 1, blk: 1, tov: 1, fgm: Math.floor(pts / 2), fga: pts, tpa: 2, ftm: pts % 2, fta: 2 });
   const robinson = [game(0, 'BOS', 8, 10, 1), game(1, 'CLE', 12, 9, 2), game(2, 'MIA', 6, 7, 0), game(3, 'PHI', 10, 11, 2), game(4, 'CLE', 15, 13, 1), game(5, 'ATL', 4, 6, 1), game(30, 'CLE', 9, 6, 0)];
   const pra = [o('OU.pl_pra#Mitchell Robinson', 'over', 11.5, 1.87), o('OU.pl_pra#Mitchell Robinson', 'under', 11.5, 1.93), o('OU', 'over', 220.5, 1.9), o('OU', 'under', 220.5, 1.9)];
   const nbaLast = (k) => Array.from({ length: 10 }, (_, i) => ({ start: at(-24 * (2 + i)), home: i % 2 === 0, gf: 105 + ((i * k) % 15), ga: 100 + ((i + k) % 12), r: 'W' }));
@@ -109,7 +110,12 @@ async function fixtures() {
       away: { name: 'Cleveland Cavaliers', last: nbaLast(5).map((m) => ({ ...m, opp: 'Miami Heat', league: 'NBA', stats: null })) },
       h2h: [],
       abbr: ['NY', 'CLE'],
-      players: [{ side: 'home', name: 'Mitchell Robinson', games: robinson }],
+      // De más a menos minutos; solo Robinson tiene línea en la casa.
+      players: [
+        { side: 'home', name: 'Jalen Brunson', games: robinson.map((g) => ({ ...g, min: 35, pts: g.pts + 15 })) },
+        { side: 'home', name: 'Mitchell Robinson', games: robinson },
+        { side: 'away', name: 'Donovan Mitchell', games: robinson.map((g) => ({ ...g, opp: 'NY', pts: g.pts + 20 })) },
+      ],
     }),
     'noticias.json': {
       generated,
@@ -265,11 +271,22 @@ async function withoutExtension(browser, errors) {
   await page.click('#tab-datos .sport:has-text("Básquet")');
   await page.click('.datos-match:has-text("Knicks")');
   await page.waitForSelector('.players .bars .col');
+  const teams = await page.$$eval('.players .player-team', (els) => els.map((e) => `${e.querySelector('.note').textContent}: ${[...e.querySelectorAll('.chip-btn')].map((b) => b.textContent).join(', ')}`));
+  check('Datos: jugadores de los dos equipos; por defecto, el que tiene línea', JSON.stringify(teams) === '["New York Knicks: Jalen Brunson, Mitchell Robinson •","Cleveland Cavaliers: Donovan Mitchell"]' && (await page.textContent('.players .player-team .chip-btn.active')) === 'Mitchell Robinson •', JSON.stringify(teams));
   const playerLine = await page.textContent('.players .line-ctl');
   const offered = await page.textContent('.players .chip-btn.active.offered');
   await page.click('.players .segmented button:has-text("vs Cleveland")');
   const vs = await page.$$eval('.players .bars .col', (cols) => cols.map((c) => c.querySelector('.val').textContent));
-  check('Datos: jugadores con la línea de la casa y sus partidos contra el rival', /11\.5/.test(playerLine) && /rebotes/i.test(offered) && JSON.stringify(vs) === '["15","29","23"]', `${playerLine} · ${offered} · ${JSON.stringify(vs)}`);
+  check('Datos: jugadores con la línea de la casa y sus partidos contra el rival', /11\.5/.test(playerLine) && offered === 'P+R+A 11.5' && JSON.stringify(vs) === '["15","29","23"]', `${playerLine} · ${offered} · ${JSON.stringify(vs)}`);
+  // Tiros: de campo intentados contra el rival (rebotes, sin separar en ofensivos y defensivos).
+  const groups = await page.$$eval('.players .stat-group', (els) => els.map((e) => `${e.querySelector('.note').textContent}: ${e.querySelectorAll('.chip-btn').length}`));
+  await page.click('.players .stat-group .chip-btn:text-is("De campo intentados")');
+  const fga = await page.$$eval('.players .bars .col', (cols) => cols.map((c) => c.querySelector('.val').textContent));
+  check('Datos: tiros de campo, triples y libres (anotados e intentados) y minutos', JSON.stringify(groups) === '["Principales: 7","Tiros: 8","Otras: 5"]' && JSON.stringify(fga) === '["9","15","12"]' && !(await page.$('.players .chip-btn:text-is("Rebotes ofensivos")')), `${JSON.stringify(groups)} · ${JSON.stringify(fga)}`);
+  // Uno sin línea: P+R+A con una línea cerca del promedio.
+  await page.click('.players .chip-btn:has-text("Donovan Mitchell")');
+  const noLine = await page.textContent('.players .line-ctl');
+  check('Datos: un jugador sin línea de la casa usa una cerca del promedio', /cerca del promedio/.test(noLine) && (await page.textContent('.players .stat-group .chip-btn.active')) === 'P+R+A', noLine);
   await page.click('#tab-datos .sport:has-text("Fútbol")');
 
   // Liquidación con los resultados publicados

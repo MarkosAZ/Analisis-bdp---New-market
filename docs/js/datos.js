@@ -121,8 +121,17 @@ export function h2hRecord(list) {
 
 // ---- Jugadores (básquet) ----
 
-// Estadísticas de jugador que se pueden ver, en el orden de los botones.
-export const PLAYER_CHART_STATS = ['pl_pts', 'pl_reb', 'pl_ast', 'pl_3pm', 'pl_pra', 'pl_pr', 'pl_pa', 'pl_ra', 'pl_stl', 'pl_blk', 'pl_sb', 'pl_tov'].filter((c) => PLAYER_STATS[c]);
+// Estadísticas de jugador que se pueden ver, por grupo y en el orden de los botones,
+// con su nombre corto; 'min' (minutos) es solo de esta pestaña (la casa no lo ofrece).
+export const PLAYER_CHART_GROUPS = [
+  ['Principales', [['pl_pts', 'Puntos'], ['pl_reb', 'Rebotes'], ['pl_ast', 'Asistencias'], ['pl_pra', 'P+R+A'], ['pl_pr', 'P+R'], ['pl_pa', 'P+A'], ['pl_ra', 'R+A']]],
+  [
+    'Tiros',
+    [['pl_fgm', 'De campo anotados'], ['pl_fga', 'De campo intentados'], ['pl_3pm', 'Triples anotados'], ['pl_3pa', 'Triples intentados'], ['pl_2pm', 'De 2 anotados'], ['pl_2pa', 'De 2 intentados'], ['pl_ftm', 'Libres anotados'], ['pl_fta', 'Libres intentados']],
+  ],
+  ['Otras', [['pl_stl', 'Robos'], ['pl_blk', 'Tapones'], ['pl_sb', 'Robos + tapones'], ['pl_tov', 'Pérdidas'], ['min', 'Minutos']]],
+].map(([group, list]) => [group, list.filter(([code]) => code === 'min' || PLAYER_STATS[code])]);
+export const PLAYER_CHART_STATS = PLAYER_CHART_GROUPS.flatMap(([, list]) => list.map(([code]) => code));
 
 // Partidos del jugador: los últimos `n` o, con `vs`, todos contra ese rival (sigla).
 export function playerGames(player, { n = 10, vs = null } = {}) {
@@ -132,7 +141,7 @@ export function playerGames(player, { n = 10, vs = null } = {}) {
 
 export function playerSeries(games, code) {
   return games
-    .map((game) => ({ value: statValue(game, code), game }))
+    .map((game) => ({ value: code === 'min' ? (Number.isFinite(game.min) && !game.dnp ? game.min : null) : statValue(game, code), game }))
     .filter((x) => Number.isFinite(x.value))
     .reverse();
 }

@@ -7,6 +7,7 @@ import {
   finishedGames,
   gamesFromGamelog,
   getBoxScore,
+  getPlayerHistory,
   getPlayerLogs,
   getScoreboard,
   matchEspnTeam,
@@ -225,6 +226,10 @@ test('equipos de ESPN por nombre: completo, sin tildes, LA = Los Angeles, apodo 
   assert.equal(id('NY Knicks'), '18');
   assert.equal(id('LAL'), '13');
   assert.equal(id('Houston Rockets'), '10');
+  // Equipos femeninos como los nombra Flashscore ("... F").
+  const wnba = [team('20', 'Atlanta', 'Dream', 'ATL'), team('129689', 'Golden State', 'Valkyries', 'GS')];
+  assert.equal(id('Atlanta Dream F', wnba), '20');
+  assert.equal(id('Golden State Valkyries F', wnba), '129689');
   // Solo la ciudad (dos equipos), otra liga u otro deporte: nada.
   assert.equal(id('Los Angeles'), null);
   assert.equal(id('Sydney Kings'), null, 'NBL: mismo apodo, otra ciudad');
@@ -545,6 +550,29 @@ test('getPlayerLogs: los jugadores ofrecidos con pocos partidos en el equipo se 
   // Sin nombres no se piden planteles ni registros.
   const plain = await getPlayerLogs({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, n: 10 });
   assert.ok(!plain.away.players.some((p) => p.name === 'Anthony Davis'));
+});
+
+// Usa el plantel y los registros de Dallas de la prueba anterior.
+test('getPlayerHistory (pestaña Datos): los de más minutos de cada equipo y los ofrecidos', async () => {
+  const names = (r) => r.away.players.map((p) => p.name);
+  // Sin nada ofrecido: el de más minutos (Davis 12 × 35 frente a Lively 12 × 18); sin la pretemporada.
+  const top1 = await getPlayerHistory({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, top: 1 });
+  assert.deepEqual(names(top1), ['Anthony Davis']);
+  assert.equal(top1.away.players[0].games.length, 12);
+  assert.equal(top1.away.abbr, 'DAL');
+  assert.deepEqual(top1.home.players, [], 'Houston sin plantel en ESPN');
+  assert.equal(top1.incomplete, false, 'un 404 (sin plantel o sin registro de esa temporada) no es una falla');
+  // Un ofrecido entra aunque no esté entre los de más minutos; uno sin partidos (Klay, sin registro), no.
+  const offered = await getPlayerHistory({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, top: 1, names: ['D. Lively', 'Klay Thompson'] });
+  assert.deepEqual(names(offered), ['Anthony Davis', 'Dereck Lively II']);
+  // Sin top: solo los ofrecidos.
+  const only = await getPlayerHistory({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, names: ['D. Lively'] });
+  assert.deepEqual(names(only), ['Dereck Lively II']);
+  // ESPN falla (500) con un registro: el resultado queda marcado como incompleto.
+  routes.set(`${WEB}/athletes/4432816/gamelog?season=2027`, 500);
+  const failing = await getPlayerHistory({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, top: 2 });
+  assert.equal(failing.incomplete, true);
+  routes.delete(`${WEB}/athletes/4432816/gamelog?season=2027`);
 });
 
 test('getPlayerLogs: un traspasado que enfrenta a su equipo anterior queda solo en su equipo actual', async () => {
