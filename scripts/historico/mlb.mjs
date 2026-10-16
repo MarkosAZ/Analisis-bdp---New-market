@@ -38,6 +38,9 @@ export async function mlb({ now = Date.now() } = {}) {
     const old = readJson(rel);
     if (old?.complete) continue;
     const games = await schedule(season);
+    // Las cuotas ya guardadas (cuotas-flashscore.mjs) se conservan.
+    const prev = new Map((old?.games || []).map((g) => [g.pk, g]));
+    for (const g of games) for (const k of ['k', 'kf']) if (prev.get(g.pk)?.[k] != null) g[k] = prev.get(g.pk)[k];
     writeJson(rel, { season, complete: season < thisYear || new Date(now).getUTCMonth() >= 11, games: games.sort((a, b) => a.t - b.t) });
     log(`MLB ${season}: ${games.length} partidos`);
   }

@@ -35,10 +35,13 @@ historial de resultados. Funciona en el **celular y en la PC**:
     los que jugó con otro equipo) y de **Sofascore** en las demás ligas.
     Primer tiempo: Apuesta Total publica sus líneas pocas horas antes del
     partido y la principal a veces es entera (88, +1): se usan sus líneas
-    "extra" con .5; si solo hay enteras, el partido lo dice.
+    "extra" con .5 y, si solo hay enteras, la entera más pareja (si el
+    resultado queda justo en la línea, se devuelve; la probabilidad es sin
+    contar ese empate y la tarjeta lo avisa).
   - Béisbol: ganador, hándicap (run line) y total de carreras.
 - **Una línea por mercado**: solo líneas .5 (sin enteras ni asiáticas, así solo
-  hay dos resultados posibles y nunca devolución) y, en cada casa por separado,
+  hay dos resultados posibles y nunca devolución; la excepción es el 1.er tiempo
+  del básquet sin .5) y, en cada casa por separado,
   la línea con **menos diferencia entre sus dos cuotas**. Ejemplo: Más 2.5 @1.75 /
   Menos 2.5 @1.80 (diferencia 0.05) gana a Más 3.5 @1.90 / Menos 3.5 @2.05
   (0.15). Si las dos casas eligen la misma línea, el pick muestra la mejor cuota.
@@ -202,6 +205,9 @@ Todo va desde 2010 (unos 200 MB):
   historia también la FA Cup y la EFL Cup.
 - **NBA** (ESPN, desde 2010-11, 16 temporadas): cuartos y estadísticas de
   cada jugador.
+- **Euroliga y Liga ACB** (Sofascore, desde 2010-11, en `data/historico/basquet/`;
+  `scripts/historico/basquet.mjs`): cuartos y, desde 2016-17 en la Euroliga y
+  2021-22 en la ACB, estadísticas de cada jugador.
 - **MLB** (statsapi, 2010 a 2026): abridores probables y sus aperturas.
 
 Cada red usa sus 15 000 filas más recientes, así que el entrenamiento diario
@@ -221,14 +227,21 @@ porque Sofascore, ESPN, football-data y Understat ya cubren lo mismo):
 | [FBref](https://fbref.com/) | estadísticas por temporada y partido | bloquea los pedidos automáticos (403) |
 | [dataref](https://dataref.net/) | estadísticas de jugadores argentinos en el exterior | accesible; no aporta a los mercados |
 | [Understat](https://understat.com/) | xG de las 5 grandes ligas desde 2014 | ya se usa |
+| [Flashscore](https://www.flashscore.com/) | cuotas de varias casas por partido | se usa para las cuotas de NBA, MLB, Euroliga y ACB |
+| [Oddspedia](https://oddspedia.com/) | cuotas por partido | bloquea los pedidos automáticos (403) |
 
 `scripts/historico/repeticion/` analiza cada partido **con el mismo código de
 la página y solo con lo que se sabía antes de que empezara** (últimos
 partidos, estadísticas, enfrentamientos, xG, abridores) y lo liquida igual que
-la página. Las cuotas son las reales donde las hay (Más/Menos 2.5 goles de 7
-ligas); en el resto, la línea la pone una casa simulada con la media reciente
-y las variables de cuotas quedan fijas, para que la red no aprenda de una cuota
-inventada.
+la página. Las cuotas son las reales del cierre donde las hay (`k` en cada
+partido): en el fútbol, de Sofascore desde 2024-25 (goles en todas las líneas,
+ambos anotan, tarjetas y córners; `scripts/historico/cuotas-sofascore.mjs`) y,
+antes, Más/Menos 2.5 de football-data en 22 ligas; en la NBA, la MLB, la
+Euroliga y la Liga ACB, de Flashscore (total, hándicap y ganador, y en el
+básquet también el 1.er tiempo; promedio de las casas,
+`scripts/historico/cuotas-flashscore.mjs`). En el resto, la línea la pone una
+casa simulada con la media reciente y las variables de cuotas quedan fijas, para
+que la red no aprenda de una cuota inventada.
 
 Con esa prueba (pérdida logarítmica: menos es mejor; 0.693 es tirar una
 moneda) se ajustó el análisis estadístico con los partidos hasta junio de
@@ -260,9 +273,40 @@ moneda) se ajustó el análisis estadístico con los partidos hasta junio de
   los 40 000 partidos de 2010 a 2026 (ganador 0.6861 contra 0.6886, run line
   0.6700 contra 0.6721, total 0.6803 contra 0.6846) y está calibrado.
 
+**Frente a las líneas reales de la casa** (las que usa la página: la más pareja
+de cada mercado) el análisis se pasaba de seguro: una línea puesta con la media
+reciente es fácil de ganar, la de la casa no. Se calibró con las cuotas reales de
+2024-25 (fútbol) y 2023-2025 (básquet; MLB 2021-2024) y se comprobó con lo
+posterior:
+
+| Frente a la línea real (prueba posterior) | Antes | Calibrado | Casa al cierre |
+|---|---|---|---|
+| Fútbol: goles Más/Menos | 0.6941 | 0.6895 | 0.6812 |
+| Fútbol: tarjetas | 0.7112 | 0.6890 | 0.6879 |
+| Fútbol: córners | 0.6934 | 0.6906 | 0.6901 |
+| Fútbol: ambos anotan | 0.6869 | sin cambio | 0.6805 |
+| Básquet: total | 0.7078 | 0.6935 | 0.6931 |
+| Básquet: hándicap | 0.7060 | 0.6925 | 0.6935 |
+| Básquet: 1.er tiempo (total y hándicap) | 0.70 | 0.693 | 0.693 |
+| MLB: total de carreras | 0.6979 | 0.6926 | 0.6912 |
+| MLB: ganador | 0.6869 | sin cambio | 0.6781 |
+
+- Antes, en tarjetas un 70–80 % acertaba 62 %, y en el básquet un 60 % acertaba
+  50 %. Ahora las probabilidades son honestas, pero más cerca del 50 %: salen
+  menos picks altos (en el básquet, casi ninguno en total y hándicap).
+- Las líneas de la casa en el básquet y en el total de la MLB son muy eficientes:
+  el modelo casi no tiene información que la casa no tenga. Donde hay algo es en
+  el fútbol (goles, ambos anotan) y el ganador de la MLB, pero ahí la casa al
+  cierre sigue siendo mejor.
+- Las redes se entrenan ahora con esas cuotas reales (variables de cuotas de
+  verdad, no fijas), así que pueden aprender cuándo la casa sabe más.
+
 ```
-NODE_USE_ENV_PROXY=1 node scripts/historico/sofascore.mjs  # actualiza las ligas de Sofascore (sesión con internet)
-node scripts/historico/prueba.mjs [futbol] [nba] [mlb]   # prueba retrospectiva por mercado
+NODE_USE_ENV_PROXY=1 node scripts/historico/sofascore.mjs          # actualiza las ligas de fútbol de Sofascore (sesión con internet)
+NODE_USE_ENV_PROXY=1 node scripts/historico/basquet.mjs            # Euroliga y Liga ACB
+NODE_USE_ENV_PROXY=1 node scripts/historico/cuotas-sofascore.mjs   # cuotas reales de Sofascore (fútbol, básquet)
+NODE_USE_ENV_PROXY=1 node scripts/historico/cuotas-flashscore.mjs  # cuotas reales de Flashscore (NBA, MLB, Euroliga, ACB)
+node scripts/historico/prueba.mjs [futbol] [nba] [mlb]   # prueba retrospectiva por mercado (nba: también Euroliga y ACB)
 node scripts/historico/ajuste-futbol.mjs                 # busca los ajustes del fútbol
 node scripts/historico/ajuste-nba.mjs                    # y los de la NBA
 node scripts/historico/entrenar.mjs                      # entrena las 36 redes (docs/data/modelo/redes.json)
