@@ -123,9 +123,10 @@ historial de resultados. Funciona en el **celular y en la PC**:
   tanto, su mercado queda con la probabilidad estadística. Aprenden de la
   apuesta de cada mercado de cada partido (el lado más probable, también si no
   tiene valor o su probabilidad es muy alta); en las de jugador, hasta 8
-  jugadores por partido en cada red. Se reentrenan al
-  actualizar resultados; el Historial muestra el estado de cada una, agrupadas
-  por deporte.
+  jugadores por partido en cada red. Se reentrenan **cada día en GitHub
+  Actions** con los resultados guardados y los partidos históricos (ver
+  *Datos históricos*); la página solo lee `docs/data/modelo/redes.json`. El
+  Historial muestra el estado de cada una, agrupadas por deporte.
 - **Todos los mercados de cada partido con su nivel de confianza**: alta
   (≥ 80 %), moderada-alta (70–80 %), moderada (60–70 %) y **baja** (menos de
   60 %), con la mejor cuota entre Apuesta Total y Betano. Cada mercado tiene su
@@ -158,6 +159,63 @@ de los mercados analizados pueden salir como pick** (también los de jugador),
 si se abre la página de cada partido en Betano y el token de GitHub se cambian
 en **⚙ Ajustes**.
 
+## Datos históricos y prueba retrospectiva
+
+Para ajustar el análisis estadístico y entrenar las redes sin esperar meses de
+resultados propios, `data/historico/` guarda partidos pasados (se descargan en
+GitHub Actions con el flujo *Datos históricos*):
+
+- **Fútbol** (ESPN, unos 17 000 partidos desde 2023): Premier League, LaLiga,
+  Bundesliga, Serie A, Ligue 1, Portugal, Bélgica, MLS, Brasil, Noruega,
+  Suecia, Liga 1 de Perú, Champions, Europa League, Conference League,
+  Libertadores, Sudamericana, Liga de Naciones, Eurocopa, Copa América,
+  Mundiales, eliminatorias y amistosos. Con córners, tarjetas, remates, tiros
+  al arco, goles por tiempo y, donde hay relato, córners del 1.er tiempo. Más
+  las cuotas de cierre de football-data.co.uk y el xG de Understat.
+- **NBA** (ESPN, 3 temporadas): cuartos y estadísticas de cada jugador.
+- **MLB** (statsapi, 2023 a 2026): abridores probables y sus aperturas.
+
+`scripts/historico/repeticion/` analiza cada partido **con el mismo código de
+la página y solo con lo que se sabía antes de que empezara** (últimos
+partidos, estadísticas, enfrentamientos, xG, abridores) y lo liquida igual que
+la página. Las cuotas son las reales donde las hay (Más/Menos 2.5 goles de 7
+ligas); en el resto, la línea la pone una casa simulada con la media reciente
+y las variables de cuotas quedan fijas, para que la red no aprenda de una cuota
+inventada.
+
+Con esa prueba (pérdida logarítmica: menos es mejor; 0.693 es tirar una
+moneda) se ajustó el análisis estadístico con los partidos hasta junio de
+2025 y se comprobó con los posteriores:
+
+| Mercado (prueba: jul 2025 – oct 2026) | Antes | Ahora |
+|---|---|---|
+| Fútbol: goles Más/Menos | 0.6900 | 0.6839 |
+| Fútbol: ambos anotan | 0.6942 | 0.6865 |
+| Fútbol: remates totales | 0.6935 | 0.6899 |
+| Fútbol: tiros al arco | 0.6894 | 0.6877 |
+| Fútbol: tarjetas | 0.6811 | 0.6802 |
+| Fútbol: córners del 1.er tiempo | 0.6834 | 0.6824 |
+| Fútbol: córners (total y hándicap) | sin cambios | |
+| NBA: hándicap (temporada 2025-26) | 0.7055 | 0.6923 |
+| NBA: total | 0.6923 | 0.6909 |
+| NBA: jugadores | 0.6810 | 0.6782 |
+
+- **Fútbol**: el modelo de goles se pasaba de seguro (decía 58 % y acertaba
+  55 %) y ambos anotan era peor que la frecuencia fija; ahora se calibran. En
+  los partidos con cuotas reales la casa al cierre sigue siendo mejor (0.666
+  contra 0.682): la ventaja frente a la casa es chica.
+- **NBA**: frente a una línea puesta con la media reciente el modelo casi no
+  tiene ventaja, así que sus desvíos se ampliaron: ya no inventa ventajas.
+- **MLB**: el modelo (ajustado con 2026) también gana a la frecuencia fija en
+  2023, 2024 y 2025.
+
+```
+node scripts/historico/prueba.mjs [futbol] [nba] [mlb]   # prueba retrospectiva por mercado
+node scripts/historico/ajuste-futbol.mjs                 # busca los ajustes del fútbol
+node scripts/historico/ajuste-nba.mjs                    # y los de la NBA
+node scripts/historico/entrenar.mjs                      # entrena las 36 redes (docs/data/modelo/redes.json)
+```
+
 ## Cómo se usa
 
 1. Abre <https://markosaz.github.io/Analisis-bdp---New-market/> en el celular o en la PC.
@@ -171,9 +229,9 @@ en **⚙ Ajustes**.
 
 ### Guardar en GitHub
 
-Sin token, el historial y la red neuronal se guardan solo en ese navegador. Con
-el token se guardan en `docs/data/` del repositorio y los ves igual en el
-celular y en la PC:
+Sin token, el historial se guarda solo en ese navegador (y sus resultados no
+entrenan la red hasta subirlos a GitHub). Con el token se guarda en `docs/data/`
+del repositorio y lo ves igual en el celular y en la PC:
 
 1. En GitHub: **Settings → Developer settings → Personal access tokens →
    Fine-grained tokens → Generate new token**. Acceso solo a este repositorio,
@@ -224,10 +282,12 @@ docs/                 página web (GitHub Pages)
   js/provider.js      lee los datos automáticos (data/fuente/)
   js/data-format.js   formato compacto de esos datos
   js/github.js        guardar en GitHub con el token del navegador
-  js/history.js       guardar, liquidar resultados, entrenar la red
-  data/               historial y redes especializadas (cuando se guarda en GitHub)
+  js/history.js       guardar y liquidar resultados, filas de entrenamiento de la red
+  data/               historial, filas de entrenamiento y redes especializadas
+data/historico/       partidos históricos (fútbol, NBA, MLB) para la prueba y la red
 extension/            extensión de Chrome (Sofascore, Betano) y conectores de las fuentes
 scripts/              recolección de datos y prueba de las fuentes (GitHub Actions)
+  historico/          descarga de partidos históricos, reproducción, ajustes y entrenamiento
 tests/                pruebas unitarias y de punta a punta
 ```
 

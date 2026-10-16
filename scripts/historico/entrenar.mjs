@@ -26,7 +26,8 @@ const saved = (fs.existsSync(dir) ? fs.readdirSync(dir).sort() : []).flatMap((f)
 const byKey = new Map();
 for (const r of saved) if (isResult(r.y)) byKey.set(r.key, r);
 const real = [...byKey.values()];
-const cutoff = Math.min(Date.now() - 86400000, ...saved.map((r) => r.start).filter(Number.isFinite));
+let cutoff = Date.now() - 86400000;
+for (const r of saved) if (Number.isFinite(r.start) && r.start < cutoff) cutoff = r.start;
 const pending = saved.length;
 log(`resultados propios: ${real.length} (de ${pending} filas guardadas) · partidos históricos hasta ${new Date(cutoff).toISOString().slice(0, 10)}`);
 
@@ -59,7 +60,9 @@ for (const [sport, gen] of [
 const rows = [...[...buffers.values()].flat(), ...real];
 log(`entrenando con ${rows.length} filas (${real.length} propias)`);
 const set = NetworkSet.train(rows);
-set.info = { trainedAt: new Date().toISOString(), source: process.env.GITHUB_ACTIONS ? 'GitHub Actions' : 'local', rows: { real: real.length, imported, bySport }, cutoff: new Date(cutoff).toISOString() };
+// Filas que usó cada red (las 15 000 más recientes de su mercado), propias e históricas.
+const used = set.status().reduce((s, n) => s + n.samples, 0);
+set.info = { trainedAt: new Date().toISOString(), source: process.env.GITHUB_ACTIONS ? 'GitHub Actions' : 'local', rows: { real: real.length, used, imported, bySport }, cutoff: new Date(cutoff).toISOString() };
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, JSON.stringify(set.toJSON()));
 const s = set.summary();

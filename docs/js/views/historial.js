@@ -178,8 +178,10 @@ function networkPanel(app) {
   const on = list.filter((n) => n.trained).length;
   const info = app.state.network?.info;
   const when = info?.trainedAt ? new Date(info.trainedAt).toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+  // Los resultados guardados en GitHub (en modo local, los de este navegador no cuentan hasta subirlos).
+  const own = app.storage.mode === 'local' ? 'resultados guardados en GitHub (los de este navegador cuentan al subirlos con «Subir a GitHub lo guardado en el navegador»)' : 'resultados de tus análisis';
   const origin = info?.rows
-    ? ` Última vez: ${when} con ${fmtInt(info.rows.real)} resultados de tus análisis y ${fmtInt(info.rows.imported)} selecciones de partidos históricos (fútbol, NBA y MLB).`
+    ? ` Última vez: ${when}, con ${fmtInt(info.rows.used ?? info.rows.imported + info.rows.real)} selecciones: ${fmtInt(info.rows.real)} ${own} y el resto de partidos históricos de fútbol, NBA y MLB (cada red usa las 15 000 más recientes de su mercado).`
     : '';
   return h(
     'div',

@@ -6,20 +6,25 @@
 // Cuotas: donde hay cuotas reales (Más/Menos 2.5 goles de football-data.co.uk) se
 // usan. En el resto, la línea es la que pondría una casa con un cálculo simple (la
 // media reciente de ambos equipos o del jugador) y el precio sale de la propia
-// probabilidad del modelo con un margen del 5 %: así las variables de cuotas no
-// inventan una opinión del mercado (dMarket = 0) y la red aprende de los errores
-// del análisis estadístico.
+// probabilidad del modelo con un margen del 5 %. En esas filas las variables de
+// cuotas (dMarket, hasMarket, lnOdds) quedan fijas: el precio sintético repite la
+// probabilidad del modelo y la red aprendería a leer la cuota como si fuera ella
+// (en la página, con cuotas reales, inflaría las selecciones de cuota larga). Una
+// variable fija en el entrenamiento la red no la usa (neural.js, MIN_STD).
 import fs from 'node:fs';
 import path from 'node:path';
 import { analyzeEvent } from '../../../docs/js/analysis/engine.js';
 import { legStatus, trainingRows, yOf } from '../../../docs/js/history.js';
 import { limaDateOf } from '../../../docs/js/util.js';
+import { FEATURES } from '../../../docs/js/analysis/features.js';
 
 export const DATA = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../../data/historico');
 export const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(DATA, rel), 'utf8'));
 export const listDir = (rel) => (fs.existsSync(path.join(DATA, rel)) ? fs.readdirSync(path.join(DATA, rel)).sort() : []);
 
 export const MARGIN = 1.05;
+// Variables de cuotas fijas de las filas con cuotas sintéticas: mercado parejo (50 %) con el margen.
+const MARKET_X = { dMarket: 0, hasMarket: 1, lnOdds: Math.round(Math.log(1 / (0.5 * MARGIN)) * 1000) / 1000 };
 const SOURCE = 'apuestatotal';
 
 // Media línea más cercana a un valor (una casa pone la línea cerca de lo esperado).
@@ -58,12 +63,17 @@ export function analyzeReplay(ev, d, plan, { real = [], xg, simulations } = {}) 
 }
 
 // Filas de entrenamiento de un partido con su resultado (y: 1, 0, 0.75, 0.25; -1 nula).
-export function rowsOf(ev, candidates, res, extra = {}) {
+// synthetic: mercados con cuotas sintéticas (sus variables de cuotas quedan fijas).
+export function rowsOf(ev, candidates, res, extra = {}, synthetic = new Set()) {
   const rows = trainingRows({ date: limaDateOf(ev.start), candidates, events: { [ev.id]: { url: null } } });
   const now = ev.start + 30 * 86400000;
   for (const r of rows) {
     const st = legStatus(r, res, now);
     r.y = st ? yOf(st.status) : -1;
+    if (synthetic.has(r.market)) {
+      r.x = [...r.x];
+      for (const [name, v] of Object.entries(MARKET_X)) r.x[FEATURES.indexOf(name)] = v;
+    }
     Object.assign(r, extra);
   }
   return rows;

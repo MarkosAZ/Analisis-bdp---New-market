@@ -104,6 +104,6 @@ export function* replayNba({ from = 0, to = Infinity, players: withProps = true,
     for (const side of g.players) for (const p of side) box[p.name] = p.min > 0 ? p : { min: 0, dnp: true };
     const base = finished(g.g);
     const res = withPlayers(per ? { ...base, per } : base, box, 'basketball');
-    yield { ev, rows: rowsOf(ev, candidates, res, { src: 'espn', comp: 'nba' }), candidates };
+    yield { ev, rows: rowsOf(ev, candidates, res, { src: 'espn', comp: 'nba' }, new Set(plan.map((p) => p.market))), candidates };
   }
 }

@@ -32,24 +32,32 @@ const similar = (a, b) => {
 
 const STATS = { c: 'corners', s: 'shots', t: 'shots_on', f: 'fouls', y: 'yellows', r: 'reds' };
 
+const sumOf = (periods) => periods.reduce((s, p) => [s[0] + p[0], s[1] + p[1]], [0, 0]);
+const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
+
 function matchOf(m, code) {
   const t = m.t * 1000;
-  const ls = Array.isArray(m.ls) && m.ls.length >= 2 && m.ls.slice(0, 2).every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1])) ? m.ls : null;
-  // 90 minutos: los dos tiempos (en las copas el marcador final suma la prórroga).
-  const ft = ls ? [ls[0][0] + ls[1][0], ls[0][1] + ls[1][1]] : /AET|PEN/i.test(m.st || '') ? null : m.g;
+  const extra = /AET|PEN/i.test(m.st || '');
+  const ok = Array.isArray(m.ls) && m.ls.length >= 2 && m.ls.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  // Los tiempos valen solo si suman el marcador (ESPN a veces deja 0-0 de relleno):
+  // a los 90 minutos, los dos tiempos; con prórroga, los cuatro periodos suman el
+  // marcador final y los 90 minutos son los dos primeros.
+  const ls = ok && (extra ? m.ls.length >= 4 && same(sumOf(m.ls.slice(0, 4)), m.g) : same(sumOf(m.ls), m.g)) ? m.ls : null;
+  const ft = ls ? sumOf(ls.slice(0, 2)) : extra ? null : m.g;
   if (!ft || !ft.every(Number.isFinite)) return null;
   const stats = {};
-  for (const [k, code2] of Object.entries(STATS)) if (Array.isArray(m.s?.[k]) && m.s[k].every(Number.isFinite)) stats[code2] = { ft: m.s[k] };
+  // Con prórroga las estadísticas son de 120 minutos (la casa liquida a los 90): no valen.
+  if (!extra) for (const [k, code2] of Object.entries(STATS)) if (Array.isArray(m.s?.[k]) && m.s[k].every(Number.isFinite)) stats[code2] = { ft: m.s[k] };
   // 0 y 0 en remates, tiros al arco o córners: ESPN no tiene el dato (pasa en
   // amistosos y eliminatorias); sin remates, tampoco valen las tarjetas.
   const zero = (k) => stats[k] && stats[k].ft[0] + stats[k].ft[1] === 0;
   if (zero('shots')) for (const k of ['shots', 'shots_on', 'corners', 'yellows', 'reds']) delete stats[k];
   for (const k of ['shots_on', 'corners']) if (zero(k)) delete stats[k];
   if (stats.yellows && stats.reds) stats.cards = { ft: [stats.yellows.ft[0] + stats.reds.ft[0], stats.yellows.ft[1] + stats.reds.ft[1]] };
-  if (stats.corners && Array.isArray(m.c1)) {
+  if (Array.isArray(m.c1)) {
     const [h, a, total] = m.c1;
     // Solo el total del 1.er tiempo (no hay hándicap de córners del 1.er tiempo en la lista).
-    stats.corners.h1 = Number.isFinite(h) && Number.isFinite(a) ? [h, a] : [total, 0];
+    stats.corners = { ...(stats.corners || {}), h1: Number.isFinite(h) && Number.isFinite(a) ? [h, a] : [total, 0] };
   }
   return { id: m.id, code, t, neutral: Boolean(m.n), h: { id: m.h[0], name: m.h[1] }, a: { id: m.a[0], name: m.a[1] }, ft, ls: ls ? ls.slice(0, 2) : null, stats };
 }
@@ -130,7 +138,7 @@ const view = (m, teamId) => {
 };
 
 // Media de una estadística por partido (ambos equipos) en los partidos de un equipo.
-const totalMean = (list, code) => mean(list.filter((m) => m.stats[code]).map((m) => m.stats[code].ft[0] + m.stats[code].ft[1]));
+const totalMean = (list, code) => mean(list.filter((m) => m.stats[code]?.ft).map((m) => m.stats[code].ft[0] + m.stats[code].ft[1]));
 
 // Cada partido con lo que se sabía antes de empezar: { m, ev, d, xg, plan, real }.
 export function* footballCases({ from = 0, to = Infinity } = {}) {
@@ -183,8 +191,9 @@ export function* footballCases({ from = 0, to = Infinity } = {}) {
     const pa = lastN(A, m.t, 10);
     if (ph.length < 4 || pa.length < 4) continue;
     // Estadísticas: últimos 8 partidos con datos de cada equipo (como collect-data).
-    const sh = lastN(H.filter((x) => Object.keys(x.stats).length), m.t, 8);
-    const sa = lastN(A.filter((x) => Object.keys(x.stats).length), m.t, 8);
+    const withStats = (x) => Object.values(x.stats).some((v) => v.ft);
+    const sh = lastN(H.filter(withStats), m.t, 8);
+    const sa = lastN(A.filter(withStats), m.t, 8);
     const tsH = teamStatsFrom(sh.map((x) => ({ home: x.h.id === m.h.id, stats: x.stats })));
     const tsA = teamStatsFrom(sa.map((x) => ({ home: x.h.id === m.a.id, stats: x.stats })));
     const teamStats = Object.keys(tsH).length && Object.keys(tsA).length ? { home: tsH, away: tsA } : null;
@@ -219,7 +228,7 @@ export function* footballCases({ from = 0, to = Infinity } = {}) {
       plan.push({ market: 'OU', sels: ['over', 'under'], line: countLine(g) });
     }
     plan.push({ market: 'BTTS', sels: ['yes', 'no'], line: null });
-    const both = (code) => totalMean(sh, code) != null && totalMean(sa, code) != null && sh.filter((x) => x.stats[code]).length >= 4 && sa.filter((x) => x.stats[code]).length >= 4;
+    const both = (code) => totalMean(sh, code) != null && totalMean(sa, code) != null && sh.filter((x) => x.stats[code]?.ft).length >= 4 && sa.filter((x) => x.stats[code]?.ft).length >= 4;
     const avg = (code) => (totalMean(sh, code) + totalMean(sa, code)) / 2;
     if (both('corners')) {
       const c = avg('corners');
@@ -244,7 +253,7 @@ export function* replayFootball(range = {}) {
     const record = { per: m.ls || undefined, nReg: 2, final: m.ft, stats: m.stats };
     if (!m.ls) delete record.per;
     const res = finished(m.ft, record);
-    const rows = rowsOf(ev, candidates, res, { src: 'espn', comp: m.code, realOdds: real.length ? 1 : 0 });
+    const rows = rowsOf(ev, candidates, res, { src: 'espn', comp: m.code, realOdds: real.length ? 1 : 0 }, new Set(plan.map((p) => p.market)));
     yield { ev, rows, candidates };
   }
 }

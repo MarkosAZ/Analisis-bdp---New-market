@@ -1,7 +1,9 @@
 name: Datos históricos
 
 # Descarga partidos pasados (fútbol, NBA, MLB) para la prueba retrospectiva y el
-# entrenamiento de la red. Guarda data/historico en la misma rama.
+# entrenamiento de la red. Guarda data/historico en la misma rama. Se lanza a mano
+# (Actions → Datos históricos → Run workflow); lo ya descargado no se vuelve a pedir
+# y las temporadas en curso se completan.
 on:
   workflow_dispatch:
     inputs:
@@ -9,11 +11,6 @@ on:
         description: 'Qué descargar (futbol nba mlb; vacío = todo)'
         required: false
         default: ''
-  push:
-    branches: [claude/quirky-ptolemy-t7wcuw]
-    paths:
-      - scripts/historico/**
-      - .github/workflows/historico.yml
 
 permissions:
   contents: write

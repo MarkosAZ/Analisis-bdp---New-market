@@ -6,8 +6,13 @@ import { analyzeReplay, countLine, finished, listDir, log, mean, readJson, rowsO
 const HOUR = 3600000;
 
 function load() {
-  const games = [];
-  for (const f of listDir('mlb/partidos')) for (const g of readJson(`mlb/partidos/${f}`).games) games.push({ ...g, t: g.t * 1000, season: Number(f.slice(0, 4)) });
+  const all = [];
+  for (const f of listDir('mlb/partidos')) for (const g of readJson(`mlb/partidos/${f}`).games) all.push({ ...g, t: g.t * 1000, season: Number(f.slice(0, 4)) });
+  // Un partido suspendido aparece dos veces (inicio y reanudación) con el marcador
+  // final en ambas: se deja fuera (su resultado se sabría antes de tiempo).
+  const count = new Map();
+  for (const g of all) count.set(g.pk, (count.get(g.pk) || 0) + 1);
+  const games = all.filter((g) => count.get(g.pk) === 1);
   const logs = {};
   for (const f of listDir('mlb/lanzadores')) {
     const d = readJson(`mlb/lanzadores/${f}`);
@@ -72,6 +77,6 @@ export function* replayMlb({ from = 0, to = Infinity } = {}) {
     if (pHome == null) continue;
     plan.push({ market: 'HCP', sels: ['home', 'away'], line: pHome >= 0.5 ? -1.5 : 1.5 });
     const { candidates } = analyzeReplay(ev, d, plan, {});
-    yield { ev, rows: rowsOf(ev, candidates, finished(g.g), { src: 'mlb', comp: g.ty === 'R' ? 'mlb' : 'mlb-playoffs' }), candidates };
+    yield { ev, rows: rowsOf(ev, candidates, finished(g.g), { src: 'mlb', comp: g.ty === 'R' ? 'mlb' : 'mlb-playoffs' }, new Set(plan.map((p) => p.market))), candidates };
   }
 }
