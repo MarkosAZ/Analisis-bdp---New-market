@@ -201,7 +201,12 @@ async function competitionSeason(c, anchor, now) {
 }
 
 // ---- Cuotas de cierre (football-data.co.uk) ----
-const FD_COLS = ['Date', 'Time', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'HTHG', 'HTAG', 'HS', 'AS', 'HST', 'AST', 'HF', 'AF', 'HC', 'AC', 'HY', 'AY', 'HR', 'AR', 'AvgCH', 'AvgCD', 'AvgCA', 'AvgC>2.5', 'AvgC<2.5', 'AHCh', 'AvgCAHH', 'AvgCAHA', 'AvgH', 'AvgD', 'AvgA', 'Avg>2.5', 'Avg<2.5'];
+// Hasta 2018-19 no hay cuotas de cierre: BbAv es el promedio antes del partido.
+const FD_COLS = ['Date', 'Time', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'HTHG', 'HTAG', 'HS', 'AS', 'HST', 'AST', 'HF', 'AF', 'HC', 'AC', 'HY', 'AY', 'HR', 'AR', 'AvgCH', 'AvgCD', 'AvgCA', 'AvgC>2.5', 'AvgC<2.5', 'AHCh', 'AvgCAHH', 'AvgCAHA', 'AvgH', 'AvgD', 'AvgA', 'Avg>2.5', 'Avg<2.5', 'BbAvH', 'BbAvD', 'BbAvA', 'BbAv>2.5', 'BbAv<2.5'];
+// Ligas de Sofascore (sofascore.mjs) con cuotas en football-data.
+export const FD_SOFA = { 'eng.2': 'E1', 'eng.3': 'E2', 'eng.4': 'E3', 'eng.5': 'EC', 'sco.1': 'SC0', 'sco.2': 'SC1', 'sco.3': 'SC2', 'sco.4': 'SC3', 'ger.2': 'D2', 'ita.2': 'I2', 'esp.2': 'SP2', 'fra.2': 'F2', 'ned.1': 'N1', 'tur.1': 'T1', 'gre.1': 'G1' };
+// Temporadas de football-data desde 2010-11 ('1011') hasta la que empieza este año.
+const fdSeasons = (now) => Array.from({ length: new Date(now).getUTCFullYear() - 2009 }, (_, i) => `${String(10 + i).padStart(2, '0')}${String(11 + i).padStart(2, '0')}`);
 const NEW_COLS = ['Date', 'Time', 'Home', 'Away', 'HG', 'AG', 'AvgCH', 'AvgCD', 'AvgCA', 'Season'];
 
 function csv(text) {
@@ -215,7 +220,7 @@ function csv(text) {
 
 async function footballData(c, now) {
   if (c.fd) {
-    for (const season of ['2324', '2425', '2526', '2627']) {
+    for (const season of fdSeasons(now)) {
       const rel = `futbol/cuotas/${c.fd}/${season}.json`;
       const old = readJson(rel);
       if (old?.complete) continue;
@@ -230,16 +235,17 @@ async function footballData(c, now) {
   if (c.fdNew) {
     const text = await get(`https://www.football-data.co.uk/new/${c.fdNew}.csv`, { as: 'text' }).catch(() => null);
     if (!text) return;
-    const rows = csv(text).filter((r) => Number(r.Season) >= 2023 || /^202[3-9]/.test(r.Season || ''));
+    const rows = csv(text).filter((r) => Number(String(r.Season).slice(0, 4)) >= 2010);
     writeJson(`futbol/cuotas/${c.fdNew}/todas.json`, { fd: c.fdNew, cols: NEW_COLS, rows: rows.map((r) => NEW_COLS.map((k) => (num(r[k]) ?? r[k] ?? null))) });
-    log(`football-data ${c.fdNew}: ${rows.length} partidos desde 2023`);
+    log(`football-data ${c.fdNew}: ${rows.length} partidos desde 2010`);
   }
 }
 
 // ---- xG (Understat) ----
 async function understat(c, now) {
   if (!c.us) return;
-  for (const season of [2023, 2024, 2025, 2026]) {
+  // Understat empieza en 2014-15.
+  for (let season = 2014; season <= new Date(now).getUTCFullYear(); season++) {
     const rel = `futbol/xg/${c.us}/${season}.json`;
     const old = readJson(rel);
     if (old?.complete) continue;
@@ -268,4 +274,5 @@ export async function futbol({ only = null, now = Date.now() } = {}) {
     await footballData(c, now).catch((e) => log(`football-data ${c.code}: ${e.message}`));
     await understat(c, now).catch((e) => log(`Understat ${c.code}: ${e.message}`));
   }
+  for (const [code, fd] of Object.entries(FD_SOFA)) if (!only || only.includes(code)) await footballData({ code, fd }, now).catch((e) => log(`football-data ${code}: ${e.message}`));
 }

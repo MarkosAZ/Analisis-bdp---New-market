@@ -3,7 +3,8 @@
 import { DAY, get, log, num, pool, readJson, writeJson } from './comun.mjs';
 
 const ESPN = 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba';
-const ANCHORS = ['20231105', '20241105', '20251105', '20261025'];
+// Un día de cada temporada desde 2010-11 (2011-12 y 2020-21 empezaron en diciembre).
+const ANCHORS = ['20101105', '20120105', '20121105', '20131105', '20141105', '20151105', '20161105', '20171105', '20181105', '20191105', '20210105', '20211105', '20221105', '20231105', '20241105', '20251105', '20261025'];
 // Mismo orden que PLAYER_FIELDS de docs/js/data-format.js.
 export const FIELDS = ['min', 'pts', 'reb', 'ast', 'tpm', 'stl', 'blk', 'tov', 'oreb', 'dreb', 'ftm', 'fgm', 'fga', 'tpa', 'fta'];
 

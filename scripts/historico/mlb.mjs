@@ -31,7 +31,9 @@ async function schedule(season) {
 
 export async function mlb({ now = Date.now() } = {}) {
   const thisYear = new Date(now).getUTCFullYear();
-  for (const season of [2023, 2024, 2025, 2026]) {
+  // Desde 2010 hasta la temporada en curso.
+  const seasons = Array.from({ length: thisYear - 2009 }, (_, i) => 2010 + i);
+  for (const season of seasons) {
     const rel = `mlb/partidos/${season}.json`;
     const old = readJson(rel);
     if (old?.complete) continue;
@@ -39,8 +41,8 @@ export async function mlb({ now = Date.now() } = {}) {
     writeJson(rel, { season, complete: season < thisYear || new Date(now).getUTCMonth() >= 11, games: games.sort((a, b) => a.t - b.t) });
     log(`MLB ${season}: ${games.length} partidos`);
   }
-  // Registro de aperturas de los abridores de 2024 en adelante (y de la temporada anterior).
-  for (const season of [2023, 2024, 2025, 2026]) {
+  // Registro de aperturas de los abridores de cada temporada (y de la siguiente).
+  for (const season of seasons) {
     const rel = `mlb/lanzadores/${season}.json`;
     const old = readJson(rel);
     if (old?.complete) continue;
