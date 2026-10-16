@@ -35,7 +35,8 @@ log(`resultados propios: ${real.length} (de ${pending} filas guardadas) · parti
 // Los datos van desde 2010, pero cada red usa solo sus 15 000 filas más recientes: el
 // fútbol y los jugadores de la NBA las juntan en pocos meses, así que se reproducen solo
 // los últimos años (la historia de cada equipo sí usa todos los partidos). Los mercados
-// de equipo de la NBA (una fila por partido) y la MLB necesitan todas las temporadas.
+// de equipo de la NBA (una fila por partido) usan 8 temporadas: más no entra en el
+// tiempo de GitHub Actions (cada partido se simula). La MLB, todas.
 const YEAR = 365 * 86400000;
 const PROPS = /^OU\.pl_/;
 const buffers = new Map();
@@ -44,7 +45,7 @@ let imported = 0;
 for (const [sport, gen, keep = () => true] of [
   ['futbol', replayFootball({ from: cutoff - 3 * YEAR, to: cutoff })],
   ['mlb', replayMlb({ to: cutoff })],
-  ['nba', replayNba({ to: cutoff, players: false })],
+  ['nba', replayNba({ from: cutoff - 8 * YEAR, to: cutoff, players: false })],
   ['nba', replayNba({ from: cutoff - 2 * YEAR, to: cutoff }), (r) => PROPS.test(r.market)],
 ]) {
   let n = 0;

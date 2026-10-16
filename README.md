@@ -205,8 +205,9 @@ Todo va desde 2010 (unos 200 MB):
 - **MLB** (statsapi, 2010 a 2026): abridores probables y sus aperturas.
 
 Cada red usa sus 15 000 filas más recientes, así que el entrenamiento diario
-solo reproduce los últimos 3 años de fútbol y 2 de jugadores de la NBA; los
-mercados de equipo de la NBA y la MLB usan todas las temporadas. Los años viejos
+solo reproduce los últimos 3 años de fútbol, 2 de jugadores de la NBA y 8 de
+los mercados de equipo de la NBA (cada partido se simula y más no entra en el
+tiempo de GitHub Actions); la MLB usa todas las temporadas. Los años viejos
 sirven para la historia de cada equipo (forma, enfrentamientos directos) y para
 la prueba retrospectiva.
 
