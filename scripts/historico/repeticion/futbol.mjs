@@ -3,7 +3,7 @@
 import { teamStatsFrom } from '../../../docs/js/analysis/teamstats.js';
 import { acceptsOffer } from '../../../docs/js/analysis/picks.js';
 import { FD_SOFA } from '../futbol.mjs';
-import { analyzeReplay, countLine, finished, halfLine, listDir, log, mean, readJson, rowsOf } from './comun.mjs';
+import { analyzeReplay, countLine, finished, halfLine, listDir, log, mean, readJson, rowsOf, withReal } from './comun.mjs';
 
 const UNDERSTAT = { 'eng.1': 'EPL', 'esp.1': 'La_liga', 'ger.1': 'Bundesliga', 'ita.1': 'Serie_A', 'fra.1': 'Ligue_1' };
 const FD = { 'eng.1': 'E0', 'esp.1': 'SP1', 'ger.1': 'D1', 'ita.1': 'I1', 'fra.1': 'F1', 'por.1': 'P1', 'bel.1': 'B1', ...FD_SOFA };
@@ -60,7 +60,7 @@ function matchOf(m, code) {
     // Solo el total del 1.er tiempo (no hay hándicap de córners del 1.er tiempo en la lista).
     stats.corners = { ...(stats.corners || {}), h1: Number.isFinite(h) && Number.isFinite(a) ? [h, a] : [total, 0] };
   }
-  return { id: m.id, code, t, neutral: Boolean(m.n), h: { id: m.h[0], name: m.h[1] }, a: { id: m.a[0], name: m.a[1] }, ft, ls: ls ? ls.slice(0, 2) : null, stats };
+  return { id: m.id, code, t, neutral: Boolean(m.n), h: { id: m.h[0], name: m.h[1] }, a: { id: m.a[0], name: m.a[1] }, ft, ls: ls ? ls.slice(0, 2) : null, stats, k: m.k || null };
 }
 
 // Partidos de ESPN y de Sofascore (ligas que ESPN no tiene). Los equipos de Sofascore
@@ -236,16 +236,14 @@ export function* footballCases({ from = 0, to = Infinity } = {}) {
     }
     const ev = { id: m.id.startsWith('sf:') ? `h:${m.id}` : `h:espn:${m.id}`, sport: 'football', start: m.t, state: 'pendiente', tournament: { id: m.code, name: NAMES[m.code] || m.name || m.code }, category: { name: '' }, home: { id: m.h.id, name: m.h.name }, away: { id: m.a.id, name: m.a.name }, url: null };
 
-    // Líneas de una casa: la media reciente de ambos equipos.
+    // Líneas de una casa: la media reciente de ambos equipos. Donde hay cuotas reales
+    // (Sofascore o, en goles, football-data) se usan esas.
     const plan = [];
-    const real = [];
+    const k = { ...(m.k || {}) };
     const odds = fd.get(m.id);
-    if (odds && odds.over > 1 && odds.under > 1 && 1 / odds.over + 1 / odds.under >= 0.98 && 1 / odds.over + 1 / odds.under <= 1.3) {
-      real.push({ source: 'apuestatotal', market: 'OU', sel: 'over', line: 2.5, price: odds.over }, { source: 'apuestatotal', market: 'OU', sel: 'under', line: 2.5, price: odds.under });
-    } else {
-      const g = mean([...ph.map((x) => x.ft[0] + x.ft[1]), ...pa.map((x) => x.ft[0] + x.ft[1])]);
-      plan.push({ market: 'OU', sels: ['over', 'under'], line: countLine(g) });
-    }
+    if (!k.OU && odds && odds.over > 1 && odds.under > 1) k.OU = [[2.5, odds.over, odds.under]];
+    const g = mean([...ph.map((x) => x.ft[0] + x.ft[1]), ...pa.map((x) => x.ft[0] + x.ft[1])]);
+    plan.push({ market: 'OU', sels: ['over', 'under'], line: countLine(g) });
     plan.push({ market: 'BTTS', sels: ['yes', 'no'], line: null });
     const both = (code) => totalMean(sh, code) != null && totalMean(sa, code) != null && sh.filter((x) => x.stats[code]?.ft).length >= 4 && sa.filter((x) => x.stats[code]?.ft).length >= 4;
     const avg = (code) => (totalMean(sh, code) + totalMean(sa, code)) / 2;
@@ -261,18 +259,22 @@ export function* footballCases({ from = 0, to = Infinity } = {}) {
     if (both('shots')) plan.push({ market: 'OU.shots', sels: ['over', 'under'], line: countLine(avg('shots')) });
 
     // Como en la página: solo las líneas posibles de cada mercado.
-    yield { m, ev, d, xg, plan: plan.filter((p) => acceptsOffer('football', p.market, p.line)), real };
+    // plan: todos los mercados con la línea de la casa simulada; synthetic: los que no
+    // tienen cuotas reales (real).
+    const all = plan.filter((p) => acceptsOffer('football', p.market, p.line));
+    const { real, plan: synthetic } = withReal(ev, all, k);
+    yield { m, ev, d, xg, plan: all, real, synthetic };
   }
 }
 
 export function* replayFootball(range = {}) {
-  for (const { m, ev, d, xg, plan, real } of footballCases(range)) {
-    const { candidates } = analyzeReplay(ev, d, plan, { real, xg });
+  for (const { m, ev, d, xg, real, synthetic } of footballCases(range)) {
+    const { candidates } = analyzeReplay(ev, d, synthetic, { real, xg });
     if (!candidates.length) continue;
     const record = { per: m.ls || undefined, nReg: 2, final: m.ft, stats: m.stats };
     if (!m.ls) delete record.per;
     const res = finished(m.ft, record);
-    const rows = rowsOf(ev, candidates, res, { src: m.id.startsWith('sf:') ? 'sofascore' : 'espn', comp: m.code, realOdds: real.length ? 1 : 0 }, new Set(plan.map((p) => p.market)));
+    const rows = rowsOf(ev, candidates, res, { src: m.id.startsWith('sf:') ? 'sofascore' : 'espn', comp: m.code }, new Set(synthetic.map((p) => p.market)));
     yield { ev, rows, candidates };
   }
 }

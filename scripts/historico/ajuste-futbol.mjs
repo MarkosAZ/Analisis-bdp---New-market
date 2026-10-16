@@ -21,7 +21,16 @@ const fit = cases.filter((c) => c.m.t < SPLIT);
 const test = cases.filter((c) => c.m.t >= SPLIT);
 console.log(`partidos: ${cases.length} (ajuste ${fit.length}, prueba ${test.length})`);
 
-// ---- Goles: Más/Menos (línea de la casa o la real 2.5) y ambos anotan ----
+// ---- Goles: Más/Menos (línea de la casa o la real más pareja) y ambos anotan ----
+// Línea .5 real más pareja de Más/Menos goles, si el partido tiene cuotas reales.
+function realOU(c) {
+  const by = new Map();
+  for (const o of c.real.filter((x) => x.market === 'OU' && Math.abs(x.line % 1) === 0.5)) (by.get(o.line) || by.set(o.line, {}).get(o.line))[o.sel] = o.price;
+  let best = null;
+  for (const [line, s] of by) if (s.over && s.under && (!best || Math.abs(s.over - s.under) < Math.abs(best.over - best.under))) best = { line, ...s };
+  return best;
+}
+
 function goalsLoss(list, opts) {
   let ou = 0;
   let btts = 0;
@@ -30,7 +39,8 @@ function goalsLoss(list, opts) {
   let mod = 0;
   let nm = 0;
   for (const c of list) {
-    const line = c.real.length ? 2.5 : c.plan.find((p) => p.market === 'OU')?.line;
+    const real = realOU(c);
+    const line = real ? real.line : c.plan.find((p) => p.market === 'OU')?.line;
     const m = goalsModel(c.ev, c.d, cfg, { xg: c.xg, lines: { OU: [line] } }, opts);
     if (!m || Math.min(m.form.home.n, m.form.away.n) < 4) continue;
     const pOver = m.candidates.find((x) => x.market === 'OU' && x.sel === 'over' && x.line === line).p;
@@ -40,10 +50,8 @@ function goalsLoss(list, opts) {
     ou += bce(pOver, yOver);
     btts += bce(pYes, h > 0 && a > 0 ? 1 : 0);
     n++;
-    if (c.real.length) {
-      const o = c.real.find((x) => x.sel === 'over').price;
-      const u = c.real.find((x) => x.sel === 'under').price;
-      mkt += bce(1 / o / (1 / o + 1 / u), yOver);
+    if (real) {
+      mkt += bce(1 / real.over / (1 / real.over + 1 / real.under), yOver);
       mod += bce(pOver, yOver);
       nm++;
     }

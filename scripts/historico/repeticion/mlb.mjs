@@ -1,7 +1,7 @@
 // MLB: partidos de statsapi con los abridores probables (sus aperturas anteriores),
 // el estadio (temporada anterior y la actual hasta el día) y el clima. Sin bullpen.
 import { parkRuns } from '../../../extension/sources/mlb.js';
-import { analyzeReplay, countLine, finished, listDir, log, mean, readJson, rowsOf } from './comun.mjs';
+import { analyzeReplay, countLine, finished, listDir, log, mean, readJson, rowsOf, withReal } from './comun.mjs';
 
 const HOUR = 3600000;
 
@@ -76,7 +76,9 @@ export function* replayMlb({ from = 0, to = Infinity } = {}) {
     const pHome = first.candidates.find((c) => c.market === 'ML' && c.sel === 'home')?.pModel;
     if (pHome == null) continue;
     plan.push({ market: 'HCP', sels: ['home', 'away'], line: pHome >= 0.5 ? -1.5 : 1.5 });
-    const { candidates } = analyzeReplay(ev, d, plan, {});
-    yield { ev, rows: rowsOf(ev, candidates, finished(g.g), { src: 'mlb', comp: g.ty === 'R' ? 'mlb' : 'mlb-playoffs' }, new Set(plan.map((p) => p.market))), candidates };
+    // Cuotas reales (Flashscore) donde las hay; el resto, sintéticas.
+    const { real, plan: synthetic } = withReal(ev, plan, g.k);
+    const { candidates } = analyzeReplay(ev, d, synthetic, { real });
+    yield { ev, rows: rowsOf(ev, candidates, finished(g.g), { src: 'mlb', comp: g.ty === 'R' ? 'mlb' : 'mlb-playoffs' }, new Set(synthetic.map((p) => p.market))), candidates };
   }
 }

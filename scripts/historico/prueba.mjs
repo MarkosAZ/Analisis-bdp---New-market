@@ -1,7 +1,7 @@
 // Prueba retrospectiva del análisis estadístico con los datos históricos: por mercado,
 // la pérdida logarítmica de la probabilidad del análisis (pBase) frente a usar siempre
 // la frecuencia del mercado y, donde hay cuotas reales, frente a la casa al cierre.
-// Uso: node scripts/historico/prueba.mjs [futbol] [nba] [mlb] [--filas=archivo.ndjson] [--desde=2024-01-01]
+// Uso: node scripts/historico/prueba.mjs [futbol] [nba|basquet] [mlb] [--filas=archivo.ndjson] [--desde=2024-01-01]
 import fs from 'node:fs';
 import { replayFootball } from './repeticion/futbol.mjs';
 import { replayNba } from './repeticion/nba.mjs';
@@ -20,9 +20,11 @@ const bce = (p, y) => {
   return -(y * Math.log(q) + (1 - y) * Math.log(1 - q));
 };
 const sigmoid = (z) => 1 / (1 + Math.exp(-z));
+const BASKET = { nba: 'NBA', euroliga: 'Euroliga', acb: 'Liga ACB' };
 const groupOf = (r) => {
   const m = r.market.replace(/#.*/, '');
-  return r.sport === 'basketball' && /^OU\.pl_/.test(m) ? 'NBA jugadores' : `${r.sport === 'football' ? 'Fútbol' : r.sport === 'basketball' ? 'NBA' : 'MLB'} ${m}`;
+  const league = BASKET[r.comp] || r.comp;
+  return r.sport === 'basketball' && /^OU\.pl_/.test(m) ? `${league} jugadores` : `${r.sport === 'football' ? 'Fútbol' : r.sport === 'basketball' ? league : 'MLB'} ${m}`;
 };
 
 const stats = new Map();
@@ -46,7 +48,7 @@ let total = 0;
 const gens = [];
 if (want('futbol')) gens.push(['fútbol', replayFootball({ from })]);
 if (want('mlb')) gens.push(['MLB', replayMlb({ from })]);
-if (want('nba')) gens.push(['NBA', replayNba({ from })]);
+if (want('nba') || want('basquet')) gens.push(['básquet', replayNba({ from })]);
 for (const [name, gen] of gens) {
   let n = 0;
   for (const { rows } of gen) {
@@ -54,7 +56,7 @@ for (const [name, gen] of gens) {
     for (const r of rows) {
       if (!(r.y >= 0 && r.y <= 1)) continue;
       total++;
-      const real = r.realOdds && r.market === 'OU' && r.x[2] === 1 ? sigmoid(r.x[0] + r.x[1]) : null;
+      const real = r.realOdds && r.x[2] === 1 ? sigmoid(r.x[0] + r.x[1]) : null;
       add(groupOf(r), r, real);
       if (r.sport === 'football') add(`Fútbol ${r.market} · ${r.comp}`, r, real);
       if (out) out.write(`${JSON.stringify({ s: r.sport, m: r.market, c: r.comp, t: r.start, sel: r.sel, l: r.line, p: r.pBase, y: r.y, x: r.x, o: r.odds, ro: r.realOdds || 0 })}\n`);

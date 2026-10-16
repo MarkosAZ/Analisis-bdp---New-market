@@ -13,7 +13,9 @@
 // variable fija en el entrenamiento la red no la usa (neural.js, MIN_STD).
 import fs from 'node:fs';
 import path from 'node:path';
-import { analyzeEvent } from '../../../docs/js/analysis/engine.js';
+import { analyzeEvent, wholeLinesOk } from '../../../docs/js/analysis/engine.js';
+import { balancedLines } from '../../../docs/js/analysis/markets.js';
+import { acceptsOffer } from '../../../docs/js/analysis/picks.js';
 import { legStatus, trainingRows, yOf } from '../../../docs/js/history.js';
 import { limaDateOf } from '../../../docs/js/util.js';
 import { FEATURES } from '../../../docs/js/analysis/features.js';
@@ -62,14 +64,31 @@ export function analyzeReplay(ev, d, plan, { real = [], xg, simulations } = {}) 
   return analyzeEvent(ev, d, offers, { xg, simulations });
 }
 
+// Cuotas reales guardadas en el partido (k = { mercado: [[línea, cuota A, cuota B]] }, de
+// Sofascore, Flashscore o football-data): los mercados del plan con alguna línea que la
+// página usaría se ofrecen con sus cuotas reales; el resto sigue con cuotas sintéticas.
+export function withReal(ev, plan, k) {
+  const real = [];
+  const rest = [];
+  for (const p of plan) {
+    const offers = (k?.[p.market] || []).flatMap(([line, a, b]) => pair(p.market, p.sels, line, a, b));
+    const usable = offers.length && balancedLines(offers, (o) => acceptsOffer(ev.sport, o.market, o.line), { whole: (m) => wholeLinesOk(ev.sport, m) }).length;
+    if (usable) real.push(...offers);
+    else rest.push(p);
+  }
+  return { real, plan: rest };
+}
+
 // Filas de entrenamiento de un partido con su resultado (y: 1, 0, 0.75, 0.25; -1 nula).
-// synthetic: mercados con cuotas sintéticas (sus variables de cuotas quedan fijas).
+// synthetic: mercados con cuotas sintéticas (sus variables de cuotas quedan fijas); el
+// resto lleva realOdds: 1.
 export function rowsOf(ev, candidates, res, extra = {}, synthetic = new Set()) {
   const rows = trainingRows({ date: limaDateOf(ev.start), candidates, events: { [ev.id]: { url: null } } });
   const now = ev.start + 30 * 86400000;
   for (const r of rows) {
     const st = legStatus(r, res, now);
     r.y = st ? yOf(st.status) : -1;
+    r.realOdds = synthetic.has(r.market) ? 0 : 1;
     if (synthetic.has(r.market)) {
       r.x = [...r.x];
       for (const [name, v] of Object.entries(MARKET_X)) r.x[FEATURES.indexOf(name)] = v;

@@ -1,24 +1,28 @@
-// NBA: partidos de ESPN con el marcador por cuarto y los jugadores. Para cada
-// partido: los últimos 10 de cada equipo y, de los jugadores de la rotación, sus
-// últimos 10 partidos jugados (en cualquier equipo) antes del partido.
+// Básquet: partidos de la NBA (ESPN) y de la Euroliga y la Liga ACB (Sofascore) con el
+// marcador por cuarto y los jugadores. Para cada partido: los últimos 10 de cada
+// equipo y, de los jugadores de la rotación, sus últimos 10 partidos jugados (en
+// cualquier equipo de la misma fuente) antes del partido.
 import { PLAYER_STATS, statValue } from '../../../docs/js/analysis/players.js';
 import { withPlayers } from '../../../docs/js/history.js';
-import { analyzeReplay, countLine, finished, halfLine, listDir, log, mean, readJson, rowsOf } from './comun.mjs';
+import { analyzeReplay, countLine, finished, halfLine, listDir, log, mean, readJson, rowsOf, withReal } from './comun.mjs';
 
 const HOUR = 3600000;
 const CODES = Object.keys(PLAYER_STATS);
 
+// NBA (ESPN, data/historico/nba) y otras ligas (Sofascore, data/historico/basquet/<liga>:
+// Euroliga, Liga ACB), con equipos y jugadores "sf:<id>".
 function loadGames() {
   const games = [];
-  for (const f of listDir('nba')) {
-    const d = readJson(`nba/${f}`);
+  const files = [...listDir('nba').map((f) => ['nba', `nba/${f}`]), ...listDir('basquet').flatMap((code) => listDir(`basquet/${code}`).map((f) => [code, `basquet/${code}/${f}`]))];
+  for (const [league, rel] of files) {
+    const d = readJson(rel);
     const fields = d.fields;
     for (const g of d.games) {
       if (!g.g.every(Number.isFinite)) continue;
       const players = g.p.map((side) =>
         side.map(([id, name, starter, ...v]) => ({ id, name, starter: Boolean(starter), ...Object.fromEntries(fields.map((k, i) => [k, v[i]])) })),
       );
-      games.push({ id: g.id, t: g.t * 1000, h: { id: g.h[0], abbr: g.h[1], name: g.h[2] }, a: { id: g.a[0], abbr: g.a[1], name: g.a[2] }, g: g.g, q: g.q, players });
+      games.push({ id: g.id, league, name: d.name || 'NBA', t: g.t * 1000, h: { id: g.h[0], abbr: g.h[1], name: g.h[2] }, a: { id: g.a[0], abbr: g.a[1], name: g.a[2] }, g: g.g, q: g.q, players, k: g.k || null });
     }
   }
   return games.sort((a, b) => a.t - b.t);
@@ -39,7 +43,7 @@ const view = (g, teamId) => {
 // cases: solo lo que se sabía antes de cada partido ({ g, ev, d, plan }), sin analizar.
 export function* replayNba({ from = 0, to = Infinity, players: withProps = true, cases = false } = {}) {
   const games = loadGames();
-  log(`NBA: ${games.length} partidos`);
+  log(`básquet: ${games.length} partidos (${Object.entries(games.reduce((s, g) => ({ ...s, [g.league]: (s[g.league] || 0) + 1 }), {})).map(([k, v]) => `${k} ${v}`).join(', ')})`);
   const byTeam = new Map();
   const byPlayer = new Map(); // id → [{ t, row }]
   for (const g of games) {
@@ -63,7 +67,7 @@ export function* replayNba({ from = 0, to = Infinity, players: withProps = true,
     // (los que suele ofrecer la casa), con sus últimos 10 partidos jugados.
     const plan = [];
     if (withProps) {
-      d.players = { source: 'espn' };
+      d.players = { source: g.league === 'nba' ? 'espn' : 'sofascore' };
       [H, A].forEach((list, s) => {
         const teamId = s ? g.a.id : g.h.id;
         const ids = new Set();
@@ -92,18 +96,20 @@ export function* replayNba({ from = 0, to = Infinity, players: withProps = true,
     plan.push({ market: 'HCP', sels: ['home', 'away'], line: halfLine(-margin) });
     plan.push({ market: 'OU@h1', sels: ['over', 'under'], line: halfLine(total / 2) });
     plan.push({ market: 'HCP@h1', sels: ['home', 'away'], line: halfLine(-margin / 2) });
-    const ev = { id: `h:nba:${g.id}`, sport: 'basketball', start: g.t, state: 'pendiente', tournament: { name: 'NBA' }, category: { name: 'USA' }, home: { id: g.h.id, name: g.h.name }, away: { id: g.a.id, name: g.a.name }, url: null };
+    const ev = { id: g.league === 'nba' ? `h:nba:${g.id}` : `h:${g.id}`, sport: 'basketball', start: g.t, state: 'pendiente', tournament: { name: g.league === 'nba' ? 'NBA' : g.name }, category: { name: g.league === 'nba' ? 'USA' : '' }, home: { id: g.h.id, name: g.h.name }, away: { id: g.a.id, name: g.a.name }, url: null };
     if (cases) {
       yield { g, ev, d, plan };
       continue;
     }
-    const { candidates } = analyzeReplay(ev, d, plan, { simulations: 10000 });
+    // Cuotas reales (Sofascore o Flashscore) donde las hay; el resto, sintéticas.
+    const { real, plan: synthetic } = withReal(ev, plan, g.k);
+    const { candidates } = analyzeReplay(ev, d, synthetic, { real, simulations: 10000 });
     if (!candidates.length) continue;
     const per = g.q[0].length >= 4 && g.q[0].length === g.q[1].length ? g.q[0].map((v, i) => [v, g.q[1][i]]) : null;
     const box = {};
     for (const side of g.players) for (const p of side) box[p.name] = p.min > 0 ? p : { min: 0, dnp: true };
     const base = finished(g.g);
     const res = withPlayers(per ? { ...base, per } : base, box, 'basketball');
-    yield { ev, rows: rowsOf(ev, candidates, res, { src: 'espn', comp: 'nba' }, new Set(plan.map((p) => p.market))), candidates };
+    yield { ev, rows: rowsOf(ev, candidates, res, { src: g.league === 'nba' ? 'espn' : 'sofascore', comp: g.league }, new Set(synthetic.map((p) => p.market))), candidates };
   }
 }
