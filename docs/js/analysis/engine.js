@@ -482,11 +482,20 @@ function totalsTrend(d, e) {
   return recent == null || all == null || !(e?.sdTotal > 0) ? 0 : (recent - all) / e.sdTotal;
 }
 
+// Mercados que se analizan con la línea entera cuando la casa no tiene .5: el 1.er
+// tiempo del básquet (Apuesta Total lo da en 88 o +1). Se simula y la probabilidad
+// es sin contar el empate en la línea, que se devuelve.
+const wholeLinesOk = (sport, market) => {
+  const spec = parseMarketId(market);
+  return sport === 'basketball' && spec?.scope === 'h1' && spec.stat === 'score' && (spec.t === 'OU' || spec.t === 'HCP');
+};
+
 // Candidatos (las dos selecciones de la línea elegida de cada mercado, con
 // cuota y probabilidad) de un partido, sin aplicar todavía el método
 // (estadístico o red neuronal).
 //  1) De cada mercado permitido, la línea .5 más pareja de cada casa (en los de
-//     jugador, con el nombre del jugador ya buscado en sus datos).
+//     jugador, con el nombre del jugador ya buscado en sus datos; en el 1.er tiempo
+//     del básquet, la entera si no hay .5).
 //  2) Probabilidad con la estadística: modelo de goles o de puntos (total,
 //     hándicap, ambos marcan, ganador), promedios de córners, tarjetas y tiros,
 //     últimos partidos del jugador, o partidos simulados con lo esperado del
@@ -497,7 +506,7 @@ export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } 
   const roster = rosterOf(d);
   // Bajas seguras (las dudas no: el jugador puede jugar y la apuesta seguir viva).
   const missing = [...(d?.missing?.home || []), ...(d?.missing?.away || [])].filter((m) => m?.type !== 'doubtful').map((m) => ({ name: m.player || m.name || '' }));
-  const chosen = balancedLines(canonicalPlayers(offers, roster), (o) => acceptsOffer(ev.sport, o.market, o.line));
+  const chosen = balancedLines(canonicalPlayers(offers, roster), (o) => acceptsOffer(ev.sport, o.market, o.line), { whole: (m) => wholeLinesOk(ev.sport, m) });
   const lines = (market) => [...new Set(chosen.filter((o) => o.market === market).map((o) => o.line))];
   const model = predict(ev, d, cfg, { lines: { OU: lines('OU'), HCP: lines('HCP') }, xg });
   const enough = Math.min(model?.form?.home?.n ?? 0, model?.form?.away?.n ?? 0) >= MIN_MATCHES;
@@ -568,6 +577,7 @@ export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } 
     const z = zFor(c, model?.expected, c.extra);
     cand.x = buildFeatures({ ...cand, price: best.price, z, trend: c.trend, minutes: c.minutes }, { sport: ev.sport, cfg, model, details: d, spec: c.spec, quality: c.quality });
     cand.label = selectionLabel(cand, ev, cfg.unit);
+    if (c.line != null && !isHalfLine(c.line) && wholeLinesOk(ev.sport, c.market)) cand.label += ' · justo en la línea se devuelve';
     cand.factors = c.player ? playerFactors(c, cand, chosen, ev) : factorsFor(ev, d, model, cand, chosen);
     out.push(cand);
   }
@@ -576,10 +586,11 @@ export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } 
   const done = new Set(out.map((c) => c.market));
   const noData = [...new Set(items.filter((c) => c.pModel == null && !isPlayerMarket(c.market) && !done.has(c.market)).map((c) => c.market))];
   // Mercados de la lista que las casas ofrecen solo con líneas enteras o asiáticas
-  // (p. ej. el 1.er tiempo de la NBA en 88 o +1): sin .5 no se apuestan.
+  // (p. ej. córners en 9 o 9.25): sin .5 no se apuestan (salvo el 1.er tiempo del
+  // básquet, que se analiza con la entera).
   const offered = offers.filter((o) => BETTABLE.includes(o.source) && !isPlayerMarket(o.market) && o.line != null && acceptsOffer(ev.sport, o.market, o.line));
   const withHalf = new Set(offered.filter((o) => isHalfLine(o.line)).map((o) => o.market));
-  const wholeOnly = [...new Set(offered.map((o) => o.market))].filter((m) => !withHalf.has(m) && !done.has(m));
+  const wholeOnly = [...new Set(offered.map((o) => o.market))].filter((m) => !withHalf.has(m) && !done.has(m) && !wholeLinesOk(ev.sport, m));
   return { model, candidates: out, simulated, noData, wholeOnly };
 }
 

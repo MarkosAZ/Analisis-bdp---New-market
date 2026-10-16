@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { analyzeEvent, baseCandidates, withPublished } from '../docs/js/analysis/engine.js';
 import { FEATURES } from '../docs/js/analysis/features.js';
+import { evaluate } from '../docs/js/analysis/outcomes.js';
 import { offersFromApuestaTotal, offersFromBetano, offersFromSofascore } from '../docs/js/analysis/markets.js';
 import { NetworkSet } from '../docs/js/analysis/networks.js';
 import { buildCombos, DEFAULT_SETTINGS, marketsOf, selectPicks } from '../docs/js/analysis/picks.js';
@@ -363,20 +364,41 @@ test('jugadores: un Más/Menos de jugador nunca se toma como el total del partid
   assert.ok(!candidates.some((c) => c.market === 'OU'), 'sin datos de jugadores no hay candidato, y nunca como total del partido');
 });
 
-test('básquet: el 1.er tiempo solo con línea entera queda anotado con ese motivo', () => {
-  const nba = { id: 'nba1', sport: 'basketball', start: Date.parse('2026-10-21T23:30:00Z'), home: { name: 'Orlando Magic' }, away: { name: 'Cleveland Cavaliers' } };
-  const at = { home: 'Orlando Magic', away: 'Cleveland Cavaliers' };
+test('básquet: el 1.er tiempo solo con línea entera se analiza con la entera (empate en la línea: se devuelve)', () => {
+  const at = { home: 'Lakers', away: 'Celtics' };
   const sel = (name, price) => ({ name, price });
   const markets = [
-    { name: 'Hándicap - 1° Mitad', selections: [sel('Orlando Magic +1', 1.78), sel('Cleveland Cavaliers -1', 1.83)] },
-    { name: '1ra Mitad Puntos Asiáticos', selections: [sel('Más de 116', 1.8), sel('Menos de 116', 1.8)] },
-    { name: 'Total de puntos (incl. prórroga)', selections: [sel('Más de 229.5', 1.85), sel('Menos de 229.5', 1.85)] },
+    { name: 'Hándicap - 1° Mitad', selections: [sel('Lakers +1', 1.78), sel('Celtics -1', 1.83)] },
+    { name: '1ra Mitad Puntos Asiáticos', selections: [sel('Más de 107', 1.8), sel('Menos de 107', 1.8), sel('Más de 110', 2.2), sel('Menos de 110', 1.6)] },
+    { name: 'Total de puntos (incl. prórroga)', selections: [sel('Más de 214.5', 1.85), sel('Menos de 214.5', 1.85)] },
   ];
-  const r = baseCandidates(nba, {}, offersFromApuestaTotal(markets, at, nba), {});
-  assert.deepEqual(r.wholeOnly.sort(), ['HCP@h1', 'OU@h1']);
-  // Con una línea extra .5 ya no falta.
-  const extra = [...markets, { name: '1ra Mitad Total de Puntos (extra)', selections: [sel('Más de 115.5', 1.75), sel('Menos de 115.5', 1.95)] }];
-  assert.deepEqual(baseCandidates(nba, {}, offersFromApuestaTotal(extra, at, nba), {}).wholeOnly, ['HCP@h1']);
+  const r = baseCandidates(basketEv, basketDetails, offersFromApuestaTotal(markets, at, basketEv), {});
+  const by = Object.fromEntries(r.candidates.map((c) => [c.key, c]));
+  // La entera más pareja (107, no 110) y el hándicap +1, simulados.
+  assert.deepEqual(Object.keys(by).filter((k) => k.includes('@h1')).sort(), ['HCP@h1|away|1', 'HCP@h1|home|1', 'OU@h1|over|107', 'OU@h1|under|107']);
+  assert.equal(by['OU@h1|over|107'].via, 'simulación');
+  assert.equal(by['OU@h1|over|107'].label, 'Más de 107 puntos (1.er tiempo) · justo en la línea se devuelve');
+  // Probabilidad sin contar el empate en la línea: las dos suman 1.
+  assert.ok(Math.abs(by['OU@h1|over|107'].pModel + by['OU@h1|under|107'].pModel - 1) < 1e-9);
+  assert.ok(Math.abs(by['HCP@h1|home|1'].pModel + by['HCP@h1|away|1'].pModel - 1) < 1e-9);
+  assert.deepEqual(r.wholeOnly, []);
+  // Con una línea .5 se usa la .5.
+  const extra = [...markets, { name: '1ra Mitad Total de Puntos (extra)', selections: [sel('Más de 107.5', 1.85), sel('Menos de 107.5', 1.85)] }];
+  const keys = baseCandidates(basketEv, basketDetails, offersFromApuestaTotal(extra, at, basketEv), {}).candidates.map((c) => c.key);
+  assert.ok(keys.includes('OU@h1|over|107.5') && !keys.includes('OU@h1|over|107'));
+  // Liquidación: justo en la línea se devuelve.
+  const rec = { state: 'finalizado', final: [110, 100], per: [[55, 52], [55, 48]], nReg: 4 };
+  assert.equal(evaluate('OU@h1', 'over', 107, rec), 'void');
+  assert.equal(evaluate('OU@h1', 'over', 107, { ...rec, per: [[55, 53], [55, 47]] }), 'won');
+  assert.equal(evaluate('HCP@h1', 'home', 1, { ...rec, per: [[30, 31], [30, 21]] }), 'void');
+});
+
+test('fútbol: un mercado solo con líneas enteras sigue sin analizarse', () => {
+  const sel = (name, price) => ({ name, price });
+  const markets = [{ name: 'Total de goles', selections: [sel('Más de 3', 1.9), sel('Menos de 3', 1.9)] }];
+  const r = baseCandidates(ev, {}, offersFromApuestaTotal(markets, { home: ev.home.name, away: ev.away.name }, ev), {});
+  assert.deepEqual(r.candidates, []);
+  assert.deepEqual(r.wholeOnly, ['OU']);
 });
 
 test('cuotas publicadas: solo los mercados que no llegaron en vivo (nunca una línea vieja)', () => {
