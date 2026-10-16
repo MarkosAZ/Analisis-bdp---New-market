@@ -105,6 +105,7 @@ async function h2hCached(ev, { fetch = true } = {}) {
 
 // Jugadores de un partido de la NBA o la WNBA para la pestaña Datos (ESPN), con caché
 // de unas horas: se vuelve a pedir si vence o si la casa ofrece a alguien que no estaba.
+// Si ESPN falló en algún pedido (429, 5xx), se usa igual pero no se guarda.
 async function playerHistoryCached(ev, league, names) {
   const file = path.join(PLAYER_HISTORY_CACHE, `${ev.id.slice(3)}.json`);
   try {
@@ -114,7 +115,7 @@ async function playerHistoryCached(ev, league, names) {
     // sin caché
   }
   const data = await getPlayerHistory({ league, home: ev.home.name, away: ev.away.name, start: ev.start, names, top: DATA_TOP_PLAYERS });
-  await writeJson(file, { at: Date.now(), names, data });
+  if (!data.incomplete) await writeJson(file, { at: Date.now(), names, data });
   return data;
 }
 
@@ -273,6 +274,7 @@ async function main() {
   await pruneCache(DETAIL_CACHE);
   await pruneCache(PLAYERS_CACHE);
   await pruneCache(PLAYER_LOGS_CACHE, 3);
+  await pruneCache(PLAYER_HISTORY_CACHE, 3);
   const started = Date.now();
   const sports = Object.keys(SPORT_IDS).filter((s) => ACTIVE_SPORTS.includes(s)); // solo fútbol, básquet y béisbol
   const upcoming = {}; // fecha -> deporte -> partidos

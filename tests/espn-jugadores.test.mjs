@@ -561,12 +561,18 @@ test('getPlayerHistory (pestaña Datos): los de más minutos de cada equipo y lo
   assert.equal(top1.away.players[0].games.length, 12);
   assert.equal(top1.away.abbr, 'DAL');
   assert.deepEqual(top1.home.players, [], 'Houston sin plantel en ESPN');
+  assert.equal(top1.incomplete, false, 'un 404 (sin plantel o sin registro de esa temporada) no es una falla');
   // Un ofrecido entra aunque no esté entre los de más minutos; uno sin partidos (Klay, sin registro), no.
   const offered = await getPlayerHistory({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, top: 1, names: ['D. Lively', 'Klay Thompson'] });
   assert.deepEqual(names(offered), ['Anthony Davis', 'Dereck Lively II']);
   // Sin top: solo los ofrecidos.
   const only = await getPlayerHistory({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, names: ['D. Lively'] });
   assert.deepEqual(names(only), ['Dereck Lively II']);
+  // ESPN falla (500) con un registro: el resultado queda marcado como incompleto.
+  routes.set(`${WEB}/athletes/4432816/gamelog?season=2027`, 500);
+  const failing = await getPlayerHistory({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, top: 2 });
+  assert.equal(failing.incomplete, true);
+  routes.delete(`${WEB}/athletes/4432816/gamelog?season=2027`);
 });
 
 test('getPlayerLogs: un traspasado que enfrenta a su equipo anterior queda solo en su equipo actual', async () => {

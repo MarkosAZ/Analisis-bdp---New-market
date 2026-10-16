@@ -592,17 +592,22 @@ export async function getPlayerLogs({ league, home, away, start, n = 10, names =
 // ofrece la casa) y, con `top`, además los `top` de cada equipo con más minutos en
 // sus últimos 30 partidos (aunque la casa no ofrezca nada, p. ej. en la pretemporada;
 // en total y no en promedio, para que no se cuelen los que jugaron pocos partidos).
-// { home: { team, abbr, players: [{ name, games }] }, away: {...} }, los jugadores de
-// más a menos minutos; cada partido { start, opp (sigla), home, min, pts, ... }, del
-// más reciente al más viejo.
+// { home: { team, abbr, players: [{ name, games }] }, away: {...}, incomplete }, los
+// jugadores de más a menos minutos; cada partido { start, opp (sigla), home, min, pts,
+// ... }, del más reciente al más viejo. incomplete: algún pedido falló por algo que no
+// es "no existe" (429, 5xx, red), así que puede faltar alguien (no conviene guardarlo).
 export async function getPlayerHistory({ league, home, away, start, names = [], top = 0 } = {}) {
   checkLeague(league);
   const before = Number.isFinite(toMs(start)) ? toMs(start) : Date.now();
   const teams = await leagueTeams(league);
   const season = seasonOf(league, before);
+  let incomplete = false;
+  const failed = (e) => {
+    if (e?.status !== 404) incomplete = true; // 404: sin plantel o sin registro de esa temporada
+  };
   const side = async (team, name) => {
     if (!team || (!names.length && !top)) return { team: team?.displayName || name, abbr: team?.abbreviation || null, players: [] };
-    const roster = await teamRoster(league, team.id).catch(() => []);
+    const roster = await teamRoster(league, team.id).catch((e) => (failed(e), []));
     const offered = (a) => names.some((x) => sameAthlete(x, a));
     const players = [];
     await pool(top ? roster : roster.filter(offered), async (a) => {
@@ -610,8 +615,8 @@ export async function getPlayerHistory({ league, home, away, start, names = [], 
       for (const year of [season, season - 1]) {
         try {
           for (const g of await athleteLog(league, a.id, year)) if (g.start < before) games.push(g);
-        } catch {
-          // sin registro de esa temporada
+        } catch (e) {
+          failed(e);
         }
       }
       if (games.length) players.push({ name: a.displayName, games: games.sort((x, y) => y.start - x.start), offered: offered(a) });
@@ -621,7 +626,7 @@ export async function getPlayerHistory({ league, home, away, start, names = [], 
     return { team: team.displayName, abbr: team.abbreviation || null, players: ranked.filter((p, i) => p.offered || i < top).map(({ name, games }) => ({ name, games })) };
   };
   const [hs, as] = await Promise.all([side(matchEspnTeam(home, teams), home), side(matchEspnTeam(away, teams), away)]);
-  return { home: hs, away: as };
+  return { home: hs, away: as, incomplete };
 }
 
 // Box score del partido (nombres de equipo y hora de inicio): { id, state, score, players }
