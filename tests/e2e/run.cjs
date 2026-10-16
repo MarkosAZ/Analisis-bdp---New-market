@@ -57,7 +57,13 @@ async function fixtures() {
     sport: 'football',
     generated: new Date(Date.now() - 35 * 60000).toISOString(),
     events,
-    offers: { 'fs:e1': book(1.35, 4.8, 8.5), 'fs:e2': book(1.5, 4.0, 6.5), 'fs:e4': book(1.45, 4.5, 6.8) },
+    // e1 también con córners y tarjetas lejos de sus datos (pestaña Errores de cuota):
+    // promedio de córners cerca de 9.7 frente a 6.5 y de tarjetas cerca de 4 frente a 7.5.
+    offers: {
+      'fs:e1': [...book(1.35, 4.8, 8.5), o('OU.corners', 'over', 6.5, 1.85), o('OU.corners', 'under', 6.5, 1.9), o('OU.cards', 'over', 7.5, 1.9), o('OU.cards', 'under', 7.5, 1.88)],
+      'fs:e2': book(1.5, 4.0, 6.5),
+      'fs:e4': book(1.45, 4.5, 6.8),
+    },
     details: Object.fromEntries(['e1', 'e2', 'e4'].map((id) => [`fs:${id}`, { lastHome: strong, lastAway: weak, h2h: { homeWins: 4, draws: 1, awayWins: 1 } }])),
     // Pestaña Datos: también los partidos sin cuotas (e3); e2 y e4 todavía sin su archivo.
     datos: ['fs:e1', 'fs:e3'],
@@ -257,7 +263,7 @@ async function withoutExtension(browser, errors) {
   await page.click('.datos-filters .line-ctl button[aria-label="Subir la línea"]');
   const after = await lineText();
   const leanChip = await page.textContent('.chart-grid .chart-card .chip.lean');
-  check('Datos: córners con una línea que se sube con +', /cerca del promedio/.test(before) && /elegida/.test(after) && Number(after.match(/(\d+(\.\d)?)/)[1]) === Number(before.match(/(\d+(\.\d)?)/)[1]) + 1 && leanChip.includes('de 10'), `${before} → ${after} · ${leanChip}`);
+  check('Datos: córners con una línea que se sube con +', /de Apuesta Total/.test(before) && /elegida \(la de Apuesta Total es 6\.5\)/.test(after) && Number(after.match(/(\d+(\.\d)?)/)[1]) === Number(before.match(/(\d+(\.\d)?)/)[1]) + 1 && leanChip.includes('de 10'), `${before} → ${after} · ${leanChip}`);
   await page.click('.datos-filters .segmented button:has-text("Últimos 15")');
   await page.click('.datos-filters .segmented button:has-text("Local / Visita")');
   check('Datos: últimos 15 y solo de local o de visita', JSON.stringify(await barsOf()) === '[6,6]', JSON.stringify(await barsOf()));
@@ -288,6 +294,26 @@ async function withoutExtension(browser, errors) {
   const noLine = await page.textContent('.players .line-ctl');
   check('Datos: un jugador sin línea de la casa usa una cerca del promedio', /cerca del promedio/.test(noLine) && (await page.textContent('.players .stat-group .chip-btn.active')) === 'P+R+A', noLine);
   await page.click('#tab-datos .sport:has-text("Fútbol")');
+
+  // Errores de cuota: las líneas del análisis frente a los datos del partido.
+  check('Errores de cuota: la pestaña cuenta los errores', (await page.textContent('.tabs button[data-tab="errores"] .n')) === '2', await page.textContent('.tabs button[data-tab="errores"]'));
+  await page.click('.tabs button[data-tab="errores"]');
+  await page.waitForSelector('.error-card');
+  const errorCards = await page.$$eval('.error-card', (cards) => cards.map((c) => `${c.querySelector('h3').textContent} | ${c.querySelector('.err-label').textContent} | ${c.querySelector('.err-odds').textContent}`));
+  const errorNote = await page.textContent('.errores-head');
+  check(
+    'Errores de cuota: córners por encima y tarjetas por debajo de su línea (los goles, no)',
+    errorCards.length === 2 && errorCards.every((c) => c.startsWith('Alianza Lima vs Sporting Cristal')) && errorCards.some((c) => /Más de 6\.5 córners.*@1\.85 Apuesta Total/.test(c)) && errorCards.some((c) => /Menos de 7\.5 tarjetas.*@1\.88 Apuesta Total/.test(c)) && /en 1 de 3 partidos con datos/.test(errorNote),
+    `${errorCards.join(' / ')} · ${errorNote.slice(-120)}`,
+  );
+  await page.screenshot({ path: path.join(OUT, '10-celular-errores.png'), fullPage: true });
+  check('Errores de cuota: sin desplazamiento horizontal en el celular', !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)));
+  // "Ver en Datos": el partido en Datos con los córners y la línea de la casa.
+  await page.click('.error-card:has-text("córners") button:has-text("Ver en Datos")');
+  await page.waitForSelector('#tab-datos .chart-card .bars .col');
+  const datosLine = await page.textContent('#tab-datos .datos-filters .line-ctl');
+  check('Errores de cuota: "Ver en Datos" abre el partido con la estadística y la línea', (await page.textContent('#tab-datos .datos-head h2')) === 'Alianza Lima vs Sporting Cristal' && (await page.textContent('#tab-datos .stat-chips .chip-btn.active')) === 'Córners' && /6\.5.*de Apuesta Total/.test(datosLine), datosLine);
+  await page.click('#tab-datos .datos-head .back');
 
   // Liquidación con los resultados publicados
   await page.click('.tabs button[data-tab="historial"]');

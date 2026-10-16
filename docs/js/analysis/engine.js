@@ -602,7 +602,10 @@ export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } 
   const offered = offers.filter((o) => BETTABLE.includes(o.source) && !isPlayerMarket(o.market) && o.line != null && acceptsOffer(ev.sport, o.market, o.line));
   const withHalf = new Set(offered.filter((o) => isHalfLine(o.line)).map((o) => o.market));
   const wholeOnly = [...new Set(offered.map((o) => o.market))].filter((m) => !withHalf.has(m) && !done.has(m) && !wholeLinesOk(ev.sport, m));
-  return { model, candidates: out, simulated, noData, wholeOnly };
+  // La línea más pareja de cada casa con sus dos cuotas, también en los mercados sin
+  // probabilidad (pestaña Errores de cuota: la comparan con los datos de cada partido).
+  const chosenLines = chosen.map((o) => ({ market: o.market, sel: o.sel, line: o.line, source: o.source, price: o.price, label: selectionLabel(o, ev, cfg.unit) }));
+  return { model, candidates: out, simulated, noData, wholeOnly, lines: chosenLines };
 }
 
 // Aplica el método: con red neuronal, la red especializada de cada mercado
@@ -729,6 +732,7 @@ export async function analyzeMany(events, { methods = ['estadistico'], settings 
   // Probabilidades de cada partido (una sola vez para todos los métodos).
   const base = [];
   const eventInfo = {};
+  const lines = {}; // líneas más parejas de cada partido (no se guardan en el historial)
   let simulated = 0;
   for (const [i, ev] of pending.entries()) {
     onProgress(`Calculando probabilidades ${i + 1} de ${pending.length}`, 0.86 + (0.12 * i) / Math.max(1, pending.length));
@@ -739,6 +743,7 @@ export async function analyzeMany(events, { methods = ['estadistico'], settings 
     const r = baseCandidates(ev, details[ev.id], all, { xg: xg.get(ev.id) || xgFromTeamStats(details[ev.id]?.teamStats) || undefined });
     simulated += r.simulated;
     base.push(...r.candidates);
+    lines[ev.id] = r.lines;
     eventInfo[ev.id] = {
       ...summaryOf(ev),
       hasModel: Boolean(r.model),
@@ -767,6 +772,7 @@ export async function analyzeMany(events, { methods = ['estadistico'], settings 
       network: net ? net.summary() : null,
       sources,
       events: eventInfo,
+      lines,
       candidates,
       picks: selectPicks(candidates, settings),
       combos: buildCombos(candidates, settings),

@@ -10,6 +10,7 @@ import { isActiveSport, sportOf } from './sports.js';
 import { addDays, h, limaToday, versionBefore } from './util.js';
 import { PartidosView } from './views/partidos.js';
 import { DatosView } from './views/datos.js';
+import { ErroresView } from './views/errores.js';
 import { analysisText, renderAnalisis, viewSport } from './views/analisis.js';
 import { renderHistorial } from './views/historial.js';
 
@@ -68,6 +69,7 @@ const app = {
     // Pestaña Datos: partido abierto, cuántos partidos, local/visita, estadística, de
     // quién y líneas elegidas con − y +; jugadores (básquet) y abridores (béisbol).
     datos: { id: null, n: 10, venue: 'all', stat: null, who: 'total', line: {}, search: '', onlyOdds: false, open: {}, player: null, playerStat: null, playerN: 10, playerVs: false, pitcherStat: 'k', pitcherN: 10 },
+    errores: { n: 10, venue: 'all', level: 'media' },
     settings: savedSettings(),
   },
 };
@@ -149,6 +151,7 @@ function render() {
   renderHeader();
   if (app.state.tab === 'partidos') views.partidos.render();
   if (app.state.tab === 'datos') views.datos.render();
+  if (app.state.tab === 'errores') views.errores.render();
   if (app.state.tab === 'analisis') renderAnalisis($('#tab-analisis'), app);
   if (app.state.tab === 'historial') renderHistorial($('#tab-historial'), app);
 }
@@ -157,9 +160,27 @@ function showTab(tab) {
   app.state.tab = tab;
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('active', b.dataset.tab === tab);
   // Sin la sección (un index.html anterior todavía en la caché del navegador), se salta.
-  for (const t of ['partidos', 'datos', 'analisis', 'historial']) if ($(`#tab-${t}`)) $(`#tab-${t}`).hidden = t !== tab;
+  for (const t of ['partidos', 'datos', 'errores', 'analisis', 'historial']) if ($(`#tab-${t}`)) $(`#tab-${t}`).hidden = t !== tab;
   render();
 }
+app.showTab = showTab;
+
+// Abre un partido en la pestaña Datos (desde Errores de cuota) con su día y deporte.
+app.openDatos = (patch, { date, sport }) => {
+  Object.assign(app.state.datos, patch);
+  if (date && date !== app.state.date) {
+    app.state.date = date;
+    app.state.expanded.clear();
+    loadSelection();
+  }
+  if (sport && sport !== app.state.sport) {
+    app.state.sport = sport;
+    LS.set('bdp:deporte', sport);
+  }
+  showTab('datos');
+  window.scrollTo?.({ top: 0 });
+  app.loadSport(app.state.sport);
+};
 
 // ---- Partidos y selección ----
 
@@ -292,6 +313,7 @@ async function runAnalysis(methods) {
     });
     Object.assign(app.state.analyses, results);
     app.state.analysisView = methods[0];
+    views.errores.prepare(); // lee los datos de los partidos y cuenta los errores de cuota
     idle();
     showTab('analisis');
     if (store.canWrite()) {
@@ -516,6 +538,7 @@ function closeSettings(action) {
 async function init() {
   views.partidos = new PartidosView($('#tab-partidos'), app);
   views.datos = new DatosView($('#tab-datos'), app);
+  views.errores = new ErroresView($('#tab-errores'), app);
   for (const b of document.querySelectorAll('.tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
   $('#date').addEventListener('change', (e) => e.target.value && setDate(e.target.value));
   $('#prev-day').addEventListener('click', () => setDate(addDays(app.state.date, -1)));

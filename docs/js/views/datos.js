@@ -90,6 +90,7 @@ export class DatosView {
       const data = await provider.loadDay(date, sport);
       if (this.day.key !== key) return;
       this.day = { key, status: data ? 'ok' : 'nodata', data };
+      if (this.st.id && !data?.events?.some((e) => e.id === this.st.id)) this.st.id = null;
     } catch (e) {
       if (this.day.key === key) this.day = { key, status: 'error', error: e.message };
     }
@@ -117,10 +118,8 @@ export class DatosView {
   render() {
     const { state } = this.app;
     const key = `${state.date}|${state.sport}`;
-    if (this.day?.key !== key) {
-      this.loadDay();
-      if (this.st.id && !this.day?.data?.events?.some((e) => e.id === this.st.id)) this.st.id = null;
-    }
+    // Otro día o deporte: el partido abierto se cierra si no está en el nuevo (al cargarlo).
+    if (this.day?.key !== key) this.loadDay();
     const ev = this.day?.data?.events?.find((e) => e.id === this.st.id) || null;
     if (ev && this.match?.id !== ev.id) this.loadMatch(ev.id);
     this.root.replaceChildren(
@@ -306,7 +305,7 @@ export class DatosView {
 
   // Línea de la estadística elegida: la guardada (elegida con − y +), la de la casa o una cerca del promedio.
   lineFor(key, values, offered) {
-    if (Number.isFinite(this.st.line[key])) return { line: this.st.line[key], source: Number.isFinite(offered) ? 'elegida (la de Apuesta Total es ' + fmtNum(offered) + ')' : 'elegida' };
+    if (Number.isFinite(this.st.line[key]) && this.st.line[key] !== offered) return { line: this.st.line[key], source: Number.isFinite(offered) ? 'elegida (la de Apuesta Total es ' + fmtNum(offered) + ')' : 'elegida' };
     if (Number.isFinite(offered)) return { line: offered, source: 'de Apuesta Total' };
     return { line: D.defaultLine(values), source: 'cerca del promedio' };
   }

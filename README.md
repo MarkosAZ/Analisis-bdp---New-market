@@ -53,6 +53,24 @@ historial de resultados. Funciona en el **celular y en la PC**:
     actualizaciones algunos partidos salen solo con el marcador y los que todavía
     no tienen archivo se completan en las siguientes (la lista dice cuántos
     faltan).
+- **Errores de cuota** (después de Datos): tras lanzar el análisis (estadístico,
+  red neuronal o ambos), la línea más pareja de cada casa frente a los datos del
+  partido (los de la pestaña Datos). Si el promedio de los últimos 5, 10 o 15
+  partidos de cada equipo (todos o local de local y visita de visita), o del
+  jugador, queda lejos de la línea y lo confirma cuántas veces la pasaron, la opción
+  que favorecen los datos aparece como error de cuota, con su cuota, la de la otra
+  opción y la probabilidad del análisis. Ejemplo: promedio de 3.5 goles con la línea
+  en 2.5 → "Más de 2.5". Qué tan lejos depende de cuánto varía cada mercado (la
+  diferencia se mide en desviaciones de esos partidos: un gol pesa lo que varios
+  puntos en el básquet) y de la exigencia elegida:
+  - baja: 0.25 desviaciones y 55 % de los partidos de ese lado;
+  - media (por defecto): 0.4 y 60 %;
+  - alta: 0.6 y 70 %.
+  Cubre los totales y los hándicaps (en el hándicap, lo que suele sacar cada equipo
+  frente a la línea del local) y los Más/Menos de jugador; no ambos marcan, el
+  ganador ni el 1.er tiempo del básquet. "Ver en Datos" abre el partido en Datos
+  con esa estadística y esa línea. Solo partidos con datos publicados (hoy y
+  mañana, de Flashscore).
 - **Mercados analizados** (solo estos):
   - Fútbol: goles totales Más/Menos, ambos equipos anotan, Más/Menos córners,
     **hándicap de córners** (el de dos opciones; el de tres, con empate, no),
@@ -400,7 +418,7 @@ workflow**.
 docs/                 página web (GitHub Pages)
   index.html, css/    interfaz
   js/app.js           une todo
-  js/views/           pestañas Partidos, Datos, Análisis e Historial (barras.js: gráfico de barras)
+  js/views/           pestañas Partidos, Datos, Errores de cuota, Análisis e Historial (barras.js: gráfico de barras)
   js/analysis/        modelos, cuotas y línea más pareja, emparejamiento, picks, combinadas, red neuronal
     catalog.js        traduce los mercados de Betano y Apuesta Total a un formato común
     outcomes.js       liquida cualquier mercado con el registro del partido
@@ -415,6 +433,7 @@ docs/                 página web (GitHub Pages)
   js/provider.js      lee los datos automáticos (data/fuente/)
   js/data-format.js   formato compacto de esos datos
   js/datos.js         cálculos de la pestaña Datos (últimos N, local/visita, línea, resumen)
+  js/errores.js       cálculos de la pestaña Errores de cuota (línea de la casa frente a los datos)
   js/github.js        guardar en GitHub con el token del navegador
   js/history.js       guardar y liquidar resultados, filas de entrenamiento de la red
   data/               historial, filas de entrenamiento y redes especializadas

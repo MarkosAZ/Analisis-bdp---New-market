@@ -85,7 +85,8 @@ button, input, select { font: inherit; color: inherit; }
 }
 
 .tabs { display: flex; gap: 4px; padding: 8px 16px 0; border-bottom: 1px solid var(--line); background: var(--surface); align-items: flex-end; overflow-x: auto; }
-.tabs button { border: 0; background: transparent; padding: 8px 14px; border-bottom: 2px solid transparent; cursor: pointer; color: var(--muted); font-weight: 600; }
+.tabs button { border: 0; background: transparent; padding: 8px 14px; border-bottom: 2px solid transparent; cursor: pointer; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.tabs button .n { margin-left: 4px; font-size: 11px; font-weight: 700; color: var(--accent-text); background: var(--accent); border-radius: 999px; padding: 1px 6px; vertical-align: 1px; }
 .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
 .tabs .status { margin-left: auto; padding-bottom: 8px; font-size: 13px; white-space: nowrap; }
 
@@ -395,3 +396,20 @@ dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }
 .bars-legend .key.k-line { border-top: 2px dashed var(--thr); }
 .bars-legend .key.k-avg { border-top: 1px solid var(--muted); }
 .bars-caption { margin: 0; font-size: 13px; color: var(--muted); min-height: 1.4em; }
+
+/* Errores de cuota: la opción que favorecen los datos, con su cuota y por qué. */
+.errores-head { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+.errores-head h2 { margin: 0; font-size: 20px; }
+.errores-head p { margin: 0; }
+.error-list { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); margin: 12px 0; }
+.error-card { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.error-card .meta { color: var(--muted); font-size: 13px; }
+.error-card h3 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.err-pick { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+.err-label { font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
+.err-dir { margin-right: 6px; font-size: 12px; color: var(--accent); }
+.err-odds { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.err-odds small { font-size: 12px; font-weight: 600; color: var(--muted); }
+.err-evidence { margin: 0; padding-left: 18px; display: grid; gap: 2px; font-size: 14px; }
+.error-card > .btn { justify-self: start; }
+.seg-labeled { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
