@@ -483,7 +483,10 @@ export class DatosView {
     // Por defecto, el primero que ofrece la casa (o el de más minutos del local).
     const player = players.find((p) => p.name === st.player) || players.find(hasLines) || players[0];
     const lines = linesOf.get(player);
-    const code = st.playerStat && D.PLAYER_CHART_STATS.includes(st.playerStat) ? st.playerStat : Object.keys(lines)[0] || 'pl_pra';
+    // Las que tienen datos en sus partidos o línea en la casa.
+    const available = (c) => lines[c] != null || D.playerSeries(player.games, c).length > 0;
+    const fallback = Object.keys(lines)[0] || 'pl_pra';
+    const code = st.playerStat && D.PLAYER_CHART_STATS.includes(st.playerStat) && available(st.playerStat) ? st.playerStat : fallback;
     const teamName = player.side === 'home' ? ev.home.name : ev.away.name;
     const rivalAbbr = data.abbr ? data.abbr[player.side === 'home' ? 1 : 0] : null;
     const rivalName = player.side === 'home' ? ev.away.name : ev.home.name;
@@ -492,7 +495,7 @@ export class DatosView {
     const series = D.playerSeries(games, code);
     const key = `p|${player.name}|${code}`;
     const { line, source } = this.lineFor(key, series.map((x) => x.value), lines[code]);
-    const statName = capital(STAT_NAME[code] || code);
+    const statName = code === 'min' ? 'Minutos' : capital(STAT_NAME[code] || code);
     const pick = (patch) => this.set(patch);
     return [
       h(
@@ -518,13 +521,29 @@ export class DatosView {
             : null;
         }),
         h('h4', {}, `${player.name} · ${teamName}`),
-        h(
-          'div',
-          { class: 'stat-chips', role: 'group', 'aria-label': 'Estadística del jugador' },
-          D.PLAYER_CHART_STATS.map((c) =>
-            h('button', { type: 'button', class: `chip-btn${c === code ? ' active' : ''}${lines[c] != null ? ' offered' : ''}`, 'aria-pressed': String(c === code), title: lines[c] != null ? `Apuesta Total: línea ${fmtNum(lines[c])}` : '', onclick: () => pick({ playerStat: c }) }, capital(STAT_NAME[c] || c), lines[c] != null ? h('small', {}, ` ${fmtNum(lines[c])}`) : null),
-          ),
-        ),
+        D.PLAYER_CHART_GROUPS.map(([group, list]) => {
+          const shown = list.filter(([c]) => available(c));
+          return shown.length
+            ? h(
+                'div',
+                { class: 'stat-group' },
+                h('span', { class: 'note' }, group),
+                h(
+                  'div',
+                  { class: 'stat-chips', role: 'group', 'aria-label': `Estadísticas del jugador: ${group}` },
+                  shown.map(([c, label]) =>
+                    h(
+                      'button',
+                      { type: 'button', class: `chip-btn${c === code ? ' active' : ''}${lines[c] != null ? ' offered' : ''}`, 'aria-pressed': String(c === code), title: `${c === 'min' ? 'Minutos' : capital(STAT_NAME[c] || c)}${lines[c] != null ? ` · Apuesta Total: línea ${fmtNum(lines[c])}` : ''}`, onclick: () => pick({ playerStat: c }) },
+                      label,
+                      lines[c] != null ? h('small', {}, ` ${fmtNum(lines[c])}`) : null,
+                    ),
+                  ),
+                ),
+              )
+            : null;
+        }),
+        h('p', { class: 'note' }, `${statName} de ${player.name}, partido a partido (el más reciente a la derecha).`),
         h(
           'div',
           { class: 'filter-row' },
