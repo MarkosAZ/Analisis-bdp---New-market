@@ -19,7 +19,7 @@ const norm = (s) =>
     .replace(/\b(fc|cf|sc|ac|afc|cd|ud|sd|rc|ss|as|ssc|us|vfb|vfl|tsg|sv|fsv|1\.|de|la|le|club|calcio|real|olympique|stade|sporting)\b/g, ' ')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
-const similar = (a, b) => {
+export const similar = (a, b) => {
   const A = new Set(norm(a).split(' ').filter((w) => w.length > 2));
   const B = new Set(norm(b).split(' ').filter((w) => w.length > 2));
   if (!A.size || !B.size) return norm(a).slice(0, 4) === norm(b).slice(0, 4) ? 0.5 : 0;
