@@ -226,6 +226,10 @@ test('equipos de ESPN por nombre: completo, sin tildes, LA = Los Angeles, apodo 
   assert.equal(id('NY Knicks'), '18');
   assert.equal(id('LAL'), '13');
   assert.equal(id('Houston Rockets'), '10');
+  // Equipos femeninos como los nombra Flashscore ("... F").
+  const wnba = [team('20', 'Atlanta', 'Dream', 'ATL'), team('129689', 'Golden State', 'Valkyries', 'GS')];
+  assert.equal(id('Atlanta Dream F', wnba), '20');
+  assert.equal(id('Golden State Valkyries F', wnba), '129689');
   // Solo la ciudad (dos equipos), otra liga u otro deporte: nada.
   assert.equal(id('Los Angeles'), null);
   assert.equal(id('Sydney Kings'), null, 'NBL: mismo apodo, otra ciudad');

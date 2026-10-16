@@ -214,6 +214,8 @@ function teamNorm(s) {
     .replace(/['’.]/g, '')
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
+  // "Atlanta Dream F" (Flashscore marca así los equipos femeninos) = Atlanta Dream.
+  if (w.length > 1 && (w[w.length - 1] === 'f' || w[w.length - 1] === 'w')) w.pop();
   if (w.length > 1 && TEAM_ALIAS[w[0]]) w[0] = TEAM_ALIAS[w[0]];
   return w.join('');
 }
