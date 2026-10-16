@@ -121,9 +121,18 @@ function githubMock(context) {
   return files;
 }
 
+// Umbrales más bajos que los de fábrica: con el análisis calibrado (probabilidades
+// cerca del 50 % frente a líneas parejas) los datos de prueba no llegan a 80 % ni a
+// 70 % por selección, y así se prueba igual que la página muestre cada nivel y las
+// combinadas (y que los ajustes guardados se respeten).
+const LOW_THRESHOLDS = () => {
+  if (localStorage.getItem('bdp:ajustes') == null) localStorage.setItem('bdp:ajustes', JSON.stringify({ alta: 0.6, moderadaAlta: 0.57, moderada: 0.54, comboMinProb: 0.55 }));
+};
+
 async function withoutExtension(browser, errors) {
   const { DAY, files } = await fixtures();
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'es-PE', timezoneId: 'America/Lima', isMobile: true, hasTouch: true });
+  await context.addInitScript(LOW_THRESHOLDS);
   await context.route('**/data/fuente/**', (route) => {
     const rel = new globalThis.URL(route.request().url()).pathname.split('/data/fuente/')[1];
     return files[rel] ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(files[rel]) }) : route.fulfill({ status: 404, body: '' });
@@ -221,6 +230,7 @@ async function withoutExtension(browser, errors) {
   const errors = [];
   try {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'es-PE', timezoneId: 'America/Lima' });
+    await context.addInitScript(LOW_THRESHOLDS);
     await context.addInitScript(MOCK);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: URL });
     const page = await context.newPage();
