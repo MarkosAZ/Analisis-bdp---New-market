@@ -165,20 +165,27 @@ Para ajustar el análisis estadístico y entrenar las redes sin esperar meses de
 resultados propios, `data/historico/` guarda partidos pasados (se descargan en
 GitHub Actions con el flujo *Datos históricos*):
 
-- **Fútbol** (ESPN, unos 17 000 partidos desde 2023): Premier League, LaLiga,
+Todo va desde 2010 (unos 200 MB):
+
+- **Fútbol** (ESPN, unos 17 000 partidos desde 2023-24): Premier League, LaLiga,
   Bundesliga, Serie A, Ligue 1, Portugal, Bélgica, MLS, Brasil, Noruega,
   Suecia, Liga 1 de Perú, Champions, Europa League, Conference League,
   Libertadores, Sudamericana, Liga de Naciones, Eurocopa, Copa América,
   Mundiales, eliminatorias y amistosos. Con córners, tarjetas, remates, tiros
   al arco, goles por tiempo y córners del 1.er tiempo. Más las cuotas de cierre
-  de football-data.co.uk y el xG de Understat. Lo que ESPN no trae (córners del
+  de football-data.co.uk (desde 2010-11; hasta 2018-19 es el promedio previo
+  al partido, no el cierre; también en 15 ligas de Sofascore: Championship,
+  League One y Two, National League, Escocia, 2. Bundesliga, Serie B, LaLiga
+  Hypermotion, Ligue 2, Eredivisie, Süper Lig y Grecia) y el xG de Understat
+  (desde 2014-15). Lo que ESPN no trae (córners del
   1.er tiempo de Bélgica, Noruega, Suecia y Perú, estadísticas de la Liga 1 2024,
   de eliminatorias y amistosos...) se completa con Sofascore
   (`scripts/historico/completar.mjs`, desde una sesión con internet: Sofascore
   no responde a GitHub Actions); solo faltan algunos amistosos y eliminatorias
   que Sofascore tampoco tiene.
-- **Fútbol, resto de ligas apostables** (Sofascore, unos 142 000 partidos de
-  191 torneos desde 2023-24, en `data/historico/futbol/sofascore/`): segundas y
+- **Fútbol, resto de ligas apostables** (Sofascore, unos 633 000 partidos de
+  191 torneos desde 2010, en `data/historico/futbol/sofascore/`, más las
+  temporadas 2010 a 2023 de las competiciones de ESPN): segundas y
   terceras divisiones (Championship, LaLiga Hypermotion, 2. Bundesliga, Serie
   B, Ligue 2...), Eredivisie, Süper Lig, Escocia, Austria, Suiza, Grecia,
   Dinamarca, Polonia, Chequia y el resto de Europa; Argentina, Colombia, Chile,
@@ -186,13 +193,33 @@ GitHub Actions con el flujo *Datos históricos*):
   estaduales de Brasil; Liga MX, USL, Centroamérica; Japón, Corea, China,
   Arabia Saudí, Australia...; Egipto, Marruecos, Sudáfrica...; copas
   nacionales; ligas femeninas; Concacaf, AFC, CAF, Mundial de Clubes y
-  amistosos de clubes. Mismo formato que ESPN, con córners del 1.er tiempo
-  donde Sofascore los tiene (`scripts/historico/sofascore.mjs`, también desde
+  amistosos de clubes (estos, desde 2023). Mismo formato que ESPN. Sofascore
+  tiene estadísticas de las ligas principales desde 2010 y córners del 1.er
+  tiempo desde 2015 más o menos; de las ligas chicas, en los años viejos, solo
+  el resultado (277 000 partidos con córners, 162 000 con los del 1.er tiempo) (`scripts/historico/sofascore.mjs`, también desde
   una sesión con internet). `equipos.json` une 698 equipos de Sofascore con su
   id de ESPN para que, por ejemplo, un equipo de la Premier tenga en su
   historia también la FA Cup y la EFL Cup.
-- **NBA** (ESPN, 3 temporadas): cuartos y estadísticas de cada jugador.
-- **MLB** (statsapi, 2023 a 2026): abridores probables y sus aperturas.
+- **NBA** (ESPN, desde 2010-11, 16 temporadas): cuartos y estadísticas de
+  cada jugador.
+- **MLB** (statsapi, 2010 a 2026): abridores probables y sus aperturas.
+
+Cada red usa sus 15 000 filas más recientes, así que el entrenamiento diario
+solo reproduce los últimos 3 años de fútbol y 2 de jugadores de la NBA; los
+mercados de equipo de la NBA y la MLB usan todas las temporadas. Los años viejos
+sirven para la historia de cada equipo (forma, enfrentamientos directos) y para
+la prueba retrospectiva.
+
+Otras fuentes de fútbol revisadas (guardadas por si hacen falta; hoy no se usan
+porque Sofascore, ESPN, football-data y Understat ya cubren lo mismo):
+
+| Página | Qué tiene | Estado |
+|---|---|---|
+| [FotMob](https://www.fotmob.com/) | estadísticas y xG por partido | su API cambió; solo por la página |
+| [WhoScored](https://www.whoscored.com/) | estadísticas de Opta por partido | bloquea los pedidos automáticos (403) |
+| [FBref](https://fbref.com/) | estadísticas por temporada y partido | bloquea los pedidos automáticos (403) |
+| [dataref](https://dataref.net/) | estadísticas de jugadores argentinos en el exterior | accesible; no aporta a los mercados |
+| [Understat](https://understat.com/) | xG de las 5 grandes ligas desde 2014 | ya se usa |
 
 `scripts/historico/repeticion/` analiza cada partido **con el mismo código de
 la página y solo con lo que se sabía antes de que empezara** (últimos
@@ -229,7 +256,8 @@ moneda) se ajustó el análisis estadístico con los partidos hasta junio de
 - **NBA**: frente a una línea puesta con la media reciente el modelo casi no
   tiene ventaja, así que sus desvíos se ampliaron: ya no inventa ventajas.
 - **MLB**: el modelo (ajustado con 2026) también gana a la frecuencia fija en
-  2023, 2024 y 2025.
+  los 40 000 partidos de 2010 a 2026 (ganador 0.6861 contra 0.6886, run line
+  0.6700 contra 0.6721, total 0.6803 contra 0.6846) y está calibrado.
 
 ```
 NODE_USE_ENV_PROXY=1 node scripts/historico/sofascore.mjs  # actualiza las ligas de Sofascore (sesión con internet)

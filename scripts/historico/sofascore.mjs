@@ -4,15 +4,18 @@
 // equipos.json une cada uno con su id de ESPN cuando el equipo también juega en una
 // competición de ESPN, para que la historia del equipo sea una sola.
 // Sofascore no responde desde GitHub Actions: se corre desde una sesión con internet.
-// Uso: NODE_USE_ENV_PROXY=1 node scripts/historico/sofascore.mjs [--solo=eng.2,ger.2] [--equipos] [--amistosos]
+// Uso: NODE_USE_ENV_PROXY=1 node scripts/historico/sofascore.mjs [--solo=eng.2,ger.2] [--equipos] [--amistosos] [--desde=2010]
+// --desde=AAAA baja también las temporadas desde ese año y, de las competiciones de ESPN
+// (completar.mjs), los partidos anteriores a lo que tiene ESPN.
 // (sin opciones: todas las ligas, después los equipos y después los amistosos de clubes)
 import { readJson, writeJson } from './comun.mjs';
 import { listDir } from './repeticion/comun.mjs';
 import { API, SOFA, findEvent, get, log, pool, seasonEvents, seasonStart, sofaEvents, statsOf } from './sofa.mjs';
 
 const DAY = 86400000;
-// Desde cuándo: como ESPN (temporada 2023-24).
+// Desde cuándo, salvo --desde: como ESPN (temporada 2023-24).
 const FROM = Date.UTC(2023, 6, 1);
+const FIRST = 2023;
 // Terminado (100), tras prórroga (110) o tras penales (120).
 const ENDED = new Set([100, 110, 120]);
 
@@ -222,7 +225,7 @@ const pair = (S, k) => (Number.isFinite(S.home[k]) && Number.isFinite(S.away[k])
 const team = (t) => [String(t.id), t.name, t.nameCode || t.shortName || ''];
 
 // Un partido de Sofascore en el formato de ESPN.
-async function matchOf(e, neutral) {
+async function matchOf(e, neutral, withStats = true) {
   const S = { home: e.homeScore || {}, away: e.awayScore || {} };
   // Tras penales sin prórroga (ida y vuelta, Leagues Cup...) los 90 minutos son el final.
   const extra = e.status.code === 110 || (e.status.code === 120 && S.home.extra1 !== undefined);
@@ -233,6 +236,7 @@ async function matchOf(e, neutral) {
   if (!g) return null;
   const m = { id: `sf:${e.id}`, t: e.startTimestamp, st: extra ? (e.status.code === 120 ? 'PEN' : 'AET') : 'FT', n: neutral ? 1 : 0, h: team(e.homeTeam), a: team(e.awayTeam), g };
   if (ls) m.ls = ls;
+  if (!withStats) return m;
   const per = statsOf(await get(`${API}/event/${e.id}/statistics`));
   const all = per.ALL || {};
   if (Object.keys(all).length) {
@@ -249,25 +253,28 @@ async function matchOf(e, neutral) {
   return m;
 }
 
-// Temporadas desde FROM de un torneo; keep(e) filtra los partidos antes de pedir sus estadísticas.
-async function download(L, { keep = () => true, maxPages = 60, concurrency = 8 } = {}) {
-  const seasons = ((await get(`${API}/unique-tournament/${L.ut}/seasons`))?.seasons || []).filter((s) => seasonStart(s.year) >= 2023);
+// Temporadas de un torneo que empiezan desde el año first, partidos desde from y antes de
+// before; keep(e) filtra los partidos antes de pedir sus estadísticas.
+async function download(L, { keep = () => true, maxPages = 60, concurrency = 8, first = FIRST, from = FROM, before = Infinity } = {}) {
+  const seasons = ((await get(`${API}/unique-tournament/${L.ut}/seasons`))?.seasons || []).filter((s) => seasonStart(s.year) >= first && Date.UTC(seasonStart(s.year), 0, 1) < before);
   const summary = [];
   for (const s of seasons) {
     const rel = `futbol/sofascore/${L.code}/${seasonStart(s.year)}${seasons.filter((x) => seasonStart(x.year) === seasonStart(s.year)).length > 1 ? `-${s.id}` : ''}.json`;
     const old = readJson(rel);
     if (old?.complete) continue;
     const have = new Map((old?.matches || []).map((m) => [m.id, m]));
-    const events = (await seasonEvents(L.ut, s.id, { maxPages, from: FROM })).filter((e) => ENDED.has(e.status.code) && e.startTimestamp * 1000 >= FROM && e.homeTeam && e.awayTeam);
+    const events = (await seasonEvents(L.ut, s.id, { maxPages, from })).filter((e) => ENDED.has(e.status.code) && e.startTimestamp * 1000 >= from && e.startTimestamp * 1000 < before && e.homeTeam && e.awayTeam);
     const fresh = events.filter((e) => !have.has(`sf:${e.id}`) && keep(e));
-    await pool(
-      fresh,
-      async (e) => {
-        const m = await matchOf(e, L.neutral);
-        if (m) have.set(m.id, m);
-      },
-      concurrency,
-    );
+    // Los partidos más nuevos primero: si los primeros 12 no tienen estadísticas, la
+    // temporada tampoco (temporadas viejas y ligas chicas) y no se piden las del resto.
+    let withStats = true;
+    const add = async (e) => {
+      const m = await matchOf(e, L.neutral, withStats);
+      if (m) have.set(m.id, m);
+    };
+    await pool(fresh.slice(0, 12), add, concurrency);
+    withStats = fresh.slice(0, 12).some((e) => have.get(`sf:${e.id}`)?.s || have.get(`sf:${e.id}`)?.c1);
+    await pool(fresh.slice(12), add, concurrency);
     if (!have.size) continue;
     const next = await get(`${API}/unique-tournament/${L.ut}/season/${s.id}/events/next/0`);
     const last = Math.max(...[...have.values()].map((m) => m.t)) * 1000;
@@ -332,7 +339,17 @@ function knownTeams() {
 const arg = (k) => process.argv.find((a) => a.startsWith(`--${k}`));
 const only = arg('solo=')?.slice(7).split(',') || null;
 const all = !only && !arg('equipos') && !arg('amistosos');
-if (only || all) await pool(LIGAS.filter((L) => !only || only.includes(L.code)), (L) => download(L).catch((e) => log(`${L.code}: ${e.message}`)), 3);
+const desde = Number(arg('desde=')?.slice(8)) || FIRST;
+const range = desde < FIRST ? { first: desde, from: Date.UTC(desde, 0, 1) } : {};
+// Con --desde, las competiciones de ESPN hasta el primer partido que tiene ESPN.
+const espn = desde < FIRST
+  ? Object.entries(SOFA).map(([code, ut]) => {
+      const ts = listDir(`futbol/espn/${code}`).flatMap((f) => readJson(`futbol/espn/${code}/${f}`).matches.map((m) => m.t));
+      return { code, ut, name: code, before: ts.length ? Math.min(...ts) * 1000 - DAY : Infinity };
+    })
+  : [];
+const jobs = [...LIGAS, ...espn].filter((L) => !only || only.includes(L.code));
+if (only || all) await pool(jobs, (L) => download(L, { ...range, before: L.before ?? Infinity }).catch((e) => log(`${L.code}: ${e.message}`)), 4);
 if (all || arg('equipos')) await teams();
 if (all || arg('amistosos')) {
   const known = knownTeams();

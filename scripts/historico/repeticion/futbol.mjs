@@ -2,10 +2,11 @@
 // cuotas de cierre de football-data.co.uk (Más/Menos 2.5 goles) y el xG de Understat.
 import { teamStatsFrom } from '../../../docs/js/analysis/teamstats.js';
 import { acceptsOffer } from '../../../docs/js/analysis/picks.js';
+import { FD_SOFA } from '../futbol.mjs';
 import { analyzeReplay, countLine, finished, halfLine, listDir, log, mean, readJson, rowsOf } from './comun.mjs';
 
 const UNDERSTAT = { 'eng.1': 'EPL', 'esp.1': 'La_liga', 'ger.1': 'Bundesliga', 'ita.1': 'Serie_A', 'fra.1': 'Ligue_1' };
-const FD = { 'eng.1': 'E0', 'esp.1': 'SP1', 'ger.1': 'D1', 'ita.1': 'I1', 'fra.1': 'F1', 'por.1': 'P1', 'bel.1': 'B1' };
+const FD = { 'eng.1': 'E0', 'esp.1': 'SP1', 'ger.1': 'D1', 'ita.1': 'I1', 'fra.1': 'F1', 'por.1': 'P1', 'bel.1': 'B1', ...FD_SOFA };
 // Id de Understat para la página (engine.js UNDERSTAT_LEAGUES usa el id del torneo).
 const NAMES = { 'eng.1': 'Premier League', 'esp.1': 'LaLiga', 'ger.1': 'Bundesliga', 'ita.1': 'Serie A', 'fra.1': 'Ligue 1', 'por.1': 'Liga Portugal', 'bel.1': 'Jupiler Pro League', 'usa.1': 'MLS', 'bra.1': 'Brasileirão', 'nor.1': 'Eliteserien', 'swe.1': 'Allsvenskan', 'per.1': 'Liga 1' };
 const HOUR = 3600000;
@@ -105,7 +106,7 @@ function fdRows(code) {
     for (const r of d.rows) {
       const [dd, mm, yy] = String(r[ix.Date]).split('/');
       const year = yy.length === 2 ? 2000 + Number(yy) : Number(yy);
-      out.push({ day: Date.UTC(year, Number(mm) - 1, Number(dd)), home: r[ix.HomeTeam], away: r[ix.AwayTeam], g: [r[ix.FTHG], r[ix.FTAG]], over: r[ix['AvgC>2.5']], under: r[ix['AvgC<2.5']], hc: [r[ix.HC], r[ix.AC]], hy: [r[ix.HY], r[ix.AY]], hr: [r[ix.HR], r[ix.AR]], hs: [r[ix.HS], r[ix.AS]], hst: [r[ix.HST], r[ix.AST]] });
+      out.push({ day: Date.UTC(year, Number(mm) - 1, Number(dd)), home: r[ix.HomeTeam], away: r[ix.AwayTeam], g: [r[ix.FTHG], r[ix.FTAG]], over: r[ix['AvgC>2.5']] ?? r[ix['BbAv>2.5']], under: r[ix['AvgC<2.5']] ?? r[ix['BbAv<2.5']], hc: [r[ix.HC], r[ix.AC]], hy: [r[ix.HY], r[ix.AY]], hr: [r[ix.HR], r[ix.AR]], hs: [r[ix.HS], r[ix.AS]], hst: [r[ix.HST], r[ix.AST]] });
     }
   }
   return out;

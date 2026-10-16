@@ -32,18 +32,25 @@ const pending = saved.length;
 log(`resultados propios: ${real.length} (de ${pending} filas guardadas) · partidos históricos hasta ${new Date(cutoff).toISOString().slice(0, 10)}`);
 
 // Filas históricas: por red, las más recientes (las viejas no las usaría el entrenamiento).
+// Los datos van desde 2010, pero cada red usa solo sus 15 000 filas más recientes: el
+// fútbol y los jugadores de la NBA las juntan en pocos meses, así que se reproducen solo
+// los últimos años (la historia de cada equipo sí usa todos los partidos). Los mercados
+// de equipo de la NBA (una fila por partido) y la MLB necesitan todas las temporadas.
+const YEAR = 365 * 86400000;
+const PROPS = /^OU\.pl_/;
 const buffers = new Map();
 const bySport = {};
 let imported = 0;
-for (const [sport, gen] of [
-  ['futbol', replayFootball({ to: cutoff })],
+for (const [sport, gen, keep = () => true] of [
+  ['futbol', replayFootball({ from: cutoff - 3 * YEAR, to: cutoff })],
   ['mlb', replayMlb({ to: cutoff })],
-  ['nba', replayNba({ to: cutoff })],
+  ['nba', replayNba({ to: cutoff, players: false })],
+  ['nba', replayNba({ from: cutoff - 2 * YEAR, to: cutoff }), (r) => PROPS.test(r.market)],
 ]) {
   let n = 0;
   for (const { rows } of gen) {
     for (const r of rows) {
-      if (!isResult(r.y)) continue;
+      if (!isResult(r.y) || !keep(r)) continue;
       const id = networkOf(r.sport, r.market);
       if (!id) continue;
       const list = buffers.get(id) || buffers.set(id, []).get(id);
@@ -52,7 +59,7 @@ for (const [sport, gen] of [
       n++;
     }
   }
-  bySport[sport] = n;
+  bySport[sport] = (bySport[sport] || 0) + n;
   imported += n;
   log(`${sport}: ${n} selecciones históricas`);
 }
