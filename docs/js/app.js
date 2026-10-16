@@ -155,7 +155,8 @@ function render() {
 function showTab(tab) {
   app.state.tab = tab;
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('active', b.dataset.tab === tab);
-  for (const t of ['partidos', 'datos', 'analisis', 'historial']) $(`#tab-${t}`).hidden = t !== tab;
+  // Sin la sección (un index.html anterior todavía en la caché del navegador), se salta.
+  for (const t of ['partidos', 'datos', 'analisis', 'historial']) if ($(`#tab-${t}`)) $(`#tab-${t}`).hidden = t !== tab;
   render();
 }
 
