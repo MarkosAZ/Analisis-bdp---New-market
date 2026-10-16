@@ -8,10 +8,14 @@ import {
   normName,
   overProbability,
   PLAYER_STATS,
+  PLAYERS,
   playerProbability,
   playerValue,
   statValue,
 } from '../docs/js/analysis/players.js';
+
+// La cuenta sin la calibración final (temp) ni el ajuste de la varianza (varScale).
+const rawProbability = (g, code, sel, line, o = {}) => playerProbability(g, code, sel, line, { temp: 1, varScale: 1, ...o });
 
 // Fila de un partido en el formato normalizado del contrato (fga/tpa/fta: intentados).
 const row = (o = {}) => ({ min: 34.5, pts: 27, reb: 8, ast: 9, tpm: 3, stl: 2, blk: 1, tov: 4, oreb: 1, dreb: 7, ftm: 5, fgm: 10, fga: 19, tpa: 7, fta: 6, ...o });
@@ -247,37 +251,37 @@ function poissonOver(m, line) {
 
 test('playerProbability: sin dispersión usa Poisson con la media', () => {
   // Siempre 2 triples: Poisson(2), P(X > 2.5) = 1 − 5e⁻².
-  const r = playerProbability(games(Array(10).fill(0)).map((g) => ({ ...g, tpm: 2 })), 'pl_3pm', 'over', 2.5);
+  const r = rawProbability(games(Array(10).fill(0)).map((g) => ({ ...g, tpm: 2 })), 'pl_3pm', 'over', 2.5);
   close(r.p, 1 - 5 * Math.exp(-2), 1e-12);
   assert.equal(r.mean, 2);
   close(r.sd, Math.sqrt(2), 1e-12, 'sd de la Poisson');
   assert.equal(r.n, 10);
   assert.equal(r.trend, 0);
   assert.equal(r.minutes, 34.5);
-  const u = playerProbability(games(Array(10).fill(0)).map((g) => ({ ...g, tpm: 2 })), 'pl_3pm', 'under', 2.5);
+  const u = rawProbability(games(Array(10).fill(0)).map((g) => ({ ...g, tpm: 2 })), 'pl_3pm', 'under', 2.5);
   close(u.p, 5 * Math.exp(-2), 1e-12);
   // 20 puntos fijos.
-  const pts = playerProbability(games(Array(10).fill(20)), 'pl_pts', 'over', 24.5);
+  const pts = rawProbability(games(Array(10).fill(20)), 'pl_pts', 'over', 24.5);
   close(pts.p, poissonOver(20, 24.5), 1e-12);
   // Poca variación (varianza < media): también Poisson.
-  const low = playerProbability(games([20, 21, 19, 20, 22, 18, 20, 21, 19, 20]), 'pl_pts', 'over', 24.5);
+  const low = rawProbability(games([20, 21, 19, 20, 22, 18, 20, 21, 19, 20]), 'pl_pts', 'over', 24.5);
   close(low.p, poissonOver(low.mean, 24.5), 1e-12);
   close(low.sd, Math.sqrt(low.mean), 1e-12);
 });
 
 test('playerProbability: con más varianza que media usa binomial negativa (colas más gruesas)', () => {
-  const r = playerProbability(games([32, 10, 30, 12, 31, 9, 28, 14, 30, 11]), 'pl_pts', 'over', 30.5);
+  const r = rawProbability(games([32, 10, 30, 12, 31, 9, 28, 14, 30, 11]), 'pl_pts', 'over', 30.5);
   assert.ok(r.sd ** 2 > r.mean);
   close(r.p, nbOver(r.mean, r.sd ** 2, 30.5), 1e-9);
   assert.ok(r.p > poissonOver(r.mean, 30.5) + 0.1, 'más probable que con Poisson');
-  const low = playerProbability(games([32, 10, 30, 12, 31, 9, 28, 14, 30, 11]), 'pl_pts', 'under', 10.5);
+  const low = rawProbability(games([32, 10, 30, 12, 31, 9, 28, 14, 30, 11]), 'pl_pts', 'under', 10.5);
   close(low.p, 1 - nbOver(low.mean, low.sd ** 2, 10.5), 1e-9);
   assert.ok(low.p > 1 - poissonOver(low.mean, 10.5) + 0.1);
 });
 
 test('playerProbability: media y varianza ponderadas (lo reciente pesa más), con encogimiento leve', () => {
   const values = [30, 30, 30, 10, 10, 10, 10, 10, 10, 10];
-  const r = playerProbability(games(values), 'pl_pts', 'over', 19.5);
+  const r = rawProbability(games(values), 'pl_pts', 'over', 19.5);
   const w = values.map((_, k) => 0.9 ** k);
   const W = w.reduce((a, b) => a + b, 0);
   const W2 = w.reduce((a, b) => a + b * b, 0);
@@ -291,16 +295,16 @@ test('playerProbability: media y varianza ponderadas (lo reciente pesa más), co
   close(r.trend, (30 - m) / r.sd, 1e-12, 'tendencia');
   assert.ok(r.trend > 0);
   // Al revés (mejoró hace tiempo): la media baja y la tendencia es negativa.
-  const old = playerProbability(games([...values].reverse()), 'pl_pts', 'over', 19.5);
+  const old = rawProbability(games([...values].reverse()), 'pl_pts', 'over', 19.5);
   assert.ok(old.mean < r.mean && old.trend < 0 && old.p < r.p);
 });
 
 test('playerProbability: solo los últimos maxGames jugados y con dato', () => {
   const recent = Array(10).fill(20);
-  const a = playerProbability(games([...recent, 80, 90, 100]), 'pl_pts', 'over', 24.5);
-  const b = playerProbability(games(recent), 'pl_pts', 'over', 24.5);
+  const a = rawProbability(games([...recent, 80, 90, 100]), 'pl_pts', 'over', 24.5);
+  const b = rawProbability(games(recent), 'pl_pts', 'over', 24.5);
   assert.deepEqual(a, b, 'los partidos 11+ no cuentan');
-  assert.equal(playerProbability(games([...recent, 80]), 'pl_pts', 'over', 24.5, { maxGames: 11 }).n, 11);
+  assert.equal(rawProbability(games([...recent, 80]), 'pl_pts', 'over', 24.5, { maxGames: 11 }).n, 11);
   // Partidos sin jugar o sin el dato se saltan (no cuentan como cero).
   const mixed = [
     { min: 0, dnp: true },
@@ -309,11 +313,11 @@ test('playerProbability: solo los últimos maxGames jugados y con dato', () => {
     row({ pts: null }),
     ...games([20, 20, 20, 20, 20]),
   ];
-  const m = playerProbability(mixed, 'pl_pts', 'over', 24.5);
+  const m = rawProbability(mixed, 'pl_pts', 'over', 24.5);
   assert.equal(m.n, 5);
   assert.equal(m.mean, 20);
   // Sin minutos en la fuente: minutes null, igual calcula.
-  const noMin = playerProbability(games(Array(6).fill(20), { min: null }), 'pl_pts', 'over', 24.5);
+  const noMin = rawProbability(games(Array(6).fill(20), { min: null }), 'pl_pts', 'over', 24.5);
   assert.equal(noMin.minutes, null);
   assert.equal(noMin.n, 6);
 });
@@ -324,60 +328,60 @@ test('playerProbability de los intentos: partidos sin el dato se saltan (no son 
     ...games(Array(4).fill(25), { fga: null, tpa: null, fta: null }),
     ...games(Array(6).fill(25)).map((g) => ({ ...g, fga: 20, tpa: 8, fta: 6 })),
   ];
-  const fga = playerProbability(mixed, 'pl_fga', 'over', 19.5);
+  const fga = rawProbability(mixed, 'pl_fga', 'over', 19.5);
   assert.equal(fga.n, 6);
   close(fga.mean, 20, 1e-9);
   close(fga.p, poissonOver(fga.mean, 19.5), 1e-12);
-  const twos = playerProbability(mixed, 'pl_2pa', 'under', 12.5);
+  const twos = rawProbability(mixed, 'pl_2pa', 'under', 12.5);
   close(twos.mean, 12, 1e-9, '20 − 8');
   close(twos.p, 1 - poissonOver(twos.mean, 12.5), 1e-12);
-  close(playerProbability(mixed, 'pl_3pa', 'over', 7.5).mean, 8, 1e-9);
-  assert.equal(playerProbability(mixed, 'pl_fta', 'over', 5.5).n, 6);
+  close(rawProbability(mixed, 'pl_3pa', 'over', 7.5).mean, 8, 1e-9);
+  assert.equal(rawProbability(mixed, 'pl_fta', 'over', 5.5).n, 6);
   // Los puntos usan los 10.
-  assert.equal(playerProbability(mixed, 'pl_pts', 'over', 24.5).n, 10);
+  assert.equal(rawProbability(mixed, 'pl_pts', 'over', 24.5).n, 10);
   // Con menos de 5 partidos con el dato no hay probabilidad (aunque haya 10 jugados).
   const few = [...games(Array(6).fill(25), { fga: null }), ...games(Array(4).fill(25))];
-  assert.equal(playerProbability(few, 'pl_fga', 'over', 18.5), null);
+  assert.equal(rawProbability(few, 'pl_fga', 'over', 18.5), null);
   // Intentos más dispersos que la media: binomial negativa, igual que los anotados.
   const spread = games(Array(10).fill(25)).map((g, i) => ({ ...g, fga: [30, 12, 28, 10, 26, 14, 31, 9, 27, 13][i], fgm: 5 }));
-  const r = playerProbability(spread, 'pl_fga', 'over', 22.5);
+  const r = rawProbability(spread, 'pl_fga', 'over', 22.5);
   assert.ok(r.sd ** 2 > r.mean);
   close(r.p, nbOver(r.mean, r.sd ** 2, 22.5), 1e-9);
 });
 
 test('playerProbability: null con pocos partidos o datos inválidos', () => {
-  assert.equal(playerProbability(games([20, 20, 20, 20]), 'pl_pts', 'over', 24.5), null, 'menos de 5');
-  assert.ok(playerProbability(games([20, 20, 20, 20, 20]), 'pl_pts', 'over', 24.5));
-  assert.ok(playerProbability(games([20, 20, 20]), 'pl_pts', 'over', 24.5, { minGames: 3 }));
-  assert.equal(playerProbability(games(Array(10).fill(20), { oreb: null }), 'pl_oreb', 'over', 0.5), null, 'la fuente no trae el dato');
-  assert.equal(playerProbability(games(Array(10).fill(20)), 'pl_xyz', 'over', 24.5), null);
-  assert.equal(playerProbability(games(Array(10).fill(20)), 'pl_pts', 'yes', 24.5), null);
-  assert.equal(playerProbability(games(Array(10).fill(20)), 'pl_pts', 'over', null), null);
-  assert.equal(playerProbability(games(Array(10).fill(20)), 'pl_pts', 'over', 'x'), null);
-  assert.equal(playerProbability([], 'pl_pts', 'over', 24.5), null);
-  assert.equal(playerProbability(null, 'pl_pts', 'over', 24.5), null);
-  assert.equal(playerProbability([], 'pl_pts', 'over', 24.5, { minGames: 0 }), null);
+  assert.equal(rawProbability(games([20, 20, 20, 20]), 'pl_pts', 'over', 24.5), null, 'menos de 5');
+  assert.ok(rawProbability(games([20, 20, 20, 20, 20]), 'pl_pts', 'over', 24.5));
+  assert.ok(rawProbability(games([20, 20, 20]), 'pl_pts', 'over', 24.5, { minGames: 3 }));
+  assert.equal(rawProbability(games(Array(10).fill(20), { oreb: null }), 'pl_oreb', 'over', 0.5), null, 'la fuente no trae el dato');
+  assert.equal(rawProbability(games(Array(10).fill(20)), 'pl_xyz', 'over', 24.5), null);
+  assert.equal(rawProbability(games(Array(10).fill(20)), 'pl_pts', 'yes', 24.5), null);
+  assert.equal(rawProbability(games(Array(10).fill(20)), 'pl_pts', 'over', null), null);
+  assert.equal(rawProbability(games(Array(10).fill(20)), 'pl_pts', 'over', 'x'), null);
+  assert.equal(rawProbability([], 'pl_pts', 'over', 24.5), null);
+  assert.equal(rawProbability(null, 'pl_pts', 'over', 24.5), null);
+  assert.equal(rawProbability([], 'pl_pts', 'over', 24.5, { minGames: 0 }), null);
 });
 
 test('playerProbability: complementarias, monótona en la línea y nunca 0 o 1', () => {
   const g = games([25, 31, 18, 22, 27, 35, 20, 24, 29, 16]);
   let prev = 1;
   for (const line of [5.5, 15.5, 20.5, 24.5, 28.5, 35.5, 60.5]) {
-    const o = playerProbability(g, 'pl_pts', 'over', line);
-    const u = playerProbability(g, 'pl_pts', 'under', line);
+    const o = rawProbability(g, 'pl_pts', 'over', line);
+    const u = rawProbability(g, 'pl_pts', 'under', line);
     close(o.p + u.p, 1, 1e-12, `línea ${line}`);
     assert.ok(o.p <= prev, `línea ${line}`);
     assert.ok(o.p >= 0.001 && o.p <= 0.999);
     prev = o.p;
   }
   // Línea en texto (como llega de la casa).
-  assert.deepEqual(playerProbability(g, 'pl_pts', 'over', '24.5'), playerProbability(g, 'pl_pts', 'over', 24.5));
+  assert.deepEqual(rawProbability(g, 'pl_pts', 'over', '24.5'), rawProbability(g, 'pl_pts', 'over', 24.5));
   // Nunca hizo un tapón: probabilidad baja, pero no cero.
-  const blk = playerProbability(games(Array(10).fill(20), { blk: 0 }), 'pl_blk', 'over', 0.5);
+  const blk = rawProbability(games(Array(10).fill(20), { blk: 0 }), 'pl_blk', 'over', 0.5);
   assert.ok(blk.p > 0.01 && blk.p < 0.1, String(blk.p));
   assert.equal(blk.trend, 0);
   // Estadísticas combinadas: PRA = 27 + 8 + 9 en cada partido.
-  const pra = playerProbability(games(Array(10).fill(27)), 'pl_pra', 'over', 44.5);
+  const pra = rawProbability(games(Array(10).fill(27)), 'pl_pra', 'over', 44.5);
   assert.equal(pra.mean, 44);
   close(pra.p, poissonOver(44, 44.5), 1e-12);
 });
@@ -499,4 +503,14 @@ test('evaluate: estado del partido y registros sin jugadores', () => {
   assert.equal(evaluate(m, 'over', 24.5, { ...REC, state: 'aplazado' }), null);
   assert.equal(evaluate(m, 'over', 24.5, { sport: 'basketball', state: 'finalizado', final: [100, 90] }), null, 'registro viejo sin players');
   assert.equal(evaluate(m, 'over', 24.5, null), null);
+});
+
+test('playerProbability: con los ajustes elegidos, la cuenta calibrada (más cerca del 50 %)', () => {
+  const g = games([25, 31, 18, 22, 27, 35, 20, 24, 29, 16]);
+  const raw = playerProbability(g, 'pl_pts', 'over', 20.5, { temp: 1 });
+  const cal = playerProbability(g, 'pl_pts', 'over', 20.5);
+  const logit = (p) => Math.log(p / (1 - p));
+  close(logit(cal.p), PLAYERS.temp * logit(raw.p), 1e-9);
+  assert.ok(Math.abs(cal.p - 0.5) < Math.abs(raw.p - 0.5));
+  close(cal.p + playerProbability(g, 'pl_pts', 'under', 20.5).p, 1, 1e-12);
 });

@@ -316,7 +316,8 @@ test('jugadores: el nombre de la casa se busca en los datos y la línea más par
   assert.deepEqual(keys.filter((k) => k.includes('pl_')).sort(), ['OU.pl_pts#LeBron James|over|24.5', 'OU.pl_pts#LeBron James|under|24.5']);
   const over = candidates.find((c) => c.key === 'OU.pl_pts#LeBron James|over|24.5');
   assert.equal(over.via, 'jugador');
-  assert.ok(over.p > 0.8, `promedia 30 puntos: ${over.p}`);
+  // Promedia 30 puntos (la calibración acerca al 50 %, pero sigue muy por encima).
+  assert.ok(over.p > 0.7, `promedia 30 puntos: ${over.p}`);
   assert.equal(over.label, 'LeBron James: Más de 24.5 puntos');
   assert.ok(over.factors.some((f) => f.startsWith('LeBron James (Lakers): ')));
   // Baja anunciada (Davis), pocos partidos (Tatum: 2) o sin datos (Durant): no se analizan.
@@ -351,7 +352,7 @@ test('jugadores de Apuesta Total: cada jugador por separado, con su nombre busca
   const p = (k) => candidates.find((c) => c.key === k).p;
   // Cada jugador con sus propias cuotas (sin el margen de la casa mezclado entre jugadores).
   assert.ok(Math.abs(p('OU.pl_pts#LeBron James|over|24.5') + p('OU.pl_pts#LeBron James|under|24.5') - 1) < 1e-9);
-  assert.ok(p('OU.pl_pts#LeBron James|over|24.5') > 0.8);
+  assert.ok(p('OU.pl_pts#LeBron James|over|24.5') > 0.7);
   assert.ok(p('OU.pl_pts#Jayson Tatum|over|26.5') > 0.5);
 });
 

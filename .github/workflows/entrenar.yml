@@ -1,0 +1,40 @@
+name: Entrenar redes
+
+# Cada día: reentrena las 36 redes especializadas con los resultados guardados por
+# la página y los partidos históricos (data/historico), y publica
+# docs/data/modelo/redes.json (la página lo lee; ya no entrena por su cuenta).
+on:
+  schedule:
+    - cron: '41 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: entrenar
+  cancel-in-progress: false
+
+jobs:
+  entrenar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Entrenar
+        run: node --max-old-space-size=6144 scripts/historico/entrenar.mjs
+      - name: Guardar
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data/modelo/redes.json
+          git diff --cached --quiet && { echo "Sin cambios"; exit 0; }
+          git commit -q -m "Redes especializadas: entrenamiento diario"
+          for i in 1 2 3 4; do
+            git pull -q --rebase origin "$GITHUB_REF_NAME" && git push -q origin "HEAD:$GITHUB_REF_NAME" && exit 0
+            sleep $((i * 5))
+          done
+          exit 1

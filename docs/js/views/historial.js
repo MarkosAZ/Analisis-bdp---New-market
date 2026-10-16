@@ -136,6 +136,8 @@ function storageBanner(app) {
 }
 
 // Id de la red con puntos de corte (tras "_" y entre palabras) para que quepa en el celular.
+const fmtInt = (n) => Number(n || 0).toLocaleString('es-PE');
+
 const breakable = (id) => id.split(/(?<=_)|(?<=[a-z])(?=[A-Z])/).flatMap((part, i) => (i ? [h('wbr'), part] : [part]));
 
 // Estado de cada red especializada (una por mercado y una por estadística de
@@ -174,6 +176,11 @@ function networkPanel(app) {
     );
   const blocks = [list.filter((n) => !n.code), list.filter((n) => n.code)].filter((b) => b.length);
   const on = list.filter((n) => n.trained).length;
+  const info = app.state.network?.info;
+  const when = info?.trainedAt ? new Date(info.trainedAt).toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+  const origin = info?.rows
+    ? ` Última vez: ${when} con ${fmtInt(info.rows.real)} resultados de tus análisis y ${fmtInt(info.rows.imported)} selecciones de partidos históricos (fútbol, NBA y MLB).`
+    : '';
   return h(
     'div',
     { class: 'panel nets-panel' },
@@ -181,11 +188,11 @@ function networkPanel(app) {
     h(
       'p',
       { class: 'note' },
-      `Una red por mercado y, en los Más/Menos de jugador, una por estadística (puntos, rebotes, asistencias, triples, tiros de campo intentados...): ninguna aprende de otro mercado. Cada una empieza a corregir con ${MIN_SAMPLES} resultados de su mercado y solo si mejora en los partidos más recientes, que no usó para entrenar; mientras tanto, su mercado usa la probabilidad estadística.`,
+      `Una red por mercado y, en los Más/Menos de jugador, una por estadística (puntos, rebotes, asistencias, triples, tiros de campo intentados...): ninguna aprende de otro mercado. Cada una empieza a corregir con ${MIN_SAMPLES} resultados de su mercado y solo si mejora en los partidos más recientes, que no usó para entrenar; mientras tanto, su mercado usa la probabilidad estadística. Se reentrenan cada día en GitHub Actions con los resultados de tus análisis y los partidos históricos.`,
+      origin,
       list.length ? ` Corrigen ${on} de ${list.length}.` : '',
     ),
     h('div', { class: 'nets-tables' }, blocks.map(table)),
-    app.storage.mode !== 'lectura' ? h('button', { class: 'btn small', onclick: () => app.retrain() }, 'Reentrenar ahora') : null,
   );
 }
 

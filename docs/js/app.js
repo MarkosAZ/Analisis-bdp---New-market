@@ -367,7 +367,6 @@ app.updateResults = async () => {
     await app.reloadHistory();
     const parts = [
       r.checked ? `Resultados: ${r.resolved} apuestas liquidadas` : 'No hay partidos terminados pendientes de liquidar',
-      r.network ? `redes especializadas: ${r.network.trained} de ${r.network.total} corrigen (${r.network.samples} resultados)` : '',
       r.skipped ? `${r.skipped} partidos de Sofascore esperan a la extensión` : '',
     ];
     toast(parts.filter(Boolean).join(' · '), 7000);
@@ -375,20 +374,6 @@ app.updateResults = async () => {
     toast(`No se pudieron actualizar: ${e.message}`, 7000);
   } finally {
     idle();
-  }
-};
-
-app.retrain = async () => {
-  busy('Reentrenando las redes especializadas', 'Leyendo resultados…', 0.3);
-  try {
-    app.state.network = await history.trainNetwork();
-    const s = app.state.network.summary();
-    toast(s.trained ? `Redes reentrenadas: ${s.trained} de ${s.total} corrigen` : `Redes reentrenadas con ${s.samples} resultados: ninguna corrige todavía (cada una necesita 200 de su mercado)`);
-  } catch (e) {
-    toast(`No se pudo reentrenar: ${e.message}`, 6000);
-  } finally {
-    idle();
-    render();
   }
 };
 

@@ -93,8 +93,10 @@ export function networkOf(sport, market) {
 }
 
 export class NetworkSet {
-  constructor(nets = {}) {
+  // info: de dónde salió el entrenamiento ({ trainedAt, source, rows: { real, imported } }).
+  constructor(nets = {}, info = null) {
     this.nets = nets; // id -> Corrector
+    this.info = info;
   }
 
   forCandidate(c) {
@@ -128,7 +130,7 @@ export class NetworkSet {
   }
 
   toJSON() {
-    return { version: VERSION, featureVersion: FEATURE_VERSION, inputs: FEATURES.length, nets: Object.fromEntries(Object.entries(this.nets).map(([id, net]) => [id, net.toJSON()])) };
+    return { version: VERSION, featureVersion: FEATURE_VERSION, inputs: FEATURES.length, ...(this.info ? { info: this.info } : {}), nets: Object.fromEntries(Object.entries(this.nets).map(([id, net]) => [id, net.toJSON()])) };
   }
 
   // Redes guardadas con otras variables no se usan (se reentrenan con las filas
@@ -137,7 +139,7 @@ export class NetworkSet {
   static fromJSON(o) {
     if (!o || o.featureVersion !== FEATURE_VERSION || o.inputs !== FEATURES.length) return new NetworkSet();
     const keep = (id) => IDS.has(id) && !((o.version || 1) < 2 && MIXED_V1.has(id));
-    return new NetworkSet(Object.fromEntries(Object.entries(o.nets || {}).filter(([id]) => keep(id)).map(([id, n]) => [id, Corrector.fromJSON(n)])));
+    return new NetworkSet(Object.fromEntries(Object.entries(o.nets || {}).filter(([id]) => keep(id)).map(([id, n]) => [id, Corrector.fromJSON(n)])), o.info || null);
   }
 
   // rows: [{ sport, market, x, pBase, y, start }] (filas de entrenamiento con resultado).

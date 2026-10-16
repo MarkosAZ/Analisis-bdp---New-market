@@ -366,8 +366,8 @@ async function withoutExtension(browser, errors) {
     const netPanel = await page.textContent('.panel:has(h3:text-is("Redes especializadas"))');
     const netIds = ['Football_Goals_Model', 'Football_Corners_Model', 'Football_CornersH1_Model', 'Football_ShotsOnTarget_Model', 'Basketball_TotalsH1_Model', 'Basketball_PlayerPoints_Model', 'Basketball_PlayerFieldGoalsAttempted_Model', 'Baseball_Totals_Model'];
     check(
-      'las redes especializadas registran los resultados de su mercado',
-      netIds.every((id) => netPanel.includes(id)) && !netPanel.includes('Basketball_PlayerProps_Model') && /[1-9]\d*\/200/.test(netPanel),
+      'las redes especializadas: una por mercado, entrenadas en GitHub Actions (la página no reentrena)',
+      netIds.every((id) => netPanel.includes(id)) && !netPanel.includes('Basketball_PlayerProps_Model') && /GitHub Actions/.test(netPanel) && !(await page.$('text=Reentrenar ahora')),
       netPanel.replace(/\s+/g, ' ').slice(0, 260),
     );
     const netRows = await page.$$eval('.nets-table tbody tr:not(.net-group)', (els) => els.length);

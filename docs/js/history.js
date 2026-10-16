@@ -11,13 +11,12 @@ import * as ext from './ext.js';
 import * as provider from './provider.js';
 import * as store from './storage.js';
 import { addDays, groupBy, limaDateOf, limaToday } from './util.js';
-import { FEATURE_VERSION, upgradeFeatures } from './analysis/features.js';
+import { FEATURE_VERSION } from './analysis/features.js';
 import { recordFromResult, settle } from './analysis/markets.js';
 import { parseMarketId } from './analysis/catalog.js';
 import { profitOf } from './analysis/outcomes.js';
 import { mergeRecords, recordFromSofascore } from './analysis/records.js';
 import { flashscoreRecords } from './flashscore-link.js';
-import { isResult } from './analysis/neural.js';
 import { NetworkSet, networkOf } from './analysis/networks.js';
 import { isPlayerMarket, LEVELS } from './analysis/picks.js';
 import { basketballLeague, PLAYER_STATS } from './analysis/players.js';
@@ -359,6 +358,10 @@ export function withPlayers(res = {}, players, sport, boxScore = null) {
   };
 }
 
+// Resultado de una fila para la red: 1 ganó, 0 perdió, 0.75 / 0.25 medias apuestas;
+// -1 nula (la red no la usa).
+export const yOf = (status) => ({ won: 1, lost: 0, half_won: 0.75, half_lost: 0.25 })[status] ?? -1;
+
 export function legStatus(leg, res, now) {
   const status = settle(leg, { ...res, final: now - leg.start > CANCEL_FINAL_MS }, leg.sport);
   if (status) return { status };
@@ -591,49 +594,26 @@ export async function updateResults({ onProgress = () => {} } = {}) {
       if (!st) continue;
       const status = st.status;
       // Media ganada/perdida: 0.75 / 0.25 (la red aprende la probabilidad de ganar).
-      r.y = { won: 1, lost: 0, half_won: 0.75, half_lost: 0.25 }[status] ?? -1;
+      r.y = yOf(status);
       changed = true;
       newRows++;
     }
     if (changed) await store.write(rowsPath(month), file, `Entrenamiento: resultados de ${month}`);
   }
   if (changedDays.length) await refreshIndex(changedDays);
-
-  let network = null;
-  if (newRows) {
-    onProgress('Reentrenando las redes especializadas', 0.85);
-    network = await trainNetwork();
-  }
+  // Las redes las reentrena GitHub Actions (scripts/historico/entrenar.mjs) con
+  // estos resultados y los partidos históricos.
   onProgress('Listo', 1);
-  return { checked: list.length, resolved, newRows, skipped, network: network?.summary() || null };
+  return { checked: list.length, resolved, newRows, skipped };
 }
 
 // ---- Redes especializadas ----
 
+// Las redes que entrena GitHub Actions cada día (docs/data/modelo/redes.json). En
+// modo local (solo el navegador) se usan las publicadas en la página.
 export async function loadNetwork() {
-  return NetworkSet.fromJSON(await store.read(MODEL).catch(() => null));
-}
-
-// Reentrena todas las redes, cada una con los resultados de sus mercados (solo
-// filas de la versión actual de variables).
-export async function trainNetwork() {
-  // Una fila por clave (partido y mercado): un partido analizado a fin de mes y otra
-  // vez al comenzar el siguiente queda en los dos archivos; se usa la más reciente.
-  const byKey = new Map();
-  for (const month of monthsBack(6)) {
-    const file = await readRows(month);
-    for (const r of file?.rows || []) {
-      if (!isResult(r.y)) continue;
-      const x = upgradeFeatures(r.x, r.fv);
-      const old = byKey.get(r.key);
-      if (x && (!old || month > old.month)) byKey.set(r.key, { month, row: { ...r, x } });
-    }
-  }
-  const rows = [...byKey.values()].map((v) => v.row);
-  const set = NetworkSet.train(rows);
-  const s = set.summary();
-  await store.write(MODEL, set.toJSON(), `Redes especializadas: ${s.trained} de ${s.total} corrigen (${s.samples} resultados)`);
-  return set;
+  const json = store.getMode() === 'local' ? (await store.readPublished(MODEL)) ?? (await store.read(MODEL).catch(() => null)) : await store.read(MODEL).catch(() => null);
+  return NetworkSet.fromJSON(json);
 }
 
 // ---- Subir lo guardado en el navegador a GitHub ----

@@ -201,8 +201,11 @@ export const isPreseason = (ev) => /pretemporada|pre-?season/i.test([ev?.tournam
 
 // ---- Probabilidad ----
 
-const DECAY = 0.9; // peso de cada partido anterior respecto del siguiente
-const SHRINK = 2; // partidos "virtuales" con la media simple (encogimiento leve)
+// Ajustes: decay, peso de cada partido anterior respecto del siguiente; shrink,
+// partidos "virtuales" con la media simple (encogimiento leve); varScale, multiplica
+// la varianza; temp, calibración final en escala logit (<1 acerca al 50 %).
+// Elegidos con la prueba retrospectiva de 3 temporadas de la NBA (ver README).
+export const PLAYERS = { decay: 0.9, shrink: 2, varScale: 0.9, temp: 0.7 };
 const MIN_MEAN = 0.05; // nunca se descarta del todo que sume (p. ej. 0 tapones en 10 partidos)
 
 // P(X > línea) con media y varianza dadas: binomial negativa si la varianza supera a
@@ -230,7 +233,8 @@ export function overProbability(m, variance, line) {
 // Devuelve { p, mean, sd, n, trend, minutes } o null con menos de `minGames` partidos.
 //   sd: desviación de la distribución usada; trend: (media de los 3 últimos − media) / sd;
 //   minutes: media simple de minutos (null si la fuente no los trae).
-export function playerProbability(games, code, sel, line, { minGames = 5, maxGames = 10 } = {}) {
+export function playerProbability(games, code, sel, line, { minGames = 5, maxGames = 10, ...opts } = {}) {
+  const o = { ...PLAYERS, ...opts };
   const L = line == null || line === '' ? NaN : Number(line);
   if (!PLAYER_STATS[code] || (sel !== 'over' && sel !== 'under') || !Number.isFinite(L)) return null;
   const list = (games || [])
@@ -241,16 +245,17 @@ export function playerProbability(games, code, sel, line, { minGames = 5, maxGam
   const n = list.length;
   if (!n || n < minGames) return null;
   const xs = list.map((g) => g.v);
-  const w = xs.map((_, k) => DECAY ** k);
+  const w = xs.map((_, k) => o.decay ** k);
   const W = sum(w);
   const W2 = sum(w.map((x) => x * x));
   const mw = sum(xs.map((x, k) => w[k] * x)) / W;
-  const m0 = (n * mw + SHRINK * mean(xs)) / (n + SHRINK);
+  const m0 = (n * mw + o.shrink * mean(xs)) / (n + o.shrink);
   const m = Math.max(MIN_MEAN, m0);
   const v = n > 1 ? sum(xs.map((x, k) => w[k] * (x - mw) ** 2)) / (W - W2 / W) : 0;
-  const variance = v * (1 + W2 / (W * W));
+  const variance = v * (1 + W2 / (W * W)) * o.varScale;
   const sd = Math.sqrt(Math.max(variance, m));
-  const pOver = overProbability(m, variance, L);
+  const raw = overProbability(m, variance, L);
+  const pOver = o.temp === 1 ? raw : 1 / (1 + Math.exp(-o.temp * Math.log(clamp(raw, 1e-6, 1 - 1e-6) / (1 - clamp(raw, 1e-6, 1 - 1e-6)))));
   const mins = list.map((g) => toNum(g.min)).filter((x) => x != null);
   return {
     p: clamp(sel === 'over' ? pOver : 1 - pOver, 0.001, 0.999),

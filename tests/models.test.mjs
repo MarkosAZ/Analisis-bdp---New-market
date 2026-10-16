@@ -63,7 +63,8 @@ test('básquet: margen y total con líneas de la casa', () => {
   const away = pts([[98, 110], [101, 105], [95, 108], [104, 102], [99, 111], [100, 107], [97, 103], [103, 109], [96, 101], [101, 106]]);
   const m = pointsModel(ev('basketball'), { lastHome: home, lastAway: away }, sportOf('basketball'), { lines: { OU: [210.5], HCP: [-6.5] } });
   const get = (market, sel, line = null) => m.candidates.find((c) => c.market === market && c.sel === sel && c.line === line).p;
-  assert.ok(get('ML', 'home') > 0.7);
+  // Margen esperado de unos 8 puntos con un desvío amplio (ajustado con 3 temporadas).
+  assert.ok(get('ML', 'home') > 0.6);
   assert.ok(get('HCP', 'home', -6.5) < get('ML', 'home'));
   assert.ok(Math.abs(get('OU', 'over', 210.5) + get('OU', 'under', 210.5) - 1) < 1e-6);
 });
