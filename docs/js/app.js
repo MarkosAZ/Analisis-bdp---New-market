@@ -49,6 +49,7 @@ const app = {
     source: LS.get('bdp:fuente', null), // 'auto' (datos publicados) o 'sofascore' (extensión)
     events: new Map(), // "fuente|fecha|deporte" -> { status, items, error, withOdds, generated }
     onlyOdds: LS.get('bdp:solo-cuotas', true),
+    pinned: new Set(LS.get('bdp:fijadas', [])), // ligas fijadas arriba en Partidos (ver PartidosView.pinKey)
     selected: new Map(), // id -> evento (del día elegido)
     search: '',
     onlyPending: true,
@@ -197,6 +198,12 @@ app.setSource = (source) => {
 app.setOnlyOdds = (on) => {
   app.state.onlyOdds = on;
   LS.set('bdp:solo-cuotas', on);
+};
+
+app.togglePin = (key) => {
+  const { pinned } = app.state;
+  pinned.has(key) ? pinned.delete(key) : pinned.add(key);
+  LS.set('bdp:fijadas', [...pinned]);
 };
 
 // Partidos automáticos (publicados cada 2 horas): hoy y mañana.

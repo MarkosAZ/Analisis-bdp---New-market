@@ -195,7 +195,7 @@ async function withoutExtension(browser, errors) {
   check('sin extensión la fuente Sofascore está desactivada', await page.$eval('.segmented button:has-text("Sofascore")', (b) => b.disabled));
   check('muestra cuándo se actualizaron los datos', (await page.textContent('.source-bar')).includes('hace 35 min'), await page.textContent('.source-bar'));
   const leagues = await page.$$eval('.league .name', (els) => els.map((e) => e.textContent));
-  check('ligas automáticas ordenadas por importancia', leagues.join(',') === 'Premier League,Liga 1', leagues.join(', '));
+  check('ligas automáticas ordenadas por país', leagues.join(',') === 'Premier League,Liga 1', leagues.join(', '));
   await page.click('.league:has-text("Liga 1") .league-title');
   const shown = await page.$$eval('.league:has-text("Liga 1") .match', (els) => els.length);
   check('"Solo con cuotas" oculta los partidos sin cuotas', shown === 2 && (await page.$$('.odds-badge')).length === 2, `${shown} partidos`);
@@ -347,7 +347,17 @@ async function withoutExtension(browser, errors) {
     check('detecta la extensión', (await page.getAttribute('#ext-status .chip:has-text("Extensión")', 'title')).includes('9.9.9'));
     check('con la extensión empieza con Sofascore', (await page.textContent('.segmented button.active')) === 'Sofascore');
     const leagues = await page.$$eval('.league .name', (els) => els.map((e) => e.textContent));
-    check('muestra las ligas de fútbol ordenadas por importancia', leagues.join(',') === 'Premier League,Serie A,Liga 1', leagues.join(', '));
+    check('muestra las ligas de fútbol ordenadas por país (no por importancia)', leagues.join(',') === 'Premier League,Serie A,Liga 1', leagues.join(', '));
+    // Pin: Liga 1 fijada arriba, también al volver a abrir la página; al quitarla vuelve a su lugar.
+    await page.click('.league:has-text("Liga 1") .pin-btn');
+    const pinnedOrder = await page.$$eval('.league .name', (els) => els.map((e) => e.textContent).join(','));
+    await page.reload();
+    await page.waitForSelector('.league');
+    const afterReload = await page.$$eval('.league .name', (els) => els.map((e) => e.textContent).join(','));
+    const pressed = await page.getAttribute('.league:has-text("Liga 1") .pin-btn', 'aria-pressed');
+    await page.click('.league:has-text("Liga 1") .pin-btn');
+    const unpinned = await page.$$eval('.league .name', (els) => els.map((e) => e.textContent).join(','));
+    check('el pin fija una liga arriba y se recuerda', pinnedOrder === 'Liga 1,Premier League,Serie A' && afterReload === pinnedOrder && pressed === 'true' && unpinned === 'Premier League,Serie A,Liga 1', `${pinnedOrder} · ${afterReload} · ${unpinned}`);
     const times = await page.$$eval('.league:has-text("Liga 1") .match .time', (els) => els.map((e) => e.textContent));
     check('partidos de cada liga ordenados por hora', times.join() === [...times].sort().join(), times.join(' '));
     await page.click('.league:has-text("Premier League") .league-head input');

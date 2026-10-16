@@ -5,8 +5,10 @@ mejores cuotas de Apuesta Total y Betano por nivel de confianza y llevar el
 historial de resultados. Funciona en el **celular y en la PC**:
 <https://markosaz.github.io/Analisis-bdp---New-market/>
 
-- **Partidos**: fútbol, básquet y béisbol, agrupados por país y liga. Marca
-  ligas completas o partidos sueltos. Dos fuentes:
+- **Partidos**: fútbol, básquet y béisbol, agrupados por país y liga, con los
+  países de la A a la Z (en cada país, la liga más importante primero). El pin 📌
+  de cada liga la fija arriba (se recuerda en ese navegador). Marca ligas
+  completas o partidos sueltos. Dos fuentes:
   - **Automático** (celular y PC, sin instalar nada): partidos de hoy y mañana de
     Flashscore con los mercados analizados de Apuesta Total, últimos partidos, H2H
     y estadísticas promedio de cada equipo (córners, tarjetas, tiros...) y xG de
