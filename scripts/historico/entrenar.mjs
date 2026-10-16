@@ -59,7 +59,7 @@ for (const [sport, gen] of [
 const rows = [...[...buffers.values()].flat(), ...real];
 log(`entrenando con ${rows.length} filas (${real.length} propias)`);
 const set = NetworkSet.train(rows);
-set.info = { trainedAt: new Date().toISOString(), source: 'GitHub Actions', rows: { real: real.length, imported, bySport }, cutoff: new Date(cutoff).toISOString() };
+set.info = { trainedAt: new Date().toISOString(), source: process.env.GITHUB_ACTIONS ? 'GitHub Actions' : 'local', rows: { real: real.length, imported, bySport }, cutoff: new Date(cutoff).toISOString() };
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, JSON.stringify(set.toJSON()));
 const s = set.summary();
