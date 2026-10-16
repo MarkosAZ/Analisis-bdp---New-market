@@ -3,6 +3,7 @@
 // equipo en sus últimos partidos (lo que hace y lo que le permite el rival).
 // Cada equipo sigue una binomial negativa (más dispersa que Poisson) con su
 // media; las cuotas no intervienen.
+import { calibrate } from './models.js';
 import { FOOTBALL_STATS, statPriors } from './simulate.js';
 
 // Partidos con datos de cada equipo para dar una probabilidad.
@@ -15,11 +16,13 @@ export const MIN_MATCHES = 4;
 //  Por estadística (corners, cards, shots, shots_on) se pueden cambiar k
 //  (dispersión), h1 (parte del 1.er tiempo), mean (promedio típico), ratio
 //  (ventaja de local), shrink y shrinkH1 (el del 1.er tiempo); sin cambiar, los
-//  de simulate.js.
+//  de simulate.js. t: calibración del Más/Menos del partido en escala logit (<1
+//  acerca al 50 %), elegida con las líneas reales de la casa (Sofascore, 2024-25):
+//  frente a ellas los córners y las tarjetas se pasaban de seguros.
 export const STATS = {
   shrink: 3,
-  corners: { shrinkH1: 6 },
-  cards: { k: 20 },
+  corners: { shrinkH1: 6, t: 0.5 },
+  cards: { k: 20, t: 0.35 },
   shots: { k: 1000, shrink: 2 },
   shots_on: { k: 1000 },
 };
@@ -68,7 +71,9 @@ export function statProbability(sport, teamStats, spec, sel, line, opts = {}) {
       if (hcp ? i - j + line > 0 : i + j > line) yes += w;
     }
   }
-  const pYes = yes / total;
+  // Calibración (solo el Más/Menos del partido: el hándicap y el 1.er tiempo no tienen
+  // líneas reales con que medirla).
+  const pYes = calibrate(yes / total, !hcp && spec.scope === 'ft' ? (def.t ?? 1) : 1);
   const variance = (m) => m + (def.k ? (m * m) / def.k : 0);
   const p = sel === 'under' || sel === 'away' ? 1 - pYes : pYes;
   return { p, n: prior.n, home: mh, away: ma, mean: hcp ? mh - ma : mh + ma, sd: Math.sqrt(variance(mh) + variance(ma)) };

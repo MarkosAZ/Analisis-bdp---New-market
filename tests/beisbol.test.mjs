@@ -120,8 +120,15 @@ test('béisbol: contexto — bullpen cansado, estadio, clima y enfrentamientos',
   const plain = baseballModel(ev, base, cfg, {});
   const tired = baseballModel(ev, { ...base, mlb: { ...mlb(null, null), away: { pitcher: null, bullpen: { ip: 14, games: 3 } } } }, cfg, {});
   assert.ok(tired.expected.home > plain.expected.home, 'bullpen rival cansado: más carreras');
-  const coors = baseballModel(ev, { ...base, mlb: { ...mlb(null, null), park: { factor: 1.25, n: 300 }, weather: { condition: 'Sunny', temp: 88, wind: '10 mph, Out To CF' } } }, cfg, { lines: { OU: [8.5] } });
-  assert.ok(p(coors, 'OU', 'over', 8.5) > p(baseballModel(ev, base, cfg, { lines: { OU: [8.5] } }), 'OU', 'over', 8.5) + 0.08);
+  const hot = { ...base, mlb: { ...mlb(null, null), park: { factor: 1.25, n: 300 }, weather: { condition: 'Sunny', temp: 88, wind: '10 mph, Out To CF' } } };
+  const coors = baseballModel(ev, hot, cfg, { lines: { OU: [8.5] } });
+  const flat = baseballModel(ev, base, cfg, { lines: { OU: [8.5] } });
+  assert.ok(coors.expected.total > flat.expected.total * 1.15, 'estadio y clima: más carreras');
+  // El total de carreras queda calibrado cerca del 50 % (frente a la línea de la casa el
+  // modelo no le gana), pero sube igual; sin calibrar, bastante más.
+  assert.ok(p(coors, 'OU', 'over', 8.5) > p(flat, 'OU', 'over', 8.5));
+  const raw = (d) => p(baseballModel(ev, d, cfg, { lines: { OU: [8.5] } }, { ouT: 1 }), 'OU', 'over', 8.5);
+  assert.ok(raw(hot) > raw(base) + 0.08);
   const rivals = baseballModel(ev, { ...base, h2hGames: h2h }, cfg, {});
   assert.ok(rivals.expected.home > plain.expected.home, 'el local le anota mucho a este rival');
   assert.ok(isMlb(ev) && !isMlb({ ...ev, tournament: { name: 'NPB - Playoffs' } }) && !isMlb({ ...ev, sport: 'football' }));

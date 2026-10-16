@@ -112,10 +112,13 @@ export function scoreOutcomes(m) {
 //  ouT / bttsT: calibración final del Más/Menos y de ambos anotan en escala logit
 //    (<1 acerca al 50 %: el modelo se pasaba de seguro); bttsShift: corrección del
 //    nivel de ambos anotan.
-// Elegidos con la prueba retrospectiva de unos 15 000 partidos (ver README).
-export const FOOTBALL = { prior: 3, ha: 1.3, xgWeight: 0.7, rho: -0.12, venue: 0.2, decay: 0.95, stretch: 1.1, totalScale: 1, ouT: 0.7, bttsT: 0.5, bttsShift: 0.05 };
+// Elegidos con la prueba retrospectiva de unos 15 000 partidos (ver README). ouT,
+// con las líneas reales de la casa (Sofascore, 2024-25): frente a ellas el modelo se
+// pasaba más de seguro que frente a una línea puesta con la media (0.7 → 0.32).
+export const FOOTBALL = { prior: 3, ha: 1.3, xgWeight: 0.7, rho: -0.12, venue: 0.2, decay: 0.95, stretch: 1.1, totalScale: 1, ouT: 0.32, bttsT: 0.5, bttsShift: 0.05 };
 const GOALS = { prior: 3, xgWeight: 0.5, rho: -0.08, venue: 0.4, decay: DECAY, stretch: 1, totalScale: 1, ouT: 1, bttsT: 1, bttsShift: 0 };
-const calibrate = (p, t = 1, shift = 0) => (t === 1 && !shift ? p : sigmoid(t * logit(clamp(p, 1e-6, 1 - 1e-6)) + shift));
+// p → sigmoid(t · logit(p) + shift): t < 1 acerca al 50 %.
+export const calibrate = (p, t = 1, shift = 0) => (t === 1 && !shift ? p : sigmoid(t * logit(clamp(p, 1e-6, 1 - 1e-6)) + shift));
 
 export function goalsModel(ev, d, cfg, ctx = {}, opts = {}) {
   const o = ev.sport === 'football' ? { ...FOOTBALL, ...opts } : { ...GOALS, ha: cfg.ha || 1.08, ...opts };

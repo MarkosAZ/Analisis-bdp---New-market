@@ -10,7 +10,7 @@
 // (tamaño 4, como en la MLB: media ~4.4 y desvío ~3.1 por equipo y partido).
 import { clamp } from '../util.js';
 import { isHalfLine } from './markets.js';
-import { scoreOutcomes } from './models.js';
+import { calibrate, scoreOutcomes } from './models.js';
 
 export const MLB_RA9 = 4.4; // carreras por equipo y partido (9 entradas) en la MLB
 
@@ -26,7 +26,10 @@ export const MLB_RA9 = 4.4; // carreras por equipo y partido (9 entradas) en la 
 //  stretch: separa (>1) o junta (<1) las carreras de los dos equipos sin cambiar el total.
 //  totalScale: corrige el total esperado (1: subirlo o bajarlo empeoró la prueba
 //    en otros meses).
-export const BASEBALL = { formN: 20, formDecay: 1, formPrior: 100, venueWeight: 0.4, spPriorIp: 30, spRawWeight: 0.75, ha: 1.02, h2hWeight: 0.1, nbSize: 4, parkWeight: 0.5, stretch: 1.15, totalScale: 1 };
+//  ouT: calibración del total de carreras en escala logit (<1 acerca al 50 %). Con las
+//    líneas reales de la casa (Flashscore, 2021-2026) el modelo no le gana a la línea:
+//    casi todo el total queda cerca del 50 %.
+export const BASEBALL = { formN: 20, formDecay: 1, formPrior: 100, venueWeight: 0.4, spPriorIp: 30, spRawWeight: 0.75, ha: 1.02, h2hWeight: 0.1, nbSize: 4, parkWeight: 0.5, stretch: 1.15, totalScale: 1, ouT: 0.1 };
 
 // ¿Partido de la MLB? (sus abridores y contexto salen de la API oficial de la MLB).
 export const isMlb = (ev) => ev?.sport === 'baseball' && /\bmlb\b/i.test([ev.tournament?.name, ev.category?.name, ev.league].filter(Boolean).join(' '));
@@ -250,7 +253,7 @@ export function baseballModel(ev, d, cfg, ctx = {}, opts = {}) {
   ];
   for (const line of new Set([...(cfg.lines || []), ...(ctx.lines?.OU || [])])) {
     if (!isHalfLine(line) || line <= 0) continue;
-    const p = r.over(line);
+    const p = calibrate(r.over(line), o.ouT);
     c.push(['OU', 'over', line, p], ['OU', 'under', line, 1 - p]);
   }
   for (const line of ctx.lines?.HCP || []) {

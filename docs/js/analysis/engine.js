@@ -33,7 +33,7 @@ import {
 } from './markets.js';
 import { familyOf, parseMarketId, STAT_NAME } from './catalog.js';
 import { bestByName, matchEvent } from './matching.js';
-import { predict } from './models.js';
+import { calibrate, predict } from './models.js';
 import { isMlb } from './baseball.js';
 import { acceptsOffer, BOOKMAKERS, buildCombos, DEFAULT_SETTINGS, isPlayerMarket, selectPicks } from './picks.js';
 import { networkOf } from './networks.js';
@@ -490,6 +490,13 @@ export const wholeLinesOk = (sport, market) => {
   return sport === 'basketball' && spec?.scope === 'h1' && spec.stat === 'score' && (spec.t === 'OU' || spec.t === 'HCP');
 };
 
+// Calibración final del básquet en escala logit (<1 acerca al 50 %): frente a las
+// líneas reales de la casa (Flashscore: NBA, Euroliga y Liga ACB, 2023-2025, probado
+// con 2025-26) el modelo casi no tiene información y se pasaba de seguro (decía 60 %
+// y acertaba 50 %). El fútbol y el béisbol se calibran en sus modelos (models.js,
+// stats.js, baseball.js).
+const CALIBRATION = { 'basketball:OU': 0.1, 'basketball:HCP': 0.15, 'basketball:OU@h1': 0.05, 'basketball:HCP@h1': 0.05 };
+
 // Candidatos (las dos selecciones de la línea elegida de cada mercado, con
 // cuota y probabilidad) de un partido, sin aplicar todavía el método
 // (estadístico o red neuronal).
@@ -549,6 +556,10 @@ export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } 
       if (c.spec.t === 'OU' && c.spec.stat === 'score') c.trend = trend * (DIR[c.sel] ?? 0);
       simulated++;
     }
+  }
+  for (const c of items) {
+    const t = CALIBRATION[`${ev.sport}:${c.market}`];
+    if (t != null && c.pModel != null) c.pModel = calibrate(c.pModel, t);
   }
 
   const out = [];
