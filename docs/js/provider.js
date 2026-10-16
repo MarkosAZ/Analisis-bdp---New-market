@@ -1,7 +1,7 @@
 // Datos automáticos: los publica GitHub Actions cada 2 horas en data/fuente/
 // (partidos y resultados de Flashscore, cuotas de Apuesta Total, xG de
 // Understat). Funcionan en cualquier dispositivo, sin la extensión.
-import { expandDay, expandResult } from './data-format.js';
+import { expandDay, expandMatchData, expandResult } from './data-format.js';
 import { expandNews } from './analysis/news.js';
 import { addDays, limaDateOf } from './util.js';
 
@@ -72,6 +72,18 @@ export async function detailsFor(events) {
     out.set(ev.id, found);
   }
   return out;
+}
+
+// Datos de un partido para la pestaña Datos (se bajan al abrirlo; solo los partidos
+// con cuotas tienen): últimos partidos de cada equipo, enfrentamientos, jugadores y
+// abridores. null si no hay.
+const matchData = new Map(); // id -> { at, data }
+export async function loadMatchData(id, { force = false } = {}) {
+  if (fresh(matchData.get(id), force)) return matchData.get(id).data;
+  const raw = await getJson(`datos/${String(id).replace(/^fs:/, '')}.json`);
+  const data = raw ? expandMatchData(raw) : null;
+  matchData.set(id, { at: Date.now(), data });
+  return data;
 }
 
 // Resultados finales de un día: { id: { state, score, winner } }.

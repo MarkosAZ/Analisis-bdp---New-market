@@ -301,3 +301,92 @@ dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }
 .hist-league { display: grid; gap: 8px; padding-left: 2px; }
 .hist-match { border-left: 3px solid var(--line); padding-left: 10px; display: grid; gap: 4px; }
 .hist-match-head { overflow-wrap: anywhere; }
+
+/* Datos: partidos con datos publicados y, al tocar uno, sus barras. */
+:root { --over: #2a78d6; --under: #e34948; --push: #898781; --thr: #17202a; }
+@media (prefers-color-scheme: dark) {
+  :root { --over: #3987e5; --under: #e66767; --push: #898781; --thr: #e7eaee; }
+}
+.datos-layout { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.datos-list { position: sticky; top: 72px; max-height: calc(100dvh - 88px); overflow-y: auto; }
+.datos-detail { display: grid; gap: 12px; min-width: 0; }
+.datos-detail .back { display: none; }
+@media (max-width: 900px) {
+  .datos-layout { grid-template-columns: minmax(0, 1fr); }
+  .datos-list { position: static; max-height: none; overflow: visible; }
+  .datos-layout.open .datos-list { display: none; }
+  .datos-layout:not(.open) .datos-detail { display: none; }
+  .datos-detail .back { display: inline-flex; justify-self: start; margin-bottom: 4px; }
+}
+.datos-match { width: 100%; border: 0; border-top: 1px solid var(--line); background: transparent; text-align: left; grid-template-columns: 48px minmax(0, 1fr) auto auto; }
+.datos-groups .league-head { padding: 0 12px 0 0; }
+.datos-groups .league-title { padding: 10px 12px; }
+.datos-waiting { text-align: center; }
+.datos-match .go { color: var(--muted); font-size: 18px; }
+.datos-head { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); }
+.datos-head h2 { margin: 0; font-size: 20px; overflow-wrap: anywhere; }
+.datos-head .meta { color: var(--muted); font-size: 13px; }
+.datos-head p { margin: 0; }
+.forms { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; font-size: 14px; }
+.form-chip { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; font-size: 11px; font-weight: 700; margin-left: 3px; background: var(--surface-2); color: var(--text); }
+.form-chip.G { background: var(--ok-bg); color: var(--ok); }
+.form-chip.P { background: var(--err-bg); color: var(--err); }
+.datos-filters { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+.datos-filters h3 { margin: 0; }
+.filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filter-row .segmented { flex-wrap: wrap; }
+.segmented button { white-space: nowrap; }
+.stat-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 12px; cursor: pointer; font-size: 14px; }
+.chip-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.chip-btn small { font-size: 12px; opacity: 0.85; }
+.line-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.line-ctl .icon-btn { font-size: 18px; line-height: 1; }
+.line-ctl .line-val { min-width: 44px; text-align: center; font-size: 18px; font-variant-numeric: tabular-nums; }
+.stat-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.stat-row .chip { white-space: normal; }
+.chip.lean.over { box-shadow: inset 3px 0 0 var(--over); }
+.chip.lean.under { box-shadow: inset 3px 0 0 var(--under); }
+.chart-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+.chart-card { display: grid; gap: 8px; align-content: start; min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.chart-card h3, .chart-card h4 { margin: 0; }
+.chart-card h3 .note { font-weight: 400; }
+.match-table summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+
+/* Barras. La columna se puede achicar más que sus etiquetas (si no, 15 etiquetas
+   ensanchan la página en el celular). */
+.bars { display: grid; gap: 6px; container-type: inline-size; grid-template-columns: minmax(0, 1fr); }
+.bars .plot { height: 190px; padding-top: 16px; border-bottom: 1px solid var(--line); }
+.bars.diverging .plot { padding-bottom: 16px; border-bottom: 0; }
+.bars .area { position: relative; height: 100%; }
+.bars .cols { position: absolute; inset: 0; display: flex; gap: 2px; z-index: 2; }
+.bars .col { flex: 1 1 0; min-width: 0; height: 100%; position: relative; border: 0; background: transparent; padding: 0; cursor: pointer; font: inherit; }
+.bars .col .bar { position: absolute; left: 50%; transform: translateX(-50%); width: min(24px, 100%); border-radius: 4px 4px 0 0; background: var(--push); min-height: 2px; }
+.bars.diverging .col.under .bar { border-radius: 0 0 4px 4px; }
+.bars .col.over .bar { background: var(--over); }
+.bars .col.under .bar { background: var(--under); }
+/* El valor va en la punta, sobre las líneas y con el fondo de la tarjeta (la línea no lo tacha). */
+.bars .col .val { position: absolute; left: 50%; transform: translateX(-50%); font-size: 11px; line-height: 15px; font-variant-numeric: tabular-nums; color: var(--text); background: var(--surface); border-radius: 3px; padding: 0 2px; white-space: nowrap; }
+.bars .col:hover .bar, .bars .col:focus-visible .bar { outline: 2px solid var(--text); outline-offset: 1px; }
+.bars .col:focus-visible { outline: none; }
+.bars .area > .thr, .bars .area > .avg { position: absolute; left: 0; right: 0; height: 0; pointer-events: none; z-index: 1; }
+.bars .area > .thr { border-top: 2px dashed var(--thr); }
+.bars .area > .avg { border-top: 1px solid var(--muted); }
+.bars .xlabels { display: flex; gap: 2px; }
+/* Etiquetas centradas bajo su barra; con muchas barras en poco ancho se ve una de cada
+   dos y cada una puede pasar a la celda vecina, que va vacía. */
+.bars .xlabels span { flex: 1 1 0; min-width: 0; text-align: center; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: visible; display: flex; justify-content: center; }
+.bars .xlabels.dense span { font-size: 10px; }
+@container (max-width: 430px) {
+  .bars .xlabels.many span:nth-child(even) { visibility: hidden; }
+  .bars .col .val { font-size: 10px; }
+}
+.bars-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+.bars-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.bars-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--push); }
+.bars-legend .sw.over { background: var(--over); }
+.bars-legend .sw.under { background: var(--under); }
+.bars-legend .key { display: inline-block; width: 16px; height: 0; }
+.bars-legend .key.k-line { border-top: 2px dashed var(--thr); }
+.bars-legend .key.k-avg { border-top: 1px solid var(--muted); }
+.bars-caption { margin: 0; font-size: 13px; color: var(--muted); min-height: 1.4em; }

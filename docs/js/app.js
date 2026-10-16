@@ -9,6 +9,7 @@ import { DEFAULT_SETTINGS, MARKETS } from './analysis/picks.js';
 import { isActiveSport, sportOf } from './sports.js';
 import { addDays, h, limaToday, versionBefore } from './util.js';
 import { PartidosView } from './views/partidos.js';
+import { DatosView } from './views/datos.js';
 import { analysisText, renderAnalisis, viewSport } from './views/analisis.js';
 import { renderHistorial } from './views/historial.js';
 
@@ -63,6 +64,9 @@ const app = {
     dayCache: new Map(),
     localFiles: 0,
     tab: 'partidos',
+    // Pestaña Datos: partido abierto, cuántos partidos, local/visita, estadística, de
+    // quién y líneas elegidas con − y +; jugadores (básquet) y abridores (béisbol).
+    datos: { id: null, n: 10, venue: 'all', stat: null, who: 'total', line: {}, search: '', onlyOdds: false, open: {}, player: null, playerStat: null, playerN: 10, playerVs: false, pitcherStat: 'k', pitcherN: 10 },
     settings: savedSettings(),
   },
 };
@@ -143,6 +147,7 @@ function renderHeader() {
 function render() {
   renderHeader();
   if (app.state.tab === 'partidos') views.partidos.render();
+  if (app.state.tab === 'datos') views.datos.render();
   if (app.state.tab === 'analisis') renderAnalisis($('#tab-analisis'), app);
   if (app.state.tab === 'historial') renderHistorial($('#tab-historial'), app);
 }
@@ -150,7 +155,7 @@ function render() {
 function showTab(tab) {
   app.state.tab = tab;
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('active', b.dataset.tab === tab);
-  for (const t of ['partidos', 'analisis', 'historial']) $(`#tab-${t}`).hidden = t !== tab;
+  for (const t of ['partidos', 'datos', 'analisis', 'historial']) $(`#tab-${t}`).hidden = t !== tab;
   render();
 }
 
@@ -502,6 +507,7 @@ function closeSettings(action) {
 
 async function init() {
   views.partidos = new PartidosView($('#tab-partidos'), app);
+  views.datos = new DatosView($('#tab-datos'), app);
   for (const b of document.querySelectorAll('.tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
   $('#date').addEventListener('change', (e) => e.target.value && setDate(e.target.value));
   $('#prev-day').addEventListener('click', () => setDate(addDays(app.state.date, -1)));

@@ -358,7 +358,13 @@ export function h2hData(sections, homeId, awayId) {
     }
   }
   h2hGames.sort((a, b) => b.start - a.start);
-  return { lastHome: last(homeId), lastAway: last(awayId), h2h, h2hGames: h2hGames.slice(0, 10) };
+  // Enfrentamientos con su id (para pedir sus estadísticas) y quién fue local,
+  // del más reciente al más antiguo (pestaña Datos de la página).
+  const h2hList = (duel?.rows || [])
+    .filter((row) => row.hs != null && row.as != null && !isExhibition(row.league))
+    .map((row) => ({ start: row.start, fsId: row.id, homeId: row.homeId, awayId: row.awayId, home: row.home, away: row.away, hs: row.hs, as: row.as, league: row.league }))
+    .sort((a, b) => b.start - a.start);
+  return { lastHome: last(homeId), lastAway: last(awayId), h2h, h2hGames: h2hGames.slice(0, 10), h2hList };
 }
 
 export async function getNews() {

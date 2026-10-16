@@ -362,9 +362,11 @@ export function gamesFromGamelog(data) {
     if (/pre-?season|pretemporada|all-?star/i.test(type.displayName || type.name || '')) continue;
     for (const cat of type.categories || []) {
       for (const e of cat.events || []) {
-        const start = toMs(data.events?.[e.eventId]?.gameDate);
+        const ev = data.events?.[e.eventId];
+        const start = toMs(ev?.gameDate);
         const row = athleteRow({ stats: e.stats }, cols);
-        if (Number.isFinite(start) && !row.dnp) out.push({ start, ...row });
+        // Rival (sigla) y si jugó de local: para ver sus partidos contra el rival de hoy.
+        if (Number.isFinite(start) && !row.dnp) out.push({ start, ...row, opp: ev?.opponent?.abbreviation || null, home: ev?.atVs ? ev.atVs !== '@' : null });
       }
     }
   }
@@ -581,6 +583,39 @@ export async function getPlayerLogs({ league, home, away, start, n = 10, names =
     as.players = as.players.filter((p) => !onRoster(p, rosters[0]) || onRoster(p, rosters[1]));
   }
   return { mode: 'direct', home: hs, away: as };
+}
+
+// Registro de esta temporada y la anterior de los jugadores pedidos (`names`, los
+// que ofrece la casa) de ambos equipos, con el rival de cada partido (pestaña Datos
+// de la página): { home: { team, abbr, players: [{ name, games }] }, away: {...} };
+// cada partido { start, opp (sigla), home, min, pts, ... }, del más reciente al más viejo.
+export async function getPlayerHistory({ league, home, away, start, names = [] } = {}) {
+  checkLeague(league);
+  const before = Number.isFinite(toMs(start)) ? toMs(start) : Date.now();
+  const teams = await leagueTeams(league);
+  const season = seasonOf(league, before);
+  const side = async (team, name) => {
+    if (!team || !names.length) return { team: team?.displayName || name, abbr: team?.abbreviation || null, players: [] };
+    const roster = await teamRoster(league, team.id).catch(() => []);
+    const players = [];
+    await pool(
+      roster.filter((a) => names.some((x) => sameAthlete(x, a))),
+      async (a) => {
+        const games = [];
+        for (const year of [season, season - 1]) {
+          try {
+            for (const g of await athleteLog(league, a.id, year)) if (g.start < before) games.push(g);
+          } catch {
+            // sin registro de esa temporada
+          }
+        }
+        if (games.length) players.push({ name: a.displayName, games: games.sort((x, y) => y.start - x.start) });
+      },
+    );
+    return { team: team.displayName, abbr: team.abbreviation || null, players };
+  };
+  const [hs, as] = await Promise.all([side(matchEspnTeam(home, teams), home), side(matchEspnTeam(away, teams), away)]);
+  return { home: hs, away: as };
 }
 
 // Box score del partido (nombres de equipo y hora de inicio): { id, state, score, players }

@@ -489,7 +489,7 @@ const gamelog = (regular, pre = []) => {
   return {
     labels: LOG_LABELS,
     names: LOG_NAMES,
-    events: Object.fromEntries([...regular, ...pre].map((g) => [g.id, { id: g.id, gameDate: g.date }])),
+    events: Object.fromEntries([...regular, ...pre].map((g) => [g.id, { id: g.id, gameDate: g.date, ...(g.opp ? { opponent: { abbreviation: g.opp }, atVs: g.at } : {}) }])),
     seasonTypes: [
       ...(regular.length ? [{ displayName: '2025-26 Regular Season', categories: [{ displayName: 'april', events: regular.map(row) }] }] : []),
       ...(pre.length ? [{ displayName: '2026-27 Preseason', categories: [{ displayName: 'Preseason', events: pre.map(row) }] }] : []),
@@ -499,8 +499,9 @@ const gamelog = (regular, pre = []) => {
 const WEB = 'https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba';
 
 test('registro de un jugador: temporada regular sin la pretemporada, intentos y sin rebotes ofensivos', () => {
-  const games = gamesFromGamelog(gamelog([{ id: 'a', date: '2026-04-10T23:30Z', min: 36, pts: 30, reb: 9 }], [{ id: 'c', date: '2026-10-08T00:00Z', min: 20, pts: 12, reb: 3 }]));
-  assert.deepEqual(games, [{ start: Date.parse('2026-04-10T23:30Z'), min: 36, pts: 30, reb: 9, ast: 7, tpm: 2, stl: 1, blk: 0, tov: 2, oreb: null, dreb: null, ftm: 5, fgm: 8, fga: 16, tpa: 6, fta: 6 }]);
+  const games = gamesFromGamelog(gamelog([{ id: 'a', date: '2026-04-10T23:30Z', min: 36, pts: 30, reb: 9, opp: 'CLE', at: '@' }], [{ id: 'c', date: '2026-10-08T00:00Z', min: 20, pts: 12, reb: 3 }]));
+  // Con el rival (sigla) y si jugó de local, para la pestaña Datos.
+  assert.deepEqual(games, [{ start: Date.parse('2026-04-10T23:30Z'), min: 36, pts: 30, reb: 9, ast: 7, tpm: 2, stl: 1, blk: 0, tov: 2, oreb: null, dreb: null, ftm: 5, fgm: 8, fga: 16, tpa: 6, fta: 6, opp: 'CLE', home: false }]);
   assert.deepEqual(gamesFromGamelog({}), []);
 });
 

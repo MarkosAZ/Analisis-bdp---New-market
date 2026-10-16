@@ -11,11 +11,16 @@
 //                                   el registro completo: incidencias (goles con
 //                                   minuto, tarjetas) y estadísticas (córners...);
 //                                   en la NBA y la WNBA, también los jugadores (ESPN)
+//   datos/<id>.json                 pestaña Datos: por partido (todos los de hoy y
+//                                   mañana), sus últimos 15 de cada equipo y sus
+//                                   enfrentamientos con las estadísticas de cada uno;
+//                                   jugadores (NBA y WNBA) y abridores (MLB) con sus
+//                                   últimos partidos
 // Uso: node scripts/collect-data.mjs [salida] (por defecto "site")
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getH2H, getMatchFeeds, getNews as flashscoreNews, getSportDay, SPORT_IDS } from '../extension/sources/flashscore.js';
-import { getAllNews as espnNews, getBoxScore, getPlayerLogs } from '../extension/sources/espn.js';
+import { getAllNews as espnNews, getBoxScore, getPlayerHistory, getPlayerLogs } from '../extension/sources/espn.js';
 import { getNews as fotmobNews } from '../extension/sources/fotmob.js';
 import { compactNews } from '../docs/js/analysis/news.js';
 import { getEventList, getMarkets } from '../extension/sources/apuestatotal.js';
@@ -24,16 +29,16 @@ import { basicNorm, bestByName, countryCode, matchEvent } from '../docs/js/analy
 import { offeredPlayers, offersFromApuestaTotal } from '../docs/js/analysis/markets.js';
 import { basketballLeague, isPreseason, matchPlayer } from '../docs/js/analysis/players.js';
 import { isMlb } from '../docs/js/analysis/baseball.js';
-import { getGameContext } from '../extension/sources/mlb.js';
+import { getGameContext, lastStarts } from '../extension/sources/mlb.js';
 import { addDays, limaToday } from '../docs/js/util.js';
 import { ACTIVE_SPORTS } from '../docs/js/sports.js';
 import { marketsOf } from '../docs/js/analysis/picks.js';
-import { compactDay, compactResult } from '../docs/js/data-format.js';
+import { compactDay, compactMatchData, compactMatchStats, compactResult } from '../docs/js/data-format.js';
 import { parseFsGames, parseFsIncidents, parseFsStats, periodsFromRow, recordFromFlashscore } from '../docs/js/analysis/records.js';
 import { teamStatsFrom } from '../docs/js/analysis/teamstats.js';
 
 const OUT = path.resolve(process.argv[2] || 'site', 'data/fuente');
-const CACHE = path.resolve('.cache/h2h-v5'); // subir la versión si cambia getH2H (v4: sin la Summer League; v5: carreras de cada enfrentamiento)
+const CACHE = path.resolve('.cache/h2h-v6'); // subir la versión si cambia getH2H (v4: sin la Summer League; v5: carreras de cada enfrentamiento; v6: lista de enfrentamientos con su id)
 const DETAIL_CACHE = path.resolve('.cache/detalle-v1'); // feeds de partidos terminados (no cambian)
 const PLAYERS_CACHE = path.resolve('.cache/jugadores-v2'); // jugadores de partidos terminados de ESPN (no cambian; v2: con los intentos)
 const PLAYER_LOGS_CACHE = path.resolve('.cache/jugadores-ultimos-v1'); // últimos partidos de los jugadores ofrecidos (partidos por jugar)
@@ -44,6 +49,14 @@ const STAT_SPORTS = new Set(['football', 'basketball', 'ice-hockey', 'tennis', '
 const TEAM_MATCHES = 8; // últimos partidos de cada equipo para sus estadísticas
 const MAX_DETAIL_FETCHES = 6000; // por corrida (el resto queda para la siguiente; los feeds quedan en caché)
 const DETAIL_BUDGET_MS = 6 * 60000; // tiempo máximo para pedir feeds de detalle (la página se publica igual)
+// Pestaña Datos: últimos partidos de cada equipo, enfrentamientos, partidos de cada
+// jugador (y todos contra el rival de hoy en dos temporadas) y aperturas de cada abridor.
+const DATA_MATCHES = 15;
+const DATA_H2H = 10;
+const DATA_PLAYER_GAMES = 20;
+const DATA_STARTS = 20;
+const DATA_BUDGET_MS = 5 * 60000;
+const DATA_H2H_MS = 4 * 60000; // H2H de los partidos sin cuotas (los que no alcanzan, en la próxima corrida)
 const CACHE_HOURS = 12;
 const AHEAD = [0, 1];
 const BACK = [-7, -6, -5, -4, -3, -2, -1];
@@ -71,8 +84,8 @@ async function writeJson(file, data) {
   await fs.writeFile(file, JSON.stringify(data));
 }
 
-// H2H con caché (no cambia mucho en el día).
-async function h2hCached(ev) {
+// H2H con caché (no cambia mucho en el día). fetch = false: solo el de la caché (o null).
+async function h2hCached(ev, { fetch = true } = {}) {
   const fsId = ev.id.slice(3);
   const file = path.join(CACHE, `${fsId}.json`);
   try {
@@ -81,17 +94,23 @@ async function h2hCached(ev) {
   } catch {
     // sin caché
   }
+  if (!fetch) return null;
   const data = await getH2H({ fsId, homeId: ev.home.id, awayId: ev.away.id });
   await writeJson(file, { at: Date.now(), data });
   return data;
 }
 
 
+// Presupuesto de pedidos de feeds de detalle de cada etapa: lo que no alcanza queda
+// para la próxima corrida (los feeds quedan en caché) y la página se publica igual.
+const budget = (ms) => ({ ms, max: MAX_DETAIL_FETCHES, used: 0, start: 0 });
+const STATS_BUDGET = budget(DETAIL_BUDGET_MS); // estadísticas de los equipos (análisis)
+const RECORDS_BUDGET = budget(DETAIL_BUDGET_MS); // registros de los partidos analizados (liquidar)
+const DATA_BUDGET = budget(DATA_BUDGET_MS); // más partidos y enfrentamientos (pestaña Datos)
+const hasBudget = (b) => b.used < b.max && (!b.start || Date.now() - b.start < b.ms);
+
 // Feeds de detalle de un partido terminado, con caché permanente.
-let fetches = 0;
-let detailStart = 0; // cuándo empezó a pedir feeds de detalle
-const detailTimeLeft = () => !detailStart || Date.now() - detailStart < DETAIL_BUDGET_MS;
-async function feedsCached(fsId, kinds) {
+async function feedsCached(fsId, kinds, b) {
   const id = String(fsId).replace(/^fs:/, '');
   const file = path.join(DETAIL_CACHE, `${id}.json`);
   let cached = {};
@@ -101,15 +120,38 @@ async function feedsCached(fsId, kinds) {
     // sin caché
   }
   const missing = kinds.filter((k) => typeof cached[k] !== 'string');
-  if (missing.length && fetches < MAX_DETAIL_FETCHES && detailTimeLeft()) {
-    detailStart ||= Date.now();
-    fetches += missing.length;
+  if (missing.length && hasBudget(b)) {
+    b.start ||= Date.now();
+    b.used += missing.length;
     const got = await getMatchFeeds({ fsId: id, kinds: missing });
     for (const k of missing) if (typeof got[k] === 'string') cached[k] = got[k];
     cached.at = Date.now();
     await writeJson(file, cached);
   }
   return cached;
+}
+
+// Estadísticas de un partido terminado (df_st de Flashscore, con caché), o null.
+// Solo se recuerda lo leído: si faltó presupuesto, otra etapa puede pedirlo.
+const parsedStats = new Map();
+async function matchStats(fsId, sport, b) {
+  const key = `${sport}|${fsId}`;
+  if (parsedStats.has(key)) return parsedStats.get(key);
+  let f;
+  try {
+    f = await feedsCached(fsId, ['st'], b);
+  } catch {
+    return null;
+  }
+  if (typeof f.st !== 'string') return null;
+  let stats = null;
+  try {
+    stats = f.st ? parseFsStats(f.st, sport) : null;
+  } catch {
+    // estadísticas ilegibles
+  }
+  parsedStats.set(key, stats);
+  return stats;
 }
 
 // Jugadores de un partido de básquet terminado (box score de ESPN; se prueba la
@@ -302,12 +344,8 @@ async function main() {
       const side = async (last) => {
         const matches = [];
         for (const m of (last || []).filter((x) => x.fsId).slice(0, TEAM_MATCHES)) {
-          try {
-            const { st } = await feedsCached(m.fsId, ['st']);
-            if (st) matches.push({ home: m.home, stats: parseFsStats(st, ev.sport) });
-          } catch {
-            // partido sin estadísticas
-          }
+          const stats = await matchStats(m.fsId, ev.sport, STATS_BUDGET);
+          if (stats) matches.push({ home: m.home, stats });
         }
         return teamStatsFrom(matches);
       };
@@ -320,7 +358,7 @@ async function main() {
     },
     8,
   );
-  log(`Estadísticas de equipo: ${withTeamStats} partidos (${fetches} feeds nuevos)`);
+  log(`Estadísticas de equipo: ${withTeamStats} partidos (${STATS_BUDGET.used} feeds nuevos)`);
 
   // 3c) Básquet (NBA y WNBA) con Más/Menos de jugador en Apuesta Total: últimos
   //     partidos de esos jugadores en ESPN, para analizarlos sin la extensión.
@@ -367,6 +405,93 @@ async function main() {
   );
   log(`MLB: ${withMlb} partidos con abridores y contexto (${mlbErrors} errores)`);
 
+  // 3e) Pestaña Datos: por partido, sus últimos partidos de cada equipo y sus
+  //     enfrentamientos con las estadísticas de cada uno (córners, tarjetas,
+  //     remates...); en la NBA y la WNBA, el registro de los jugadores que ofrece la
+  //     casa; en la MLB, las últimas aperturas de los abridores. Todos los partidos de
+  //     hoy y mañana: primero los que tienen cuotas; después los demás (los por jugar
+  //     primero y de las ligas más importantes), con un tiempo máximo para pedir sus
+  //     H2H (los que no alcanzan quedan para la próxima corrida; caché de 12 horas).
+  const matchData = {};
+  let dataPlayers = 0;
+  let dataPitchers = 0;
+  const rank = (ev) => priority[`${ev.sport}|${ev.tournament.id}`] || 0;
+  const rest = Object.values(upcoming)
+    .flatMap((bySport) => Object.values(bySport).flat())
+    .filter((ev) => !offers[ev.id])
+    .sort((a, b) => Number(a.state !== 'pendiente') - Number(b.state !== 'pendiente') || rank(b) - rank(a) || a.start - b.start);
+  const extra = { start: 0, missing: 0, errors: 0 };
+  const detailsOf = async (ev) => {
+    if (offers[ev.id]) return details[ev.id];
+    const open = !extra.start || Date.now() - extra.start < DATA_H2H_MS;
+    extra.start ||= Date.now();
+    try {
+      const d = await h2hCached(ev, { fetch: open });
+      if (!d) extra.missing++;
+      return d;
+    } catch {
+      extra.errors++;
+      return null;
+    }
+  };
+  await pool(
+    [...withOdds.filter((ev) => details[ev.id]).sort((a, b) => a.start - b.start), ...rest],
+    async (ev) => {
+      const d = await detailsOf(ev);
+      if (!d) return;
+      const withStats = ev.sport === 'football' || ev.sport === 'basketball';
+      const stats = async (fsId) => (withStats && fsId ? matchStats(fsId, ev.sport, DATA_BUDGET) : null);
+      // Estadísticas de cada partido del equipo: [a favor, en contra].
+      const team = async (last) => {
+        const out = [];
+        for (const m of (last || []).slice(0, DATA_MATCHES)) out.push({ start: m.start, home: m.home, opp: m.opp, gf: m.gf, ga: m.ga, league: m.league, stats: compactMatchStats(await stats(m.fsId), !m.home) });
+        return out;
+      };
+      // Enfrentamientos vistos desde el local de hoy: [local de hoy, visita de hoy].
+      const h2h = [];
+      for (const m of (d.h2hList || []).slice(0, DATA_H2H)) {
+        const home = m.homeId && ev.home.id ? m.homeId === ev.home.id : basicNorm(m.home) === basicNorm(ev.home.name);
+        h2h.push({ start: m.start, home, gf: home ? m.hs : m.as, ga: home ? m.as : m.hs, league: m.league, stats: compactMatchStats(await stats(m.fsId), !home) });
+      }
+      // Jugadores ofrecidos (NBA y WNBA): sus últimos 20 y, en dos temporadas, todos contra el rival de hoy.
+      const players = [];
+      let abbr = null; // siglas de ESPN de los dos equipos (las de los rivales en el registro)
+      const league = ev.sport === 'basketball' ? basketballLeague(ev) : null;
+      const names = league && offers[ev.id] ? offeredPlayers(offers[ev.id]) : [];
+      if (names.length) {
+        try {
+          const r = await getPlayerHistory({ league, home: ev.home.name, away: ev.away.name, start: ev.start, names });
+          abbr = [r.home.abbr, r.away.abbr];
+          for (const [side, mine, rival] of [['home', r.home, r.away], ['away', r.away, r.home]]) {
+            for (const p of mine.players) players.push({ side, name: p.name, games: p.games.filter((g, i) => i < DATA_PLAYER_GAMES || (rival.abbr && g.opp === rival.abbr)) });
+          }
+          if (players.length) dataPlayers++;
+        } catch (e) {
+          log(`Datos, jugadores ${ev.home.name} - ${ev.away.name}: ${e.message}`);
+        }
+      }
+      // Abridores (MLB): sus últimas aperturas (si no se pueden leer, las del contexto).
+      let pitchers = null;
+      if (d.mlb) {
+        const one = async (side) => {
+          const p = d.mlb[side]?.pitcher;
+          if (!p?.id) return null;
+          try {
+            const { starts } = await lastStarts(p.id, new Date(ev.start).getUTCFullYear(), ev.start, { n: DATA_STARTS });
+            return { name: p.name, starts };
+          } catch {
+            return p.starts?.length ? { name: p.name, starts: p.starts } : null;
+          }
+        };
+        pitchers = { home: await one('home'), away: await one('away') };
+        if (pitchers.home || pitchers.away) dataPitchers++;
+      }
+      matchData[ev.id] = { id: ev.id, sport: ev.sport, home: { name: ev.home.name, last: await team(d.lastHome) }, away: { name: ev.away.name, last: await team(d.lastAway) }, h2h, players, abbr, pitchers };
+    },
+    8,
+  );
+  log(`Datos: ${Object.keys(matchData).length} partidos (${rest.length} sin cuotas: ${extra.missing} sin H2H todavía, ${extra.errors} errores; ${DATA_BUDGET.used} feeds nuevos; ${dataPlayers} con jugadores, ${dataPitchers} con abridores)`);
+
   // 4) xG de Understat (fútbol, 5 grandes ligas).
   const xg = {};
   const byLeague = new Map();
@@ -390,7 +515,6 @@ async function main() {
   // 4b) Registro completo (incidencias y estadísticas) de los partidos
   //     analizados que ya terminaron. Los de Sofascore se cruzan por nombre.
   const analyzed = await analyzedEvents(BACK.concat(AHEAD).map((d) => addDays(today, d)));
-  detailStart = 0; // los registros (para liquidar) tienen su propio tiempo
   const wanted = [];
   for (const [date, list] of Object.entries(finished)) {
     const bySport = new Map();
@@ -419,7 +543,7 @@ async function main() {
       try {
         per = ev.fsRow ? periodsFromRow(ev.fsRow, ev.sport) : null;
         const kinds = ev.sport === 'tennis' ? ['st', 'sui', 'mh'] : ['st', 'sui'];
-        const f = await feedsCached(ev.id, kinds);
+        const f = await feedsCached(ev.id, kinds, RECORDS_BUDGET);
         if (f.sui != null || f.st != null) {
           record = recordFromFlashscore({
             sport: ev.sport,
@@ -488,12 +612,13 @@ async function main() {
       const pick = (map) => Object.fromEntries(Object.entries(map).filter(([id]) => ids.has(id)));
       await writeJson(
         path.join(OUT, date, `${sport}.json`),
-        compactDay({ date, sport, generated: index.generated, events, offers: pick(offers), details: pick(details), xg: pick(xg) }),
+        compactDay({ date, sport, generated: index.generated, events, offers: pick(offers), details: pick(details), xg: pick(xg), datos: events.filter((e) => matchData[e.id]).map((e) => e.id) }),
       );
-      index.days[date][sport] = { events: events.length, withOdds: events.filter((e) => offers[e.id]).length };
+      index.days[date][sport] = { events: events.length, withOdds: events.filter((e) => offers[e.id]).length, datos: events.filter((e) => matchData[e.id]).length };
     }
   }
   for (const [date, map] of Object.entries(results)) await writeJson(path.join(OUT, 'resultados', `${date}.json`), map);
+  for (const d of Object.values(matchData)) await writeJson(path.join(OUT, 'datos', `${String(d.id).replace(/^fs:/, '')}.json`), compactMatchData({ ...d, generated: index.generated }));
   await writeJson(path.join(OUT, 'noticias.json'), { generated: index.generated, items: news });
   await writeJson(path.join(OUT, 'indice.json'), index);
 

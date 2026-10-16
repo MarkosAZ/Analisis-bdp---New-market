@@ -23,7 +23,7 @@ function check(name, ok, detail = '') {
 // ---- Datos automáticos (data/fuente) y API de GitHub simulados ----
 
 async function fixtures() {
-  const { compactDay, compactResult } = await import(pathToFileURL(path.join(ROOT, 'docs/js/data-format.js')).href);
+  const { compactDay, compactResult, compactMatchData, compactMatchStats } = await import(pathToFileURL(path.join(ROOT, 'docs/js/data-format.js')).href);
   const DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(new Date());
   const next = new Date(`${DAY}T12:00:00Z`);
   next.setUTCDate(next.getUTCDate() + 1);
@@ -59,16 +59,57 @@ async function fixtures() {
     events,
     offers: { 'fs:e1': book(1.35, 4.8, 8.5), 'fs:e2': book(1.5, 4.0, 6.5), 'fs:e4': book(1.45, 4.5, 6.8) },
     details: Object.fromEntries(['e1', 'e2', 'e4'].map((id) => [`fs:${id}`, { lastHome: strong, lastAway: weak, h2h: { homeWins: 4, draws: 1, awayWins: 1 } }])),
+    // Pestaña Datos: también los partidos sin cuotas (e3); e2 y e4 todavía sin su archivo.
+    datos: ['fs:e1', 'fs:e3'],
   });
   const generated = football.generated;
+  // Pestaña Datos: últimos 12 de cada equipo (córners y tarjetas en cada uno), 6
+  // enfrentamientos y, en el básquet, un jugador con su línea de P+R+A.
+  const lastOf = (seed) =>
+    Array.from({ length: 12 }, (_, i) => ({
+      start: at(-24 * (3 + 4 * i)),
+      home: i % 2 === 0,
+      opp: ['Melgar', 'Cienciano', 'ADT', 'Sport Huancayo', 'Cusco FC', 'Los Chankas'][(i + seed) % 6],
+      gf: (i * seed) % 4,
+      ga: (i + seed) % 3,
+      league: 'Liga 1',
+      stats: compactMatchStats({ corners: { ft: [3 + ((i * 7 + seed) % 6), 2 + ((i + seed) % 5)], h1: [2, 1] }, yellows: { ft: [1 + (i % 3), 2] } }, i % 2 === 1),
+    }));
+  const datos = {
+    id: 'fs:e1',
+    sport: 'football',
+    generated,
+    home: { name: 'Alianza Lima', last: lastOf(1) },
+    away: { name: 'Sporting Cristal', last: lastOf(2) },
+    h2h: Array.from({ length: 6 }, (_, i) => ({ start: at(-24 * (40 + 60 * i)), home: i % 2 === 0, gf: i % 3, ga: (i + 1) % 2, league: 'Liga 1', stats: compactMatchStats({ corners: { ft: [5 + i, 4] } }, i % 2 === 1) })),
+  };
+  const nba = { ...ev('b2', 'NBA', 'EE. UU.', 'US', 1000, 'New York Knicks', 'Cleveland Cavaliers', 21), sport: 'basketball' };
+  const game = (i, opp, pts, reb, ast) => ({ start: at(-24 * (2 + 3 * i)), opp, home: i % 2 === 0, min: 28, pts, reb, ast, tpm: 0, stl: 1, blk: 1, tov: 1 });
+  const robinson = [game(0, 'BOS', 8, 10, 1), game(1, 'CLE', 12, 9, 2), game(2, 'MIA', 6, 7, 0), game(3, 'PHI', 10, 11, 2), game(4, 'CLE', 15, 13, 1), game(5, 'ATL', 4, 6, 1), game(30, 'CLE', 9, 6, 0)];
+  const pra = [o('OU.pl_pra#Mitchell Robinson', 'over', 11.5, 1.87), o('OU.pl_pra#Mitchell Robinson', 'under', 11.5, 1.93), o('OU', 'over', 220.5, 1.9), o('OU', 'under', 220.5, 1.9)];
+  const nbaLast = (k) => Array.from({ length: 10 }, (_, i) => ({ start: at(-24 * (2 + i)), home: i % 2 === 0, gf: 105 + ((i * k) % 15), ga: 100 + ((i + k) % 12), r: 'W' }));
   const files = {
-    'indice.json': { generated, today: DAY, days: { [DAY]: { football: { events: 4, withOdds: 3 }, basketball: { events: 1, withOdds: 0 } }, [TOMORROW]: {} } },
+    'indice.json': { generated, today: DAY, days: { [DAY]: { football: { events: 4, withOdds: 3, datos: 2 }, basketball: { events: 2, withOdds: 1 } }, [TOMORROW]: {} } },
     [`${DAY}/football.json`]: football,
     [`${DAY}/basketball.json`]: compactDay({
       date: DAY,
       sport: 'basketball',
       generated,
-      events: [{ ...ev('b1', 'NBA', 'EE. UU.', 'US', 1000, 'Lakers', 'Celtics', 20), sport: 'basketball' }],
+      events: [{ ...ev('b1', 'NBA', 'EE. UU.', 'US', 1000, 'Lakers', 'Celtics', 20), sport: 'basketball' }, nba],
+      offers: { 'fs:b2': pra },
+      details: { 'fs:b2': { lastHome: nbaLast(3), lastAway: nbaLast(5), h2h: null } },
+    }),
+    'datos/e1.json': compactMatchData(datos),
+    'datos/e3.json': compactMatchData({ id: 'fs:e3', sport: 'football', generated, home: { name: 'Cienciano', last: lastOf(3) }, away: { name: 'ADT', last: lastOf(4) }, h2h: [] }),
+    'datos/b2.json': compactMatchData({
+      id: 'fs:b2',
+      sport: 'basketball',
+      generated,
+      home: { name: 'New York Knicks', last: nbaLast(3).map((m) => ({ ...m, opp: 'Boston Celtics', league: 'NBA', stats: null })) },
+      away: { name: 'Cleveland Cavaliers', last: nbaLast(5).map((m) => ({ ...m, opp: 'Miami Heat', league: 'NBA', stats: null })) },
+      h2h: [],
+      abbr: ['NY', 'CLE'],
+      players: [{ side: 'home', name: 'Mitchell Robinson', games: robinson }],
     }),
     'noticias.json': {
       generated,
@@ -184,6 +225,52 @@ async function withoutExtension(browser, errors) {
   await page.click('#tab-analisis .segmented button:has-text("Red neuronal")');
   check('muestra el análisis con red neuronal', (await page.textContent('#tab-analisis .summary h2')) === 'Análisis con red neuronal');
   await page.screenshot({ path: path.join(OUT, '7-celular-analisis.png'), fullPage: false });
+
+  // Pestaña Datos: todos los partidos con datos (también sin cuotas), por liga.
+  await page.click('.tabs button[data-tab="datos"]');
+  await page.click('#tab-datos .sport:has-text("Fútbol")');
+  await page.waitForSelector('.datos-match');
+  const datosRows = () => page.$$eval('.datos-match', (rows) => rows.map((r) => `${r.querySelector('.teams').textContent}${r.querySelector('.odds-badge') ? ' (cuotas)' : ''}`));
+  const allRows = await datosRows();
+  const waiting = await page.textContent('.datos-waiting');
+  await page.check('#tab-datos .toolbar input[type="checkbox"]');
+  const oddsRows = await datosRows();
+  await page.uncheck('#tab-datos .toolbar input[type="checkbox"]');
+  check('Datos: todos los partidos con datos (también sin cuotas) y "Solo con cuotas"', JSON.stringify(allRows) === '["Alianza LimaSporting Cristal (cuotas)","CiencianoADT"]' && /^2 partidos por jugar/.test(waiting) && JSON.stringify(oddsRows) === '["Alianza LimaSporting Cristal (cuotas)"]', `${JSON.stringify(allRows)} · ${waiting} · ${JSON.stringify(oddsRows)}`);
+  await page.click('#tab-datos .league-title:has-text("Liga 1")');
+  const closed = await page.$$eval('.datos-match', (rows) => rows.length);
+  await page.click('#tab-datos .league-title:has-text("Liga 1")');
+  check('Datos: cada liga se cierra y se abre al tocarla', closed === 0 && (await page.$$eval('.datos-match', (rows) => rows.length)) === 2, `${closed}`);
+  await page.click('.datos-match:has-text("Alianza Lima")');
+  await page.waitForSelector('.chart-card .bars .col');
+  const barsOf = () => page.$$eval('.chart-grid .chart-card', (cards) => cards.map((c) => c.querySelectorAll('.bars .col').length));
+  const lineText = () => page.textContent('.datos-filters .line-ctl');
+  check('Datos: los últimos 10 de cada equipo en barras, con la línea de Apuesta Total', JSON.stringify(await barsOf()) === '[10,10]' && /2\.5/.test(await lineText()) && /Apuesta Total/.test(await lineText()), `${JSON.stringify(await barsOf())} · ${await lineText()}`);
+  await page.click('.stat-chips .chip-btn:text-is("Córners")');
+  const before = await lineText();
+  await page.click('.datos-filters .line-ctl button[aria-label="Subir la línea"]');
+  const after = await lineText();
+  const leanChip = await page.textContent('.chart-grid .chart-card .chip.lean');
+  check('Datos: córners con una línea que se sube con +', /cerca del promedio/.test(before) && /elegida/.test(after) && Number(after.match(/(\d+(\.\d)?)/)[1]) === Number(before.match(/(\d+(\.\d)?)/)[1]) + 1 && leanChip.includes('de 10'), `${before} → ${after} · ${leanChip}`);
+  await page.click('.datos-filters .segmented button:has-text("Últimos 15")');
+  await page.click('.datos-filters .segmented button:has-text("Local / Visita")');
+  check('Datos: últimos 15 y solo de local o de visita', JSON.stringify(await barsOf()) === '[6,6]', JSON.stringify(await barsOf()));
+  await page.click('.chart-grid .chart-card .bars .col');
+  const caption = await page.textContent('.chart-grid .chart-card .bars-caption');
+  const h2h = await page.textContent('#tab-datos .chart-card:has(h3:text("Enfrentamientos"))');
+  check('Datos: cada barra muestra su partido y están los enfrentamientos', /local vs|visita en/.test(caption) && /Ganó Alianza Lima/.test(h2h), `${caption} · ${h2h.slice(0, 80)}`);
+  await page.screenshot({ path: path.join(OUT, '9-celular-datos.png'), fullPage: true });
+  check('Datos: sin desplazamiento horizontal en el celular', !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)));
+  // Básquet: el jugador ofrecido con su línea de P+R+A y sus partidos contra el rival de hoy.
+  await page.click('#tab-datos .sport:has-text("Básquet")');
+  await page.click('.datos-match:has-text("Knicks")');
+  await page.waitForSelector('.players .bars .col');
+  const playerLine = await page.textContent('.players .line-ctl');
+  const offered = await page.textContent('.players .chip-btn.active.offered');
+  await page.click('.players .segmented button:has-text("vs Cleveland")');
+  const vs = await page.$$eval('.players .bars .col', (cols) => cols.map((c) => c.querySelector('.val').textContent));
+  check('Datos: jugadores con la línea de la casa y sus partidos contra el rival', /11\.5/.test(playerLine) && /rebotes/i.test(offered) && JSON.stringify(vs) === '["15","29","23"]', `${playerLine} · ${offered} · ${JSON.stringify(vs)}`);
+  await page.click('#tab-datos .sport:has-text("Fútbol")');
 
   // Liquidación con los resultados publicados
   await page.click('.tabs button[data-tab="historial"]');

@@ -16,6 +16,38 @@ historial de resultados. Funciona en el **celular y en la PC**:
     de Sofascore. Al analizar, la extensión suma las estadísticas de equipo de
     Sofascore **y** de Flashscore, todos los mercados de Betano (abre la página
     de cada partido) y los de Apuesta Total en vivo.
+- **Datos** (entre Partidos y Análisis): todos los partidos de hoy y mañana con
+  datos publicados, por liga (o solo los que tienen cuotas). Al tocar uno se ven
+  sus números en **barras, como en bettingpros**: una barra por partido con su
+  valor, la línea punteada (la de Apuesta Total o una elegida con − y +) y el
+  promedio como línea continua; azul si pasó la línea, rojo si quedó por debajo y
+  gris si quedó justo en ella. Arriba de cada gráfico, el promedio, la mediana y
+  cuántas veces pasó la línea; debajo, la tabla con los partidos. Tocar una barra
+  muestra su partido.
+  - **Cada equipo**: sus últimos 5, 10 o 15 partidos, todos o solo el local de
+    local y la visita de visita; del partido, a favor o en contra. Fútbol: goles,
+    córners, tarjetas, remates, tiros al arco, córners del 1.er tiempo y faltas;
+    básquet: puntos, rebotes, asistencias y triples (los totales de puntos salen
+    desde la línea, hacia arriba o hacia abajo, para que se note la diferencia);
+    béisbol: carreras.
+  - **Enfrentamientos**: los últimos entre ambos (hasta 10, los que da
+    Flashscore), quién ganó cada uno y la misma estadística en cada uno; y un
+    resumen de los dos equipos (ganados, goles, más de 2.5, ambos marcan, córners
+    y tarjetas a favor y en contra).
+  - **Jugadores de la NBA y la WNBA** (ESPN), cuando la casa ofrece sus
+    Más/Menos: sus últimos 5, 10, 15 o 20 partidos o todos los que jugó contra el
+    rival de hoy en las dos últimas temporadas, en puntos, rebotes, asistencias,
+    triples, robos, tapones, pérdidas y los combinados (P+R+A, P+R, P+A, R+A,
+    robos+tapones), con la línea de la casa.
+  - **Abridores de la MLB**: sus últimas 5, 10 o 20 aperturas en ponches, hits
+    y carreras limpias permitidos, bases por bolas y entradas lanzadas.
+  - Cada partido es un archivo `data/fuente/datos/<id>.json` (unos 4 KB) que la
+    página baja al tocarlo. Primero se arman los partidos con cuotas y después los
+    demás; las estadísticas de cada partido (córners, tarjetas...) se piden a
+    Flashscore de a poco y quedan en caché, así que en las primeras
+    actualizaciones algunos partidos salen solo con el marcador y los que todavía
+    no tienen archivo se completan en las siguientes (la lista dice cuántos
+    faltan).
 - **Mercados analizados** (solo estos):
   - Fútbol: goles totales Más/Menos, ambos equipos anotan, Más/Menos córners,
     **hándicap de córners** (el de dos opciones; el de tres, con empate, no),
@@ -363,7 +395,7 @@ workflow**.
 docs/                 página web (GitHub Pages)
   index.html, css/    interfaz
   js/app.js           une todo
-  js/views/           pestañas Partidos, Análisis e Historial
+  js/views/           pestañas Partidos, Datos, Análisis e Historial (barras.js: gráfico de barras)
   js/analysis/        modelos, cuotas y línea más pareja, emparejamiento, picks, combinadas, red neuronal
     catalog.js        traduce los mercados de Betano y Apuesta Total a un formato común
     outcomes.js       liquida cualquier mercado con el registro del partido
@@ -377,6 +409,7 @@ docs/                 página web (GitHub Pages)
   js/flashscore-link.js  partidos de Sofascore + datos de Flashscore (con la extensión)
   js/provider.js      lee los datos automáticos (data/fuente/)
   js/data-format.js   formato compacto de esos datos
+  js/datos.js         cálculos de la pestaña Datos (últimos N, local/visita, línea, resumen)
   js/github.js        guardar en GitHub con el token del navegador
   js/history.js       guardar y liquidar resultados, filas de entrenamiento de la red
   data/               historial, filas de entrenamiento y redes especializadas
