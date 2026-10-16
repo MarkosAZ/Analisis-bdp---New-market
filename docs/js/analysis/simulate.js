@@ -568,12 +568,14 @@ const HOME_RATIO = { corners: 1.25, shots: 1.25, shots_on: 1.25, cards: 0.85, fo
 // equipos (con la ventaja de local) o, sin datos, el promedio típico.
 // shrink: con pocos partidos, la media del equipo se acerca a la típica como
 // si hubiera `shrink` partidos más con el promedio de una liga.
-export function statPriors(sport, teamStats, { shrink = 0 } = {}) {
-  const defs = sport === 'football' ? FOOTBALL_STATS : sport === 'ice-hockey' ? HOCKEY_STATS : null;
-  if (!defs) return {};
+// only/def: solo esa estadística, con su promedio (mean) y ventaja de local (ratio) cambiados.
+export function statPriors(sport, teamStats, { shrink = 0, only = null, def: custom = null } = {}) {
+  const all = sport === 'football' ? FOOTBALL_STATS : sport === 'ice-hockey' ? HOCKEY_STATS : null;
+  if (!all) return {};
+  const defs = only ? (all[only] ? { [only]: { ...all[only], ...(custom || {}) } } : {}) : all;
   const out = {};
   for (const [name, def] of Object.entries(defs)) {
-    const r = Math.sqrt(HOME_RATIO[name] || 1);
+    const r = Math.sqrt(def.ratio ?? HOME_RATIO[name] ?? 1);
     const fromTeams = Boolean(teamStats?.home?.[name] && teamStats?.away?.[name]);
     const n = Math.min(teamStats?.home?.[name]?.n ?? 0, teamStats?.away?.[name]?.n ?? 0);
     const mean = (side) => {

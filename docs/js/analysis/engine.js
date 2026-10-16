@@ -22,7 +22,9 @@ import {
   balancedLines,
   BETTABLE,
   candidateKey,
+  isHalfLine,
   marketProbabilities,
+  offeredPlayers,
   offersFromApuestaTotal,
   offersFromBetano,
   offersFromSofascore,
@@ -31,10 +33,11 @@ import {
 } from './markets.js';
 import { familyOf, parseMarketId, STAT_NAME } from './catalog.js';
 import { bestByName, matchEvent } from './matching.js';
-import { predict } from './models.js';
+import { calibrate, predict } from './models.js';
+import { isMlb } from './baseball.js';
 import { acceptsOffer, BOOKMAKERS, buildCombos, DEFAULT_SETTINGS, isPlayerMarket, selectPicks } from './picks.js';
 import { networkOf } from './networks.js';
-import { basketballLeague, matchPlayer, playerProbability, statValue } from './players.js';
+import { basketballLeague, isPreseason, matchPlayer, playerProbability, statValue } from './players.js';
 import { estimate, simParams } from './simulate.js';
 import { MIN_MATCHES, statProbability } from './stats.js';
 import { xgFromTeamStats } from './teamstats.js';
@@ -87,7 +90,58 @@ function playerFactors(c, cand, chosen, ev) {
   ].filter(Boolean);
 }
 
+// Clima de la API de la MLB en castellano: estado ("Partly Cloudy") y viento ("7 mph, Out To CF").
+const SKY = [
+  [/dome|roof closed/i, 'techado'],
+  [/partly cloudy/i, 'parcialmente nublado'],
+  [/overcast/i, 'cubierto'],
+  [/cloudy/i, 'nublado'],
+  [/clear/i, 'despejado'],
+  [/sunny/i, 'soleado'],
+  [/drizzle/i, 'llovizna'],
+  [/rain/i, 'lluvia'],
+  [/snow/i, 'nieve'],
+];
+const FIELD = { LF: 'el jardín izquierdo', CF: 'el jardín central', RF: 'el jardín derecho' };
+export function weatherText(w) {
+  const sky = w.condition ? SKY.find(([re]) => re.test(w.condition))?.[1] || w.condition : null;
+  const temp = Number.isFinite(w.temp) ? `${Math.round(((w.temp - 32) * 5) / 9)} °C` : null;
+  let wind = null;
+  const m = String(w.wind || '').match(/(\d+)\s*mph(?:,\s*(.+))?/i);
+  if (m) {
+    const kmh = Math.round(Number(m[1]) * 1.609);
+    const dir = (m[2] || '').trim();
+    const to = dir.match(/^out to (LF|CF|RF)$/i);
+    const from = dir.match(/^in from (LF|CF|RF)$/i);
+    const where = to ? `hacia ${FIELD[to[1].toUpperCase()]}` : from ? `desde ${FIELD[from[1].toUpperCase()]}` : /^(L To R|R To L)$/i.test(dir) ? 'cruzado' : null;
+    wind = kmh === 0 || /^none$|^calm$/i.test(dir) ? 'sin viento' : `viento de ${kmh} km/h${where ? ` ${where}` : ''}`;
+  }
+  return [sky, temp, wind].filter(Boolean).join(', ');
+}
+
 // Datos que explican el pick (se muestran en la tarjeta).
+// Béisbol: abridores, bullpen, estadio, clima, enfrentamientos y serie.
+function baseballFactors(ev, b) {
+  const out = [];
+  const f1 = (x) => (Math.round(x * 10) / 10).toFixed(1);
+  const starter = (team, p) =>
+    p.starter
+      ? `${team}: ${p.name} — ${f1(p.starter.ra9)} carreras/9 esperadas (últimas ${p.starter.n} aperturas: ${f1(p.starter.rawRa9)} carreras/9, FIP ${f1(p.starter.fip / 1.08)}), ${f1(p.starter.ip)} entradas por apertura`
+      : `${team}: ${p.name ? `${p.name} (${p.unread ? 'no se pudo leer su registro' : 'sin aperturas recientes'})` : 'abridor sin anunciar'}`;
+  // Abridores: solo con el contexto de la MLB (las otras ligas no tienen datos de sus lanzadores).
+  if (b.mlb) out.push(`Abridores: ${starter(ev.home.name, b.home)} · ${starter(ev.away.name, b.away)}`);
+  else if (isMlb(ev)) out.push('Abridores: sin datos de la MLB para este partido');
+  const pen = (team, p) => (p.bullpenIp == null ? null : `${team} ${f1(p.bullpenIp)} entradas${p.penFactor > 1 ? ' (cansado)' : p.penFactor < 1 ? ' (descansado)' : ''}`);
+  const pens = [pen(ev.home.name, b.home), pen(ev.away.name, b.away)].filter(Boolean);
+  if (pens.length) out.push(`Bullpen en los 3 días anteriores: ${pens.join(' · ')}`);
+  if (b.park) out.push(`Estadio${b.venue ? ` (${b.venue})` : ''}: ${Math.round(b.park.factor * 100)} carreras por cada 100 de visita (${b.park.n} partidos)`);
+  const w = b.weather;
+  if (w && (w.temp != null || w.wind)) out.push(`Clima: ${weatherText(w)}${Math.abs(b.weatherFactor - 1) >= 0.005 ? ` (carreras ×${b.weatherFactor.toFixed(2)})` : ''}`);
+  if (b.h2h) out.push(`Últimos ${b.h2h.n} enfrentamientos: ${f1(b.h2h.home)} – ${f1(b.h2h.away)} carreras en promedio`);
+  if (b.series) out.push(`Serie: ${b.series}`);
+  return out;
+}
+
 function factorsFor(ev, d, model, c, chosen = []) {
   const out = [];
   const fh = model?.form?.home;
@@ -95,6 +149,7 @@ function factorsFor(ev, d, model, c, chosen = []) {
   if (fh && fa) out.push(`Forma: ${ev.home.name} ${formText(fh)} · ${ev.away.name} ${formText(fa)}`);
   const e = model?.expected;
   if (e && model.kind === 'goals') out.push(`Esperado: ${e.home.toFixed(2)} – ${e.away.toFixed(2)}${e.xg ? ' (con xG)' : ''}`);
+  if (model?.baseball) out.push(...baseballFactors(ev, model.baseball));
   if (e && model.kind === 'points') out.push(`Esperado: ${e.home.toFixed(0)} – ${e.away.toFixed(0)} (total ${e.total.toFixed(1)})`);
   if (d?.h2h && d.h2h.homeWins + d.h2h.draws + d.h2h.awayWins > 0) out.push(`H2H: ${d.h2h.homeWins}-${d.h2h.draws}-${d.h2h.awayWins}`);
   if (ev.home.ranking && ev.away.ranking) out.push(`Ranking: ${ev.home.ranking} vs ${ev.away.ranking}`);
@@ -152,6 +207,7 @@ async function bookmakerOffers(events, sources, progress, { allMarkets = true } 
   progress('Apuesta Total: cuotas', 0.65);
   let atMatched = 0;
   const atStats = {}; // mercados reconocidos / sin modelar (de jugador, de torneo...)
+  const atErrors = [];
   for (const [sport, evs] of bySport) {
     try {
       const from = Math.min(...evs.map((e) => e.start)) - 3 * 3600000;
@@ -169,34 +225,43 @@ async function bookmakerOffers(events, sources, progress, { allMarkets = true } 
         if (list2.length) atMatched++;
         add(ev.id, list2);
       }
-      sources.apuestatotal = { ok: true, matched: atMatched, markets: atStats };
     } catch (e) {
-      sources.apuestatotal = { ok: false, error: e.message };
+      atErrors.push(`${sportOf(sport).name}: ${e.message}`);
     }
   }
-  sources.apuestatotal ||= { ok: true, matched: 0 };
+  // Basta con que responda en algún deporte; el error de otro no borra lo leído.
+  sources.apuestatotal =
+    atErrors.length && atErrors.length === bySport.size ? { ok: false, error: atErrors.join(' | ') } : { ok: true, matched: atMatched, markets: atStats, ...(atErrors.length ? { partial: atErrors } : {}) };
 
   progress('Betano: cuotas', 0.72);
   let bMatched = 0;
   const matched = []; // { ev, m } para abrir la página de cada partido
   const bErrors = [];
+  // Por deporte: partidos en la lista de Betano, emparejados y sus ligas (para ver
+  // si la página del deporte trae, por ejemplo, la NBA).
+  const bySportInfo = {};
   for (const [sport, evs] of bySport) {
     try {
       const list = (await ext.call('betano', 'getOdds', { sport }, { timeout: 90000 })).items;
+      let k = 0;
       for (const ev of evs) {
         const m = matchEvent(ev, list, { toleranceMin: sport === 'tennis' ? 90 : 25 });
-        if (m) matched.push({ ev, m });
+        if (m) (matched.push({ ev, m }), k++);
       }
+      bySportInfo[sport] = { listed: list.length, matched: k, of: evs.length, leagues: [...new Set(list.map((x) => x.league).filter(Boolean))].slice(0, 5) };
     } catch (e) {
-      bErrors.push(`${sport}: ${e.message}`);
+      bErrors.push(`${sportOf(sport).name}: ${e.message}`);
+      bySportInfo[sport] = { error: e.message };
     }
   }
   // Basta con que responda en algún deporte.
-  sources.betano = bErrors.length === bySport.size ? { ok: false, error: bErrors.join(' | ') } : { ok: true, matched: 0, ...(bErrors.length ? { partial: bErrors } : {}) };
+  sources.betano = bErrors.length === bySport.size ? { ok: false, error: bErrors.join(' | ') } : { ok: true, matched: 0 };
   // Todos los mercados: la lista del deporte trae solo los principales; se abre
-  // la página de cada partido (pestañas Goles, Córners, Tarjetas...).
+  // la página de cada partido (pestañas Goles, Córners, Tarjetas, Jugadores...).
+  // Primero el básquet: sus jugadores y el 1.er tiempo solo están en esa página.
   const full = {};
-  const withUrl = allMarkets ? matched.filter((x) => x.m.item.url).slice(0, BETANO_PAGES) : [];
+  const first = (x) => (x.ev.sport === 'basketball' ? 0 : 1);
+  const withUrl = allMarkets ? matched.filter((x) => x.m.item.url).sort((a, b) => first(a) - first(b)).slice(0, BETANO_PAGES) : [];
   for (let i = 0; i < withUrl.length; i += 4) {
     progress(`Betano: todos los mercados ${Math.min(i + 4, withUrl.length)} de ${withUrl.length}`, 0.74 + (0.06 * i) / withUrl.length);
     const chunk = withUrl.slice(i, i + 4);
@@ -214,7 +279,7 @@ async function bookmakerOffers(events, sources, progress, { allMarkets = true } 
     if (list2.length) bMatched++;
     add(ev.id, list2);
   }
-  if (sources.betano?.ok) sources.betano = { ok: true, matched: bMatched, pages: Object.keys(full).length, markets: stats };
+  if (sources.betano?.ok) sources.betano = { ok: true, matched: bMatched, pages: Object.keys(full).length, markets: stats, bySport: bySportInfo, ...(bErrors.length ? { partial: bErrors } : {}) };
   return offers;
 }
 
@@ -223,7 +288,7 @@ const PLAYER_GAMES = 10; // últimos partidos de cada jugador
 // Últimos partidos de los jugadores de ambos equipos: ESPN en la NBA y la WNBA;
 // Sofascore (con sus ids de partido) en las demás ligas. details[id].players =
 // { source, home: { teamGames, players }, away: { teamGames, players } }.
-async function addPlayerLogs(events, details, sources, progress) {
+async function addPlayerLogs(events, details, sources, progress, offers = new Map()) {
   if (!events.length) return;
   progress('Jugadores: últimos partidos', 0.8);
   let found = 0;
@@ -238,7 +303,10 @@ async function addPlayerLogs(events, details, sources, progress) {
     const league = basketballLeague(ev);
     if (league) {
       try {
-        set(ev, await ext.call('espn', 'getPlayerLogs', { league, home: ev.home.name, away: ev.away.name, start: ev.start, n: PLAYER_GAMES }, { timeout: 180000 }), 'espn');
+        const names = offeredPlayers(offers.get(ev.id));
+        const r = await ext.call('espn', 'getPlayerLogs', { league, home: ev.home.name, away: ev.away.name, start: ev.start, n: PLAYER_GAMES, names, regular: !isPreseason(ev) }, { timeout: 180000 });
+        for (const side of [r?.home, r?.away]) if (side?.error) errors.push(`ESPN ${side.team}: ${side.error}`);
+        set(ev, r, 'espn');
       } catch (e) {
         errors.push(`ESPN ${ev.home.name}: ${e.message}`);
       }
@@ -259,6 +327,53 @@ async function addPlayerLogs(events, details, sources, progress) {
     }
   }
   sources.jugadores = found || !errors.length ? { ok: true, matched: found, ...(errors.length ? { partial: errors } : {}) } : { ok: false, error: errors.join(' | ') };
+}
+
+// Contexto de la MLB en vivo con partes sin leer (partial): esas partes del contexto
+// publicado por GitHub Actions, si las tiene (y el abridor es el mismo).
+export function mergeMlb(live, published) {
+  if (!published || !live?.partial?.length) return live;
+  const out = { ...live, home: live.home && { ...live.home }, away: live.away && { ...live.away } };
+  const left = [];
+  for (const p of live.partial) {
+    const l = out[p.side];
+    const pub = published[p.side];
+    const lp = l?.pitcher;
+    const pubStarts = pub?.pitcher?.id === lp?.id ? pub?.pitcher?.starts : null;
+    if (p.part === 'starts' && lp && pubStarts && pubStarts.length > (lp.starts?.length || 0)) l.pitcher = { ...lp, starts: pubStarts };
+    else if (p.part === 'bullpen' && l && !l.bullpen && pub?.bullpen) l.bullpen = pub.bullpen;
+    else left.push(p);
+  }
+  delete out.partial;
+  return left.length ? { ...out, partial: left } : out;
+}
+
+// Béisbol de la MLB: abridores probables con sus últimas aperturas, bullpen,
+// estadio, clima y serie (API oficial de la MLB). details[id].mlb.
+async function addMlbContext(events, details, sources, progress) {
+  if (!events.length) return;
+  progress('MLB: abridores y contexto', 0.82);
+  let found = 0;
+  const errors = [];
+  let published = 0;
+  for (const ev of events) {
+    try {
+      const ctx = await ext.call('mlb', 'getGameContext', { home: ev.home.name, away: ev.away.name, start: ev.start }, { timeout: 90000 });
+      if (ctx) {
+        const merged = mergeMlb(ctx, details[ev.id]?.mlb);
+        details[ev.id] = { ...(details[ev.id] || {}), mlb: merged };
+        found++;
+        for (const p of merged.partial || []) errors.push(`${ev.home.name}: ${p.text}`);
+        continue;
+      }
+    } catch (e) {
+      errors.push(`${ev.home.name}: ${e.message}`);
+    }
+    // Sin el contexto en vivo: el publicado por GitHub Actions (partidos automáticos), si lo hay.
+    if (details[ev.id]?.mlb) published++;
+  }
+  const matched = found + published;
+  sources.mlb = matched || !errors.length ? { ok: true, matched, ...(published ? { published: true } : {}), ...(errors.length ? { partial: errors } : {}) } : { ok: false, error: errors.join(' | ') };
 }
 
 async function understatXg(events, sources, progress) {
@@ -367,11 +482,27 @@ function totalsTrend(d, e) {
   return recent == null || all == null || !(e?.sdTotal > 0) ? 0 : (recent - all) / e.sdTotal;
 }
 
+// Mercados que se analizan con la línea entera cuando la casa no tiene .5: el 1.er
+// tiempo del básquet (Apuesta Total lo da en 88 o +1). Se simula y la probabilidad
+// es sin contar el empate en la línea, que se devuelve.
+export const wholeLinesOk = (sport, market) => {
+  const spec = parseMarketId(market);
+  return sport === 'basketball' && spec?.scope === 'h1' && spec.stat === 'score' && (spec.t === 'OU' || spec.t === 'HCP');
+};
+
+// Calibración final del básquet en escala logit (<1 acerca al 50 %): frente a las
+// líneas reales de la casa (Flashscore: NBA, Euroliga y Liga ACB, 2023-2025, probado
+// con 2025-26) el modelo casi no tiene información y se pasaba de seguro (decía 60 %
+// y acertaba 50 %). El fútbol y el béisbol se calibran en sus modelos (models.js,
+// stats.js, baseball.js).
+const CALIBRATION = { 'basketball:OU': 0.1, 'basketball:HCP': 0.15, 'basketball:OU@h1': 0.05, 'basketball:HCP@h1': 0.05 };
+
 // Candidatos (las dos selecciones de la línea elegida de cada mercado, con
 // cuota y probabilidad) de un partido, sin aplicar todavía el método
 // (estadístico o red neuronal).
 //  1) De cada mercado permitido, la línea .5 más pareja de cada casa (en los de
-//     jugador, con el nombre del jugador ya buscado en sus datos).
+//     jugador, con el nombre del jugador ya buscado en sus datos; en el 1.er tiempo
+//     del básquet, la entera si no hay .5).
 //  2) Probabilidad con la estadística: modelo de goles o de puntos (total,
 //     hándicap, ambos marcan, ganador), promedios de córners, tarjetas y tiros,
 //     últimos partidos del jugador, o partidos simulados con lo esperado del
@@ -382,7 +513,7 @@ export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } 
   const roster = rosterOf(d);
   // Bajas seguras (las dudas no: el jugador puede jugar y la apuesta seguir viva).
   const missing = [...(d?.missing?.home || []), ...(d?.missing?.away || [])].filter((m) => m?.type !== 'doubtful').map((m) => ({ name: m.player || m.name || '' }));
-  const chosen = balancedLines(canonicalPlayers(offers, roster), (o) => acceptsOffer(ev.sport, o.market, o.line));
+  const chosen = balancedLines(canonicalPlayers(offers, roster), (o) => acceptsOffer(ev.sport, o.market, o.line), { whole: (m) => wholeLinesOk(ev.sport, m) });
   const lines = (market) => [...new Set(chosen.filter((o) => o.market === market).map((o) => o.line))];
   const model = predict(ev, d, cfg, { lines: { OU: lines('OU'), HCP: lines('HCP') }, xg });
   const enough = Math.min(model?.form?.home?.n ?? 0, model?.form?.away?.n ?? 0) >= MIN_MATCHES;
@@ -421,8 +552,14 @@ export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } 
       if (!r) continue;
       c.pModel = r.p;
       c.via = 'simulación';
+      // Tendencia de los últimos partidos también en el total del 1.er tiempo.
+      if (c.spec.t === 'OU' && c.spec.stat === 'score') c.trend = trend * (DIR[c.sel] ?? 0);
       simulated++;
     }
+  }
+  for (const c of items) {
+    const t = CALIBRATION[`${ev.sport}:${c.market}`];
+    if (t != null && c.pModel != null) c.pModel = calibrate(c.pModel, t);
   }
 
   const out = [];
@@ -451,10 +588,21 @@ export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } 
     const z = zFor(c, model?.expected, c.extra);
     cand.x = buildFeatures({ ...cand, price: best.price, z, trend: c.trend, minutes: c.minutes }, { sport: ev.sport, cfg, model, details: d, spec: c.spec, quality: c.quality });
     cand.label = selectionLabel(cand, ev, cfg.unit);
+    if (c.line != null && !isHalfLine(c.line) && wholeLinesOk(ev.sport, c.market)) cand.label += ' · justo en la línea se devuelve';
     cand.factors = c.player ? playerFactors(c, cand, chosen, ev) : factorsFor(ev, d, model, cand, chosen);
     out.push(cand);
   }
-  return { model, candidates: out, simulated };
+  // Mercados de la lista con línea .5 en alguna casa pero sin datos para calcularlos
+  // (se muestran en el partido con ese motivo).
+  const done = new Set(out.map((c) => c.market));
+  const noData = [...new Set(items.filter((c) => c.pModel == null && !isPlayerMarket(c.market) && !done.has(c.market)).map((c) => c.market))];
+  // Mercados de la lista que las casas ofrecen solo con líneas enteras o asiáticas
+  // (p. ej. córners en 9 o 9.25): sin .5 no se apuestan (salvo el 1.er tiempo del
+  // básquet, que se analiza con la entera).
+  const offered = offers.filter((o) => BETTABLE.includes(o.source) && !isPlayerMarket(o.market) && o.line != null && acceptsOffer(ev.sport, o.market, o.line));
+  const withHalf = new Set(offered.filter((o) => isHalfLine(o.line)).map((o) => o.market));
+  const wholeOnly = [...new Set(offered.map((o) => o.market))].filter((m) => !withHalf.has(m) && !done.has(m) && !wholeLinesOk(ev.sport, m));
+  return { model, candidates: out, simulated, noData, wholeOnly };
 }
 
 // Aplica el método: con red neuronal, la red especializada de cada mercado
@@ -507,6 +655,15 @@ async function publishedData(events, details, sources, progress) {
   return out;
 }
 
+// Cuotas en vivo más las publicadas por GitHub Actions: todas si no llegó nada en
+// vivo de Apuesta Total, o solo los mercados que faltan (una extensión sin
+// actualizar no pide los jugadores). De un mercado que llegó en vivo no se suma
+// nada publicado: sus líneas viejas competirían con las nuevas.
+export function withPublished(live = [], published = []) {
+  const have = new Set(live.filter((o) => o.source === 'apuestatotal').map((o) => o.market));
+  return [...live, ...published.filter((o) => !have.has(o.market))];
+}
+
 export const METHODS = ['estadistico', 'red_neuronal'];
 
 // events: partidos seleccionados (de Sofascore o automáticos). Junta los datos
@@ -527,21 +684,29 @@ export async function analyzeMany(events, { methods = ['estadistico'], settings 
   const offers = withExt ? await bookmakerOffers(pending, sources, onProgress, { allMarkets: settings.betanoAllMarkets !== false }) : new Map();
   const xg = sofa.length && withExt ? await understatXg(sofa, sources, onProgress) : new Map();
 
-  // Partidos automáticos: cuotas publicadas de Apuesta Total si no se
-  // obtuvieron en vivo con la extensión.
+  // Partidos automáticos: cuotas publicadas de Apuesta Total que no se
+  // obtuvieron en vivo con la extensión (ver withPublished).
   let usedPublished = 0;
   for (const ev of auto) {
     const p = published.get(ev.id);
     if (!p) continue;
     const live = offers.get(ev.id) || [];
-    if (p.offers.length && !live.some((o) => o.source === 'apuestatotal')) {
-      offers.set(ev.id, [...live, ...p.offers]);
-      usedPublished++;
+    const merged = withPublished(live, p.offers);
+    if (merged.length > live.length) {
+      offers.set(ev.id, merged);
+      if (!live.some((o) => o.source === 'apuestatotal')) usedPublished++;
     }
     if (p.xg) xg.set(ev.id, p.xg);
   }
-  // Básquet con cuotas de jugador (Betano): últimos partidos de cada jugador.
-  if (withExt) await addPlayerLogs(pending.filter((ev) => ev.sport === 'basketball' && (offers.get(ev.id) || []).some((o) => isPlayerMarket(o.market))), details, sources, onProgress);
+  // Básquet con cuotas de jugador (Apuesta Total o Betano): últimos partidos de cada jugador.
+  if (withExt) await addPlayerLogs(pending.filter((ev) => ev.sport === 'basketball' && (offers.get(ev.id) || []).some((o) => isPlayerMarket(o.market))), details, sources, onProgress, offers);
+  // Béisbol de la MLB: abridores y contexto en vivo (sin la extensión, los publicados).
+  if (withExt) await addMlbContext(pending.filter(isMlb), details, sources, onProgress);
+  const publishedMlb = withExt ? 0 : auto.filter((ev) => details[ev.id]?.mlb).length;
+  if (publishedMlb) sources.mlb = { ok: true, matched: publishedMlb, published: true };
+  // Sin la extensión: los últimos partidos de los jugadores publicados por GitHub Actions.
+  const publishedPlayers = withExt ? 0 : auto.filter((ev) => details[ev.id]?.players).length;
+  if (publishedPlayers) sources.jugadores = { ok: true, matched: publishedPlayers, published: true };
   if (usedPublished) {
     const at = sources.apuestatotal;
     sources.apuestatotal = { ok: true, matched: (at?.ok ? at.matched : 0) + usedPublished, published: true };
@@ -582,6 +747,8 @@ export async function analyzeMany(events, { methods = ['estadistico'], settings 
       markets: new Set(all.map((o) => o.market)).size,
       teamStats: Boolean(details[ev.id]?.teamStats),
       players: Boolean(details[ev.id]?.players),
+      noData: r.noData,
+      wholeOnly: r.wholeOnly,
       ...(details[ev.id]?.fsId ? { fsId: details[ev.id].fsId } : {}),
     };
   }

@@ -9,7 +9,8 @@ import { DEFAULT_SETTINGS, MARKETS } from './analysis/picks.js';
 import { isActiveSport, sportOf } from './sports.js';
 import { addDays, h, limaToday, versionBefore } from './util.js';
 import { PartidosView } from './views/partidos.js';
-import { analysisText, renderAnalisis } from './views/analisis.js';
+import { DatosView } from './views/datos.js';
+import { analysisText, renderAnalisis, viewSport } from './views/analisis.js';
 import { renderHistorial } from './views/historial.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -55,6 +56,7 @@ const app = {
     analyses: { estadistico: null, red_neuronal: null }, // último análisis de cada método
     analysisView: 'estadistico', // método que se ve en la pestaña Análisis
     levelFilter: 'todos', // nivel de confianza que se ve en la pestaña Análisis
+    sportFilter: 'todos', // deporte que se ve en Análisis y en el detalle de cada día del Historial
     histMethod: 'ambos', // detalle de cada día en Historial: 'ambos' o un método
     index: null,
     network: null,
@@ -62,6 +64,9 @@ const app = {
     dayCache: new Map(),
     localFiles: 0,
     tab: 'partidos',
+    // Pestaña Datos: partido abierto, cuántos partidos, local/visita, estadística, de
+    // quién y líneas elegidas con − y +; jugadores (básquet) y abridores (béisbol).
+    datos: { id: null, n: 10, venue: 'all', stat: null, who: 'total', line: {}, search: '', onlyOdds: false, open: {}, player: null, playerStat: null, playerN: 10, playerVs: false, pitcherStat: 'k', pitcherN: 10 },
     settings: savedSettings(),
   },
 };
@@ -111,8 +116,8 @@ function chip(cls, text, title) {
 }
 
 // Versión de la extensión con todos los mercados de Betano y Flashscore.
-const EXT_LATEST = '0.5.1';
-// Compara mayor, menor y parche (0.5.0 < 0.5.1: la 0.5.1 trae los intentos de los jugadores).
+const EXT_LATEST = '0.5.3';
+// Compara mayor, menor y parche (0.5.2 < 0.5.3: la 0.5.3 pide los disparos y los jugadores de básquet de Apuesta Total y el registro de jugadores de ESPN).
 const extOutdated = (v) => Boolean(v) && !/prueba/.test(v) && versionBefore(v, EXT_LATEST);
 
 function renderHeader() {
@@ -132,7 +137,7 @@ function renderHeader() {
           ),
       app.extOk
         ? extOutdated(app.extVersion)
-          ? chip('warn', 'Extensión: actualizar', `Conector v${app.extVersion}: actualízalo (versión ${EXT_LATEST}) para leer todos los mercados de Betano, las estadísticas de Flashscore y las de los jugadores (ESPN y Sofascore). Ver extension/README.md`)
+          ? chip('warn', 'Extensión: actualizar', `Conector v${app.extVersion}: actualízalo (versión ${EXT_LATEST}) para leer todos los mercados de Betano, los disparos y los jugadores de básquet de Apuesta Total, las estadísticas de Flashscore y las de los jugadores (ESPN y Sofascore). Ver extension/README.md`)
           : chip('ok', 'Extensión ✓', `Análisis BDP - Conector v${app.extVersion}: suma Sofascore y Betano`)
         : null,
     ].filter(Boolean),
@@ -142,6 +147,7 @@ function renderHeader() {
 function render() {
   renderHeader();
   if (app.state.tab === 'partidos') views.partidos.render();
+  if (app.state.tab === 'datos') views.datos.render();
   if (app.state.tab === 'analisis') renderAnalisis($('#tab-analisis'), app);
   if (app.state.tab === 'historial') renderHistorial($('#tab-historial'), app);
 }
@@ -149,7 +155,7 @@ function render() {
 function showTab(tab) {
   app.state.tab = tab;
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('active', b.dataset.tab === tab);
-  for (const t of ['partidos', 'analisis', 'historial']) $(`#tab-${t}`).hidden = t !== tab;
+  for (const t of ['partidos', 'datos', 'analisis', 'historial']) $(`#tab-${t}`).hidden = t !== tab;
   render();
 }
 
@@ -301,6 +307,11 @@ app.setLevelFilter = (level) => {
   render();
 };
 
+app.setSportFilter = (sport) => {
+  app.state.sportFilter = sport;
+  render();
+};
+
 app.setAnalysisView = (method) => {
   app.state.analysisView = method;
   render();
@@ -308,7 +319,8 @@ app.setAnalysisView = (method) => {
 
 app.copyAnalysis = async () => {
   try {
-    await navigator.clipboard.writeText(analysisText(app.state.analyses[app.state.analysisView], app.state.levelFilter));
+    const a = app.state.analyses[app.state.analysisView];
+    await navigator.clipboard.writeText(analysisText(a, app.state.levelFilter, viewSport(app, a)));
     toast('Picks copiados');
   } catch {
     toast('No se pudo copiar');
@@ -360,7 +372,6 @@ app.updateResults = async () => {
     await app.reloadHistory();
     const parts = [
       r.checked ? `Resultados: ${r.resolved} apuestas liquidadas` : 'No hay partidos terminados pendientes de liquidar',
-      r.network ? `redes especializadas: ${r.network.trained} de ${r.network.total} corrigen (${r.network.samples} resultados)` : '',
       r.skipped ? `${r.skipped} partidos de Sofascore esperan a la extensión` : '',
     ];
     toast(parts.filter(Boolean).join(' · '), 7000);
@@ -368,20 +379,6 @@ app.updateResults = async () => {
     toast(`No se pudieron actualizar: ${e.message}`, 7000);
   } finally {
     idle();
-  }
-};
-
-app.retrain = async () => {
-  busy('Reentrenando las redes especializadas', 'Leyendo resultados…', 0.3);
-  try {
-    app.state.network = await history.trainNetwork();
-    const s = app.state.network.summary();
-    toast(s.trained ? `Redes reentrenadas: ${s.trained} de ${s.total} corrigen` : `Redes reentrenadas con ${s.samples} resultados: ninguna corrige todavía (cada una necesita 200 de su mercado)`);
-  } catch (e) {
-    toast(`No se pudo reentrenar: ${e.message}`, 6000);
-  } finally {
-    idle();
-    render();
   }
 };
 
@@ -510,6 +507,7 @@ function closeSettings(action) {
 
 async function init() {
   views.partidos = new PartidosView($('#tab-partidos'), app);
+  views.datos = new DatosView($('#tab-datos'), app);
   for (const b of document.querySelectorAll('.tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
   $('#date').addEventListener('change', (e) => e.target.value && setDate(e.target.value));
   $('#prev-day').addEventListener('click', () => setDate(addDays(app.state.date, -1)));

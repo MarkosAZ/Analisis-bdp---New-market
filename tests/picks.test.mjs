@@ -20,7 +20,7 @@ test('todos los mercados de cada partido, cada uno con su nivel (también Baja)'
     cand(1, 'OU.corners|under|9.5', 0.26, 1.88),
     cand(1, 'BTTS|yes|', 0.45, 1.9),
     cand(1, 'BTTS|no|', 0.55, 1.9),
-    cand(1, 'OU.cards|over|0.5', 0.97, 1.02), // su mejor cuota está debajo de la mínima: no sale
+    cand(1, 'OU.cards|over|0.5', 0.97, 1.02), // cuota muy baja: sale igual (cada mercado tiene su apuesta)
     cand(1, 'OU.cards|under|0.5', 0.03, 12),
     cand(2, 'HCP|home|-4.5', 0.62, 1.7, undefined, 'basketball'),
     cand(2, 'HCP|away|-4.5', 0.38, 2.1, undefined, 'basketball'),
@@ -34,9 +34,12 @@ test('todos los mercados de cada partido, cada uno con su nivel (también Baja)'
     [1, 'BTTS|no|', 'baja'],
     [2, 'HCP|home|-4.5', 'moderada'],
     [2, 'OU.pl_pts#LeBron James|over|24.5', 'moderada_alta'],
+    [1, 'OU.cards|over|0.5', 'alta'],
   ])
     assert.ok(got.some((g) => g.join() === x.join()), `falta ${x.join()}`);
-  assert.ok(!got.some((g) => g[1].startsWith('OU.cards')), 'cuota debajo de la mínima');
+  assert.equal(picks.length, 6, 'un pick en cada uno de los 6 mercados, también sin valor');
+  // La cuota mínima solo cuenta en las combinadas.
+  assert.ok(!buildCombos([cand(1, 'OU.cards|over|0.5', 0.97, 1.02), cand(3, 'OU|over|2.5', 0.9, 1.5), cand(4, 'OU|over|2.5', 0.9, 1.5), cand(5, 'OU|over|2.5', 0.9, 1.5), cand(6, 'OU|over|2.5', 0.9, 1.5), cand(7, 'OU|over|2.5', 0.9, 1.5)]).some((k) => k.legs.some((l) => l.eventId === 1)));
   assert.equal(new Set(picks.map((p) => `${p.eventId}|${p.market}`)).size, picks.length, 'un pick por mercado');
 });
 

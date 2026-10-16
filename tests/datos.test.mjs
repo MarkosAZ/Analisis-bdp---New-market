@@ -106,6 +106,22 @@ test('formato compacto: ida y vuelta de un día', () => {
   assert.deepEqual(day.xg.get(EVENT.id), { home: { xgFor: 1.235, xgAgainst: 0.988 }, away: { xgFor: 1.1, xgAgainst: 1.3 } });
 });
 
+test('formato compacto: últimos partidos de los jugadores (NBA sin la extensión)', () => {
+  const nba = { ...EVENT, id: 'fs:nba1', sport: 'basketball', tournament: { id: 'nba', name: 'NBA', priority: 900 }, home: { id: 'h', name: 'Detroit Pistons' }, away: { id: 'a', name: 'Boston Celtics' } };
+  const game = (k) => ({ start: 1.79e12 - k * 864e5, min: 35.5, pts: 25 + k, reb: 6, ast: 9, tpm: 2, stl: 1, blk: 0, tov: 3, oreb: null, dreb: null, ftm: 5, fgm: 9, fga: 19, tpa: 6, fta: 6 });
+  const players = {
+    source: 'espn',
+    home: { teamGames: 10, players: [{ name: 'Cade Cunningham', short: 'C. Cunningham', out: false, games: [game(0), game(1)] }] },
+    away: { teamGames: 9, players: [{ name: 'Jayson Tatum', short: null, out: true, games: [] }] },
+  };
+  const raw = JSON.parse(JSON.stringify(compactDay({ date: '2026-10-20', sport: 'basketball', generated: 'g', events: [nba], details: { [nba.id]: { lastHome: [], lastAway: [], h2h: null, players } } })));
+  const d = expandDay(raw).details.get(nba.id);
+  assert.deepEqual(d.players, players);
+  // Sin jugadores publicados no aparece el campo.
+  const none = expandDay(JSON.parse(JSON.stringify(compactDay({ date: '2026-10-20', sport: 'basketball', generated: 'g', events: [nba], details: { [nba.id]: { lastHome: [], lastAway: [] } } })))).details.get(nba.id);
+  assert.equal(none.players, undefined);
+});
+
 test('formato compacto: resultados que liquidan apuestas', () => {
   const done = expandResult(JSON.parse(JSON.stringify(compactResult({ ...EVENT, state: 'finalizado', score: { home: 2, away: 1 } }))));
   assert.equal(settle({ market: '1X2', sel: 'home', line: null }, done, 'football'), 'won');
@@ -122,4 +138,29 @@ test('formato compacto: resultados que liquidan apuestas', () => {
   assert.equal(settle({ market: 'OU.corners', sel: 'over', line: 8.5 }, full, 'football'), 'won');
   assert.equal(settle({ market: 'FIRST', sel: 'away', line: null }, full, 'football'), 'won');
   assert.equal(settle({ market: 'COMEBACK:home', sel: 'yes', line: null }, full, 'football'), 'won');
+});
+
+test('H2H de Flashscore: la Summer League de la NBA no cuenta en la forma del equipo', () => {
+  // Nombres reales del sondeo: los 10 últimos partidos de octubre traían 5-8 de la Summer League.
+  const nba = (t, homeId, awayId, hs, as, league) => rec({ KC: t, UQ: homeId, UO: awayId, KJ: homeId, KK: awayId, KU: hs, KT: as, KF: league });
+  const feed = [
+    rec({ KA: 'General' }),
+    rec({ KB: 'Últimos partidos: Orlando Magic' }),
+    nba(1000, 'ORL', 'CLE', 105, 119, 'NBA'),
+    nba(900, 'ORL', 'BOS', 103, 97, 'NBA Las Vegas Summer League'),
+    nba(890, 'PHI', 'ORL', 92, 99, 'NBA Salt Lake City Summer League'),
+    nba(880, 'SAC', 'ORL', 80, 88, 'NBA 2K27 California Classic'),
+    nba(700, 'DET', 'ORL', 116, 94, 'NBA'),
+    rec({ KB: 'Últimos partidos: Cleveland Cavaliers' }),
+    nba(1000, 'ORL', 'CLE', 105, 119, 'NBA'),
+    nba(950, 'CLE', 'NOP', 82, 77, 'NBA Las Vegas Summer League'),
+    nba(800, 'CLE', 'NYK', 93, 130, 'NBA'),
+    rec({ KB: 'Enfrentamientos' }),
+    nba(1000, 'ORL', 'CLE', 105, 119, 'NBA'),
+    nba(850, 'CLE', 'ORL', 90, 80, 'NBA Las Vegas Summer League'),
+  ].join('');
+  const d = h2hData(parseH2H(feed), 'ORL', 'CLE');
+  assert.deepEqual(d.lastHome.map((m) => m.gf + m.ga), [224, 210]);
+  assert.deepEqual(d.lastAway.map((m) => m.gf + m.ga), [224, 223]);
+  assert.deepEqual(d.h2h, { homeWins: 0, draws: 0, awayWins: 1 });
 });

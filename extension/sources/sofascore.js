@@ -8,7 +8,7 @@
 // (page-hook.js): página del deporte para los partidos del día, página del
 // partido para sus estadísticas y, si hace falta, páginas de los equipos.
 import { fetchMany, FetchError, scanPage } from '../lib/net.js';
-import { findAll, fractionalToDecimal, limaDate } from '../lib/model.js';
+import { findAll, fractionalToDecimal, isExhibition, limaDate } from '../lib/model.js';
 
 const SITE = 'https://www.sofascore.com';
 const PAGE = `${SITE}/`;
@@ -190,8 +190,9 @@ function lastMatches(events, teamId, sport, before) {
   const regular = sport === 'football' || sport === 'futsal';
   return (events || [])
     .filter((e) => (e.homeTeam?.id === teamId || e.awayTeam?.id === teamId) && e.status?.type === 'finished' && e.startTimestamp * 1000 < before)
+    .filter((e) => !isExhibition(e.tournament?.uniqueTournament?.name || e.tournament?.name))
     .sort((a, b) => b.startTimestamp - a.startTimestamp)
-    .slice(0, 15)
+    .slice(0, sport === 'baseball' ? 30 : 15)
     .map((e) => {
       const isHome = e.homeTeam?.id === teamId;
       const pick = (s) => (regular ? s?.normaltime ?? s?.current : s?.current) ?? null;
@@ -656,6 +657,12 @@ export async function getEventResults({ ids = [], urls = {}, detail = [], player
       const scan = await scanPage(urls[id], { waitMs: 12000 });
       const e = eventsIn(scan.responses).find((x) => x.id === Number(id));
       if (e) items[id] = resultOf(e);
+      // Registro (marcador por periodo y, si la página los descargó, estadísticas e
+      // incidencias): sin él no se liquidan el 1.er tiempo, los cuartos ni los córners.
+      if (e && detail.map(String).includes(String(id)) && items[id].state === 'finalizado') {
+        const found = (part) => scan.responses.find((x) => x.url.includes(`/event/${id}/${part}`) && x.data)?.data || null;
+        items[id].raw = { event: e, statistics: found('statistics'), incidents: found('incidents') };
+      }
       // Box score si la página descargó la alineación.
       const lu = scan.responses.find((x) => x.url.includes(`/event/${id}/lineups`) && (x.data?.home || x.data?.away))?.data;
       const rows = e && box.has(String(id)) && items[id].state === 'finalizado' && lu ? boxScoreFromLineups(lu) : {};

@@ -4,8 +4,9 @@
 import { MIN_SAMPLES } from '../analysis/neural.js';
 import { BOOKMAKERS, LEVELS, MAIN_LEVELS } from '../analysis/picks.js';
 import { emptyMethodStats, hitRate, roi, totals } from '../history.js';
-import { sportOf } from '../sports.js';
+import { ACTIVE_SPORTS, sportOf } from '../sports.js';
 import { fmtDateTime, fmtDay, fmtTime, groupBy, h, pct } from '../util.js';
+import { bySportAndLeague } from './grupos.js';
 
 const STATUS = { won: 'Ganada', lost: 'Perdida', void: 'Nula', pending: 'Pendiente', half_won: 'Medio ganada', half_lost: 'Medio perdida' };
 const LEVEL_NAME = Object.fromEntries(LEVELS.map((l) => [l.id, l.name]));
@@ -135,6 +136,8 @@ function storageBanner(app) {
 }
 
 // Id de la red con puntos de corte (tras "_" y entre palabras) para que quepa en el celular.
+const fmtInt = (n) => Number(n || 0).toLocaleString('es-PE');
+
 const breakable = (id) => id.split(/(?<=_)|(?<=[a-z])(?=[A-Z])/).flatMap((part, i) => (i ? [h('wbr'), part] : [part]));
 
 // Estado de cada red especializada (una por mercado y una por estadística de
@@ -173,6 +176,13 @@ function networkPanel(app) {
     );
   const blocks = [list.filter((n) => !n.code), list.filter((n) => n.code)].filter((b) => b.length);
   const on = list.filter((n) => n.trained).length;
+  const info = app.state.network?.info;
+  const when = info?.trainedAt ? new Date(info.trainedAt).toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+  // Los resultados guardados en GitHub (en modo local, los de este navegador no cuentan hasta subirlos).
+  const own = app.storage.mode === 'local' ? 'resultados guardados en GitHub (los de este navegador cuentan al subirlos con «Subir a GitHub lo guardado en el navegador»)' : 'resultados de tus análisis';
+  const origin = info?.rows
+    ? ` Última vez: ${when}, con ${fmtInt(info.rows.used ?? info.rows.imported + info.rows.real)} selecciones: ${fmtInt(info.rows.real)} ${own} y el resto de partidos históricos de fútbol, NBA y MLB (cada red usa las 15 000 más recientes de su mercado).`
+    : '';
   return h(
     'div',
     { class: 'panel nets-panel' },
@@ -180,11 +190,11 @@ function networkPanel(app) {
     h(
       'p',
       { class: 'note' },
-      `Una red por mercado y, en los Más/Menos de jugador, una por estadística (puntos, rebotes, asistencias, triples, tiros de campo intentados...): ninguna aprende de otro mercado. Cada una empieza a corregir con ${MIN_SAMPLES} resultados de su mercado y solo si mejora en los partidos más recientes, que no usó para entrenar; mientras tanto, su mercado usa la probabilidad estadística.`,
+      `Una red por mercado y, en los Más/Menos de jugador, una por estadística (puntos, rebotes, asistencias, triples, tiros de campo intentados...): ninguna aprende de otro mercado. Cada una empieza a corregir con ${MIN_SAMPLES} resultados de su mercado y solo si mejora en los partidos más recientes, que no usó para entrenar; mientras tanto, su mercado usa la probabilidad estadística. Se reentrenan cada día en GitHub Actions con los resultados de tus análisis y los partidos históricos.`,
+      origin,
       list.length ? ` Corrigen ${on} de ${list.length}.` : '',
     ),
     h('div', { class: 'nets-tables' }, blocks.map(table)),
-    app.storage.mode !== 'lectura' ? h('button', { class: 'btn small', onclick: () => app.retrain() }, 'Reentrenar ahora') : null,
   );
 }
 
@@ -203,7 +213,57 @@ function legLine(l, extra = []) {
   );
 }
 
-function dayBody(day, filter) {
+// Apuesta de un mercado dentro de su partido: resultado, nivel, selección, cuota y probabilidad.
+function pickLine(p) {
+  return h(
+    'li',
+    {},
+    pill(p.status),
+    h('span', { class: 'lvl', style: `color:var(--${LEVEL_COLOR[p.level] || 'mod'})` }, LEVEL_NAME[p.level]),
+    h('b', {}, p.label),
+    h('span', { class: 'note' }, ` @ ${p.odds.toFixed(2)} ${BOOKMAKERS[p.source]} · ${pct(p.p)}`),
+    p.noData ? h('span', { class: 'note' }, ' · sin datos para liquidarla') : null,
+  );
+}
+
+// Picks de un análisis por deporte y liga, y dentro de cada partido sus mercados.
+function picksBySport(a, sport) {
+  const picks = a.picks.filter((p) => sport === 'todos' || p.sport === sport);
+  if (!picks.length) return h('div', { class: 'note' }, sport === 'todos' ? 'Sin picks.' : `Sin picks de ${sportOf(sport).name.toLowerCase()}.`);
+  const byEvent = groupBy(picks, (p) => String(p.eventId));
+  const events = [...byEvent.entries()].map(([id, list]) => {
+    const ev = a.events?.[id] || {};
+    const [home, away] = String(list[0].match || '').split(' vs ');
+    return { id, sport: list[0].sport, start: list[0].start, home: ev.home || home, away: ev.away || away, league: ev.league, country: ev.country };
+  });
+  return bySportAndLeague(events).map((g) =>
+    h(
+      'div',
+      { class: 'hist-sport' },
+      h('h5', { class: 'grp-sport' }, `${sportOf(g.sport).icon} ${sportOf(g.sport).name}`),
+      g.leagues.map((l) =>
+        h(
+          'div',
+          { class: 'hist-league' },
+          h('div', { class: 'grp-league' }, l.name),
+          l.events.map((ev) => {
+            const list = byEvent.get(ev.id);
+            const sc = list.find((p) => p.score)?.score;
+            const score = sc ? ` · ${sc.homeNT ?? sc.home}-${sc.awayNT ?? sc.away}` : '';
+            return h(
+              'div',
+              { class: 'hist-match' },
+              h('div', { class: 'hist-match-head' }, h('b', {}, `${ev.home} vs ${ev.away}`), h('span', { class: 'note' }, ` ${fmtTime(ev.start)}${score}`)),
+              h('ul', { class: 'leg-list' }, list.map(pickLine)),
+            );
+          }),
+        ),
+      ),
+    ),
+  );
+}
+
+function dayBody(day, filter, sport = 'todos') {
   if (!day) return h('div', { class: 'note' }, 'No se encontró el detalle de este día.');
   const list = day.analyses.filter((a) => filter === 'ambos' || a.method === filter);
   if (!list.length) return h('div', { class: 'note' }, `Sin análisis ${SHORT[filter]?.toLowerCase() || ''} este día.`);
@@ -220,28 +280,30 @@ function dayBody(day, filter) {
           h('span', { class: `method-tag ${a.method}` }, SHORT[a.method] || a.method),
           ` ${fmtDateTime(Date.parse(a.created))} · ${Object.keys(a.events || {}).length} partidos`,
         ),
-        a.picks.length
-          ? h(
-              'ul',
-              { class: 'leg-list' },
-              a.picks.map((p) =>
-                legLine(p, [
-                  h('span', { class: 'lvl', style: `color:var(--${LEVEL_COLOR[p.level] || 'mod'})` }, LEVEL_NAME[p.level]),
-                  h('span', { class: 'note' }, `@ ${p.odds.toFixed(2)} ${BOOKMAKERS[p.source]} · ${pct(p.p)}`),
-                ]),
-              ),
-            )
-          : h('div', { class: 'note' }, 'Sin picks.'),
-        (a.combos || []).map((k) =>
-          h(
-            'div',
-            {},
-            h('div', { class: 'note' }, pill(k.status), ` Combinada ${BOOKMAKERS[k.source]} · cuota ${k.odds.toFixed(2)} · prob. ${pct(k.p)}`),
-            h('ul', { class: 'leg-list' }, k.legs.map((l) => legLine(l, [h('span', { class: 'note' }, `@ ${l.price.toFixed(2)}`)]))),
+        picksBySport(a, sport),
+        (a.combos || [])
+          .filter((k) => sport === 'todos' || k.legs.some((l) => l.sport === sport))
+          .map((k) =>
+            h(
+              'div',
+              {},
+              h('div', { class: 'note' }, pill(k.status), ` Combinada ${BOOKMAKERS[k.source]} · cuota ${k.odds.toFixed(2)} · prob. ${pct(k.p)}`),
+              h('ul', { class: 'leg-list' }, k.legs.map((l) => legLine(l, [h('span', { class: 'note' }, `@ ${l.price.toFixed(2)}`)]))),
+            ),
           ),
-        ),
       ),
     );
+}
+
+// Filtro por deporte del detalle de cada día.
+function sportSwitch(app) {
+  const current = app.state.sportFilter || 'todos';
+  const sports = ['todos', ...ACTIVE_SPORTS];
+  return h(
+    'div',
+    { class: 'segmented levels sports', role: 'group', 'aria-label': 'Deporte a mostrar en cada día' },
+    sports.map((id) => h('button', { class: id === current ? 'active' : '', onclick: () => app.setSportFilter(id) }, id === 'todos' ? 'Todos' : `${sportOf(id).icon} ${sportOf(id).name}`)),
+  );
 }
 
 export function renderHistorial(root, app) {
@@ -289,6 +351,7 @@ export function renderHistorial(root, app) {
         ),
       ),
     ),
+    sportSwitch(app),
   );
   for (const date of dates) {
     const s = index.days[date];
@@ -316,7 +379,7 @@ export function renderHistorial(root, app) {
       ),
     );
     const box = h('div', { class: 'day' }, head);
-    if (open) box.append(h('div', { class: 'day-body' }, dayTables(s, filter), state.dayCache.has(date) ? dayBody(state.dayCache.get(date), filter) : h('div', { class: 'note' }, 'Cargando…')));
+    if (open) box.append(h('div', { class: 'day-body' }, dayTables(s, filter), state.dayCache.has(date) ? dayBody(state.dayCache.get(date), filter, state.sportFilter || 'todos') : h('div', { class: 'note' }, 'Cargando…')));
     root.append(box);
   }
 }

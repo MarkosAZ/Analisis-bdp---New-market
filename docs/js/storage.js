@@ -94,6 +94,17 @@ export async function read(path) {
   }
 }
 
+// Lo publicado en la página (GitHub Pages), sin pasar por GitHub ni el navegador:
+// p. ej. las redes que entrena GitHub Actions.
+export async function readPublished(path) {
+  try {
+    const resp = await fetch(`${path}?t=${Date.now()}`, { cache: 'no-store' });
+    return resp.ok ? await resp.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function write(path, value, message) {
   if (mode === 'github-web') return gh.putFile({ path: `docs/${path}`, text: JSON.stringify(value), message });
   if (mode === 'github') return ext.call('github', 'putFile', { path: `docs/${path}`, text: JSON.stringify(value), message }, { timeout: 60000 });

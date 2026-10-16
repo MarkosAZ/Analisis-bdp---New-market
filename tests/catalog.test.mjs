@@ -165,3 +165,91 @@ test('"1ª parte", "primera parte" y "segunda parte" son mitades, no el partido 
   assert.equal(id('Total de goles - Segunda parte'), 'OU@h2');
   assert.equal(id('Total de goles'), 'OU');
 });
+
+test('Apuesta Total: "disparos" son tiros al arco o remates, nunca goles', () => {
+  const ctx = { sport: 'football', home: 'Arsenal', away: 'Chelsea' };
+  const ou = [{ name: 'Más de 8.5', price: 1.9 }, { name: 'Menos de 8.5', price: 1.9 }];
+  const id = (name) => {
+    const r = parseMarket(name, ou, ctx);
+    return r.unsupported ? `no:${r.unsupported}` : marketId(r.spec);
+  };
+  assert.equal(id('Disparos a puerta totales'), 'OU.shots_on');
+  assert.equal(id('Disparos a puerta'), 'OU.shots_on');
+  assert.equal(id('Total de disparos a puerta'), 'OU.shots_on');
+  assert.equal(id('Disparos totales'), 'OU.shots');
+  assert.equal(id('Total de disparos'), 'OU.shots');
+  assert.equal(id('Arsenal Disparos a puerta'), 'OU.shots_on:home');
+  // Una estadística que no se conoce no se lee como goles.
+  assert.equal(id('Goles esperados'), 'no:special');
+  assert.equal(id('Posesión'), 'no:special');
+  // Los goles siguen igual.
+  assert.equal(id('Total de goles'), 'OU');
+  assert.equal(id('Total de goles asiático'), 'OU');
+  assert.equal(id('1ra mitad: Total de goles'), 'OU@h1');
+});
+
+test('Apuesta Total: "en ambas mitades" y otros mercados que no son los de la lista', () => {
+  const ctx = { sport: 'football', home: 'Viking', away: 'Bayern München' };
+  const yn = [{ name: 'Sí', price: 1.49 }, { name: 'No', price: 2.36 }];
+  const read = (name, sels = yn) => {
+    const r = parseMarket(name, sels, ctx);
+    return r.unsupported ? `no:${r.unsupported}` : r.outcomes.map((o) => o.market)[0];
+  };
+  // Nombres reales del sondeo de Apuesta Total: antes se leían como "Más/Menos 0.5 tarjetas",
+  // "Más/Menos 0.5 goles", "Ambos equipos anotan" o goles del equipo.
+  assert.equal(read('Tarjetas mostradas en ambas mitades'), 'no:special');
+  assert.equal(read('Ambas mitades menos de 1.5'), 'no:special');
+  assert.equal(read('Ambas mitades más de 0.5'), 'no:special');
+  assert.equal(read('Ambos equipos anotan en ambas mitades'), 'no:special');
+  assert.equal(read('Viking: Anotará en ambas mitades'), 'no:special');
+  assert.equal(read('Viking: Total de entradas del equipo', [{ name: 'Más de 17.5', price: 2.05 }, { name: 'Menos de 17.5', price: 1.77 }]), 'no:special');
+  assert.equal(read('1ra Mitad: Disparos a puerta', [{ name: 'Más de 5.5', price: 2.17 }, { name: 'Menos de 5.5', price: 1.69 }]), 'OU.shots_on@h1');
+  // Los de "ambos tiempos" que sí se entienden siguen igual.
+  assert.equal(read('Gol anotado en ambos tiempos'), 'SCOREALL@halves');
+  assert.equal(read('Ambos equipos anotan'), 'BTTS');
+});
+
+test('Apuesta Total: jugadores de básquet (nombres reales del sondeo de la NBA)', () => {
+  const ctx = { sport: 'basketball', home: 'Detroit Pistons', away: 'Boston Celtics' };
+  const sels = (who, line) => [{ name: `${who} Más de ${line}`, price: 1.84, line: line * 100 }, { name: `${who} Menos de ${line}`, price: 1.79, line: -line * 100 }];
+  const read = (name, s = sels('Cade Cunningham', 14.5)) => {
+    const r = parseMarket(name, s, ctx);
+    return r.unsupported ? `no:${r.unsupported}` : [...new Set(r.outcomes.map((o) => `${o.market} ${o.line}`))].join(', ');
+  };
+  // Combinadas en otro orden que "puntos, rebotes y asistencias".
+  assert.equal(read('Jugador: Total de puntos, asistencias y rebotes'), 'OU.pl_pra#Cade Cunningham 14.5');
+  assert.equal(read('Asistencias y rebotes del jugador (incl. Prórroga)'), 'OU.pl_ra#Cade Cunningham 14.5');
+  assert.equal(read('Puntos y asistencias del jugador (incl. Prórroga)'), 'OU.pl_pa#Cade Cunningham 14.5');
+  assert.equal(read('Puntos y rebotes del jugador (incl. Prórroga)'), 'OU.pl_pr#Cade Cunningham 14.5');
+  // "por jugador" y "Sobrepasa los" no son el nombre del jugador.
+  assert.equal(read('Tiros de 3 puntos anotados por jugador (incl. Prórroga)', sels('Jayson Tatum', 2.5)), 'OU.pl_3pm#Jayson Tatum 2.5');
+  assert.equal(read('Jugador Sobrepasa los Puntos (incl. prórroga)', [{ name: 'Daniel Oturu Más de 9.5', price: 1.46, line: 950 }]), 'OU.pl_pts#Daniel Oturu 9.5');
+  // La línea sale del nombre de la selección, no de QAParam1 (línea × 100).
+  assert.equal(read('Rebotes del jugador (incl. Prórroga)', sels('Jayson Tatum', 8.5)), 'OU.pl_reb#Jayson Tatum 8.5');
+});
+
+test('básquet: nombres del 1.er tiempo ("1era", "1ª", "1.ª", "1°", "1T") nunca como el partido completo', () => {
+  const ctx = { sport: 'basketball', home: 'Los Angeles Lakers', away: 'Boston Celtics' };
+  const ou = [{ name: 'Más de 112.5', price: 1.9 }, { name: 'Menos de 112.5', price: 1.9 }];
+  const hc = [{ name: 'Los Angeles Lakers -2.5', price: 1.9 }, { name: 'Boston Celtics +2.5', price: 1.9 }];
+  const first = (name, sels = ou) => parseMarket(name, sels, ctx).outcomes[0].market;
+  for (const n of ['1era Mitad - Total de Puntos', '1ª Mitad - Total de puntos', '1.ª mitad: total de puntos', '1° Mitad Total de Puntos', '1T Total de puntos', 'Total de Puntos 1era Mitad', 'Primera Mitad - Total de Puntos', '1er Tiempo - Total de Puntos'])
+    assert.equal(first(n), 'OU@h1', n);
+  for (const n of ['1era Mitad - Hándicap', 'Hándicap 1era mitad', 'Hándicap - 1° Mitad']) assert.equal(first(n, hc), 'HCP@h1', n);
+  assert.equal(first('2ª mitad - total de puntos'), 'OU@h2');
+  assert.equal(first('Total de puntos (incl. prórroga)'), 'OU');
+});
+
+test('fútbol: más formas del 1.er y 2.º tiempo, y "disparos" que no son el total', () => {
+  const ctx = { sport: 'football', home: 'Arsenal', away: 'Lille' };
+  const ou = [{ name: 'Más de 4.5', price: 1.9 }, { name: 'Menos de 4.5', price: 1.9 }];
+  const read = (n) => {
+    const r = parseMarket(n, ou, ctx);
+    return r.unsupported ? `no:${r.unsupported}` : r.outcomes[0].market;
+  };
+  for (const n of ['1° Tiempo - Total de goles', '1.er tiempo: total de goles', '1er. tiempo total de goles', '1ra. Mitad Total de goles']) assert.equal(read(n), 'OU@h1', n);
+  assert.equal(read('2° tiempo - total de goles'), 'OU@h2');
+  for (const n of ['Disparos fuera', 'Disparos bloqueados', 'Disparos a portería']) assert.equal(read(n), 'no:special', n);
+  assert.equal(read('Disparos al palo'), 'OU.woodwork');
+  assert.equal(read('Disparos'), 'OU.shots');
+});

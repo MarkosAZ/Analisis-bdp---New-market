@@ -11,13 +11,12 @@ import * as ext from './ext.js';
 import * as provider from './provider.js';
 import * as store from './storage.js';
 import { addDays, groupBy, limaDateOf, limaToday } from './util.js';
-import { FEATURE_VERSION, upgradeFeatures } from './analysis/features.js';
-import { settle } from './analysis/markets.js';
+import { FEATURE_VERSION } from './analysis/features.js';
+import { recordFromResult, settle } from './analysis/markets.js';
 import { parseMarketId } from './analysis/catalog.js';
 import { profitOf } from './analysis/outcomes.js';
 import { mergeRecords, recordFromSofascore } from './analysis/records.js';
 import { flashscoreRecords } from './flashscore-link.js';
-import { isResult } from './analysis/neural.js';
 import { NetworkSet, networkOf } from './analysis/networks.js';
 import { isPlayerMarket, LEVELS } from './analysis/picks.js';
 import { basketballLeague, PLAYER_STATS } from './analysis/players.js';
@@ -89,9 +88,10 @@ export function compactAnalysis(result) {
 }
 
 // Filas para las redes: una por mercado de cada partido (en los de jugador, por
-// jugador y estadística), la selección más probable según la estadística entre
-// las de la zona útil (50 % a 97 %), como los picks. Los dos lados de una línea,
-// o dos líneas del mismo mercado, son el mismo resultado contado dos veces.
+// jugador y estadística), la selección más probable según la estadística, como
+// el pick de ese mercado: cada apuesta alimenta la red de su mercado, también
+// las de probabilidad muy alta o sin valor. Los dos lados de una línea, o dos
+// líneas del mismo mercado, son el mismo resultado contado dos veces.
 // Cada estadística de jugador tiene su propia red (networks.PLAYER_NETWORKS): de
 // cada una, hasta 8 jugadores por partido, repartidos entre todas las
 // probabilidades, para que un partido no pese más que los otros en esa red. Los
@@ -106,7 +106,7 @@ const spread = (list, n) => {
 const playerGroup = (c) => networkOf(c.sport, c.market) || String(c.market).split('#')[0];
 export function rowCandidates(candidates) {
   const out = [];
-  const useful = candidates.filter((c) => Number.isFinite(c.pBase) && c.pBase >= 0.5 && c.pBase <= 0.97);
+  const useful = candidates.filter((c) => Number.isFinite(c.pBase));
   for (const list of groupBy(useful, (c) => c.eventId).values()) {
     const best = [...groupBy(list, (c) => c.market).values()].map((same) =>
       same.reduce((a, b) => (b.pBase > a.pBase || (b.pBase === a.pBase && `${b.sel}|${b.line}` < `${a.sel}|${a.line}`) ? b : a)),
@@ -156,6 +156,10 @@ export function dropReplaced(oldRows = [], newRows = []) {
 
 // Una fila por clave: la del último análisis mientras no tenga resultado (la
 // selección o la línea pueden cambiar); con resultado ya no se toca.
+// Filas de otra versión de las variables: la red no las usa (upgradeFeatures) y no
+// se pueden convertir (no guardan los datos del partido); se quitan al guardar.
+export const currentRows = (rows = []) => rows.filter((r) => r.fv === FEATURE_VERSION);
+
 export function mergeRows(oldRows = [], newRows = []) {
   const map = new Map(oldRows.map((r) => [r.key, r]));
   for (const r of newRows) {
@@ -180,7 +184,7 @@ export async function saveAnalysis(input) {
 
   for (const [month, rows] of groupBy(results.flatMap(trainingRows), (r) => r.date.slice(0, 7))) {
     const file = (await readRows(month)) || { rows: [] };
-    file.rows = mergeRows(dropReplaced(file.rows, rows), rows);
+    file.rows = mergeRows(dropReplaced(currentRows(file.rows), rows), rows);
     await store.write(rowsPath(month), file, `Entrenamiento: selecciones del ${date}`);
   }
   await refreshIndex([day]);
@@ -337,6 +341,27 @@ export { LEVELS };
 // Estado de una apuesta con el resultado; si el partido terminó pero no hay
 // datos para esa apuesta (p. ej. sin estadísticas de córners), se anula
 // pasado el plazo.
+// Resultado con las estadísticas de los jugadores (de un partido terminado) en su
+// registro. Sin marcador conocido el partido no se da por terminado: así solo se
+// liquidan las de jugador y las demás esperan su resultado. Sin registro completo se
+// arma con lo publicado (marcador por cuartos incluido): así también se liquidan el
+// 1.er tiempo y los cuartos.
+export function withPlayers(res = {}, players, sport, boxScore = null) {
+  const score = res.score || boxScore || null;
+  const final = score ? [score.home, score.away] : null;
+  const base = res.record || recordFromResult(res, sport) || { sport };
+  return {
+    ...res,
+    score,
+    ...(score ? { state: res.state || 'finalizado' } : {}),
+    record: { ...base, state: 'finalizado', ...(final && !base.final ? { final } : {}), players },
+  };
+}
+
+// Resultado de una fila para la red: 1 ganó, 0 perdió, 0.75 / 0.25 medias apuestas;
+// -1 nula (la red no la usa).
+export const yOf = (status) => ({ won: 1, lost: 0, half_won: 0.75, half_lost: 0.25 })[status] ?? -1;
+
 export function legStatus(leg, res, now) {
   const status = settle(leg, { ...res, final: now - leg.start > CANCEL_FINAL_MS }, leg.sport);
   if (status) return { status };
@@ -413,7 +438,9 @@ export async function updateResults({ onProgress = () => {} } = {}) {
   for (const month of monthsBack(2)) {
     const file = await readRows(month);
     if (!file) continue;
-    rowFiles.push({ month, file });
+    const all = file.rows.length;
+    file.rows = currentRows(file.rows);
+    rowFiles.push({ month, file, pruned: file.rows.length !== all });
     for (const r of file.rows) {
       if (r.y != null || r.start >= now - GRACE_MS) continue;
       ids.add(r.eventId);
@@ -460,18 +487,7 @@ export async function updateResults({ onProgress = () => {} } = {}) {
   // Agrega las estadísticas de los jugadores (de un partido terminado) al
   // registro. Sin marcador conocido el partido no se da por terminado: así solo
   // se liquidan las de jugador y las demás esperan su resultado.
-  const attachPlayers = (id, players, boxScore = null) => {
-    const res = results[id] || {};
-    const score = res.score || boxScore || null;
-    const final = score ? [score.home, score.away] : null;
-    const base = res.record || { sport: sports.get(id) };
-    results[id] = {
-      ...res,
-      score,
-      ...(score ? { state: res.state || 'finalizado' } : {}),
-      record: { ...base, state: 'finalizado', ...(final && !base.final ? { final } : {}), players },
-    };
-  };
+  const attachPlayers = (id, players, boxScore = null) => (results[id] = withPlayers(results[id], players, sports.get(id), boxScore));
   // Partidos automáticos (Flashscore): resultados publicados cada 2 horas.
   const auto = list.filter(provider.isAuto);
   const starts = new Map();
@@ -568,8 +584,8 @@ export async function updateResults({ onProgress = () => {} } = {}) {
     }
   }
   let newRows = 0;
-  for (const { month, file } of rowFiles) {
-    let changed = false;
+  for (const { month, file, pruned } of rowFiles) {
+    let changed = pruned;
     for (const r of file.rows) {
       if (r.y != null) continue;
       const res = results[r.eventId];
@@ -578,45 +594,26 @@ export async function updateResults({ onProgress = () => {} } = {}) {
       if (!st) continue;
       const status = st.status;
       // Media ganada/perdida: 0.75 / 0.25 (la red aprende la probabilidad de ganar).
-      r.y = { won: 1, lost: 0, half_won: 0.75, half_lost: 0.25 }[status] ?? -1;
+      r.y = yOf(status);
       changed = true;
       newRows++;
     }
     if (changed) await store.write(rowsPath(month), file, `Entrenamiento: resultados de ${month}`);
   }
   if (changedDays.length) await refreshIndex(changedDays);
-
-  let network = null;
-  if (newRows) {
-    onProgress('Reentrenando las redes especializadas', 0.85);
-    network = await trainNetwork();
-  }
+  // Las redes las reentrena GitHub Actions (scripts/historico/entrenar.mjs) con
+  // estos resultados y los partidos históricos.
   onProgress('Listo', 1);
-  return { checked: list.length, resolved, newRows, skipped, network: network?.summary() || null };
+  return { checked: list.length, resolved, newRows, skipped };
 }
 
 // ---- Redes especializadas ----
 
+// Las redes que entrena GitHub Actions cada día (docs/data/modelo/redes.json). En
+// modo local (solo el navegador) se usan las publicadas en la página.
 export async function loadNetwork() {
-  return NetworkSet.fromJSON(await store.read(MODEL).catch(() => null));
-}
-
-// Reentrena todas las redes, cada una con los resultados de sus mercados (solo
-// filas de la versión actual de variables).
-export async function trainNetwork() {
-  const rows = [];
-  for (const month of monthsBack(6)) {
-    const file = await readRows(month);
-    for (const r of file?.rows || []) {
-      if (!isResult(r.y)) continue;
-      const x = upgradeFeatures(r.x, r.fv);
-      if (x) rows.push({ ...r, x });
-    }
-  }
-  const set = NetworkSet.train(rows);
-  const s = set.summary();
-  await store.write(MODEL, set.toJSON(), `Redes especializadas: ${s.trained} de ${s.total} corrigen (${s.samples} resultados)`);
-  return set;
+  const json = store.getMode() === 'local' ? (await store.readPublished(MODEL)) ?? (await store.read(MODEL).catch(() => null)) : await store.read(MODEL).catch(() => null);
+  return NetworkSet.fromJSON(json);
 }
 
 // ---- Subir lo guardado en el navegador a GitHub ----

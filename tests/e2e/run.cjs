@@ -23,7 +23,7 @@ function check(name, ok, detail = '') {
 // ---- Datos automáticos (data/fuente) y API de GitHub simulados ----
 
 async function fixtures() {
-  const { compactDay, compactResult } = await import(pathToFileURL(path.join(ROOT, 'docs/js/data-format.js')).href);
+  const { compactDay, compactResult, compactMatchData, compactMatchStats } = await import(pathToFileURL(path.join(ROOT, 'docs/js/data-format.js')).href);
   const DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(new Date());
   const next = new Date(`${DAY}T12:00:00Z`);
   next.setUTCDate(next.getUTCDate() + 1);
@@ -59,16 +59,57 @@ async function fixtures() {
     events,
     offers: { 'fs:e1': book(1.35, 4.8, 8.5), 'fs:e2': book(1.5, 4.0, 6.5), 'fs:e4': book(1.45, 4.5, 6.8) },
     details: Object.fromEntries(['e1', 'e2', 'e4'].map((id) => [`fs:${id}`, { lastHome: strong, lastAway: weak, h2h: { homeWins: 4, draws: 1, awayWins: 1 } }])),
+    // Pestaña Datos: también los partidos sin cuotas (e3); e2 y e4 todavía sin su archivo.
+    datos: ['fs:e1', 'fs:e3'],
   });
   const generated = football.generated;
+  // Pestaña Datos: últimos 12 de cada equipo (córners y tarjetas en cada uno), 6
+  // enfrentamientos y, en el básquet, un jugador con su línea de P+R+A.
+  const lastOf = (seed) =>
+    Array.from({ length: 12 }, (_, i) => ({
+      start: at(-24 * (3 + 4 * i)),
+      home: i % 2 === 0,
+      opp: ['Melgar', 'Cienciano', 'ADT', 'Sport Huancayo', 'Cusco FC', 'Los Chankas'][(i + seed) % 6],
+      gf: (i * seed) % 4,
+      ga: (i + seed) % 3,
+      league: 'Liga 1',
+      stats: compactMatchStats({ corners: { ft: [3 + ((i * 7 + seed) % 6), 2 + ((i + seed) % 5)], h1: [2, 1] }, yellows: { ft: [1 + (i % 3), 2] } }, i % 2 === 1),
+    }));
+  const datos = {
+    id: 'fs:e1',
+    sport: 'football',
+    generated,
+    home: { name: 'Alianza Lima', last: lastOf(1) },
+    away: { name: 'Sporting Cristal', last: lastOf(2) },
+    h2h: Array.from({ length: 6 }, (_, i) => ({ start: at(-24 * (40 + 60 * i)), home: i % 2 === 0, gf: i % 3, ga: (i + 1) % 2, league: 'Liga 1', stats: compactMatchStats({ corners: { ft: [5 + i, 4] } }, i % 2 === 1) })),
+  };
+  const nba = { ...ev('b2', 'NBA', 'EE. UU.', 'US', 1000, 'New York Knicks', 'Cleveland Cavaliers', 21), sport: 'basketball' };
+  const game = (i, opp, pts, reb, ast) => ({ start: at(-24 * (2 + 3 * i)), opp, home: i % 2 === 0, min: 28, pts, reb, ast, tpm: 0, stl: 1, blk: 1, tov: 1 });
+  const robinson = [game(0, 'BOS', 8, 10, 1), game(1, 'CLE', 12, 9, 2), game(2, 'MIA', 6, 7, 0), game(3, 'PHI', 10, 11, 2), game(4, 'CLE', 15, 13, 1), game(5, 'ATL', 4, 6, 1), game(30, 'CLE', 9, 6, 0)];
+  const pra = [o('OU.pl_pra#Mitchell Robinson', 'over', 11.5, 1.87), o('OU.pl_pra#Mitchell Robinson', 'under', 11.5, 1.93), o('OU', 'over', 220.5, 1.9), o('OU', 'under', 220.5, 1.9)];
+  const nbaLast = (k) => Array.from({ length: 10 }, (_, i) => ({ start: at(-24 * (2 + i)), home: i % 2 === 0, gf: 105 + ((i * k) % 15), ga: 100 + ((i + k) % 12), r: 'W' }));
   const files = {
-    'indice.json': { generated, today: DAY, days: { [DAY]: { football: { events: 4, withOdds: 3 }, basketball: { events: 1, withOdds: 0 } }, [TOMORROW]: {} } },
+    'indice.json': { generated, today: DAY, days: { [DAY]: { football: { events: 4, withOdds: 3, datos: 2 }, basketball: { events: 2, withOdds: 1 } }, [TOMORROW]: {} } },
     [`${DAY}/football.json`]: football,
     [`${DAY}/basketball.json`]: compactDay({
       date: DAY,
       sport: 'basketball',
       generated,
-      events: [{ ...ev('b1', 'NBA', 'EE. UU.', 'US', 1000, 'Lakers', 'Celtics', 20), sport: 'basketball' }],
+      events: [{ ...ev('b1', 'NBA', 'EE. UU.', 'US', 1000, 'Lakers', 'Celtics', 20), sport: 'basketball' }, nba],
+      offers: { 'fs:b2': pra },
+      details: { 'fs:b2': { lastHome: nbaLast(3), lastAway: nbaLast(5), h2h: null } },
+    }),
+    'datos/e1.json': compactMatchData(datos),
+    'datos/e3.json': compactMatchData({ id: 'fs:e3', sport: 'football', generated, home: { name: 'Cienciano', last: lastOf(3) }, away: { name: 'ADT', last: lastOf(4) }, h2h: [] }),
+    'datos/b2.json': compactMatchData({
+      id: 'fs:b2',
+      sport: 'basketball',
+      generated,
+      home: { name: 'New York Knicks', last: nbaLast(3).map((m) => ({ ...m, opp: 'Boston Celtics', league: 'NBA', stats: null })) },
+      away: { name: 'Cleveland Cavaliers', last: nbaLast(5).map((m) => ({ ...m, opp: 'Miami Heat', league: 'NBA', stats: null })) },
+      h2h: [],
+      abbr: ['NY', 'CLE'],
+      players: [{ side: 'home', name: 'Mitchell Robinson', games: robinson }],
     }),
     'noticias.json': {
       generated,
@@ -121,9 +162,18 @@ function githubMock(context) {
   return files;
 }
 
+// Umbrales más bajos que los de fábrica: con el análisis calibrado (probabilidades
+// cerca del 50 % frente a líneas parejas) los datos de prueba no llegan a 80 % ni a
+// 70 % por selección, y así se prueba igual que la página muestre cada nivel y las
+// combinadas (y que los ajustes guardados se respeten).
+const LOW_THRESHOLDS = () => {
+  if (localStorage.getItem('bdp:ajustes') == null) localStorage.setItem('bdp:ajustes', JSON.stringify({ alta: 0.6, moderadaAlta: 0.57, moderada: 0.54, comboMinProb: 0.55 }));
+};
+
 async function withoutExtension(browser, errors) {
   const { DAY, files } = await fixtures();
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'es-PE', timezoneId: 'America/Lima', isMobile: true, hasTouch: true });
+  await context.addInitScript(LOW_THRESHOLDS);
   await context.route('**/data/fuente/**', (route) => {
     const rel = new globalThis.URL(route.request().url()).pathname.split('/data/fuente/')[1];
     return files[rel] ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(files[rel]) }) : route.fulfill({ status: 404, body: '' });
@@ -176,6 +226,52 @@ async function withoutExtension(browser, errors) {
   check('muestra el análisis con red neuronal', (await page.textContent('#tab-analisis .summary h2')) === 'Análisis con red neuronal');
   await page.screenshot({ path: path.join(OUT, '7-celular-analisis.png'), fullPage: false });
 
+  // Pestaña Datos: todos los partidos con datos (también sin cuotas), por liga.
+  await page.click('.tabs button[data-tab="datos"]');
+  await page.click('#tab-datos .sport:has-text("Fútbol")');
+  await page.waitForSelector('.datos-match');
+  const datosRows = () => page.$$eval('.datos-match', (rows) => rows.map((r) => `${r.querySelector('.teams').textContent}${r.querySelector('.odds-badge') ? ' (cuotas)' : ''}`));
+  const allRows = await datosRows();
+  const waiting = await page.textContent('.datos-waiting');
+  await page.check('#tab-datos .toolbar input[type="checkbox"]');
+  const oddsRows = await datosRows();
+  await page.uncheck('#tab-datos .toolbar input[type="checkbox"]');
+  check('Datos: todos los partidos con datos (también sin cuotas) y "Solo con cuotas"', JSON.stringify(allRows) === '["Alianza LimaSporting Cristal (cuotas)","CiencianoADT"]' && /^2 partidos por jugar/.test(waiting) && JSON.stringify(oddsRows) === '["Alianza LimaSporting Cristal (cuotas)"]', `${JSON.stringify(allRows)} · ${waiting} · ${JSON.stringify(oddsRows)}`);
+  await page.click('#tab-datos .league-title:has-text("Liga 1")');
+  const closed = await page.$$eval('.datos-match', (rows) => rows.length);
+  await page.click('#tab-datos .league-title:has-text("Liga 1")');
+  check('Datos: cada liga se cierra y se abre al tocarla', closed === 0 && (await page.$$eval('.datos-match', (rows) => rows.length)) === 2, `${closed}`);
+  await page.click('.datos-match:has-text("Alianza Lima")');
+  await page.waitForSelector('.chart-card .bars .col');
+  const barsOf = () => page.$$eval('.chart-grid .chart-card', (cards) => cards.map((c) => c.querySelectorAll('.bars .col').length));
+  const lineText = () => page.textContent('.datos-filters .line-ctl');
+  check('Datos: los últimos 10 de cada equipo en barras, con la línea de Apuesta Total', JSON.stringify(await barsOf()) === '[10,10]' && /2\.5/.test(await lineText()) && /Apuesta Total/.test(await lineText()), `${JSON.stringify(await barsOf())} · ${await lineText()}`);
+  await page.click('.stat-chips .chip-btn:text-is("Córners")');
+  const before = await lineText();
+  await page.click('.datos-filters .line-ctl button[aria-label="Subir la línea"]');
+  const after = await lineText();
+  const leanChip = await page.textContent('.chart-grid .chart-card .chip.lean');
+  check('Datos: córners con una línea que se sube con +', /cerca del promedio/.test(before) && /elegida/.test(after) && Number(after.match(/(\d+(\.\d)?)/)[1]) === Number(before.match(/(\d+(\.\d)?)/)[1]) + 1 && leanChip.includes('de 10'), `${before} → ${after} · ${leanChip}`);
+  await page.click('.datos-filters .segmented button:has-text("Últimos 15")');
+  await page.click('.datos-filters .segmented button:has-text("Local / Visita")');
+  check('Datos: últimos 15 y solo de local o de visita', JSON.stringify(await barsOf()) === '[6,6]', JSON.stringify(await barsOf()));
+  await page.click('.chart-grid .chart-card .bars .col');
+  const caption = await page.textContent('.chart-grid .chart-card .bars-caption');
+  const h2h = await page.textContent('#tab-datos .chart-card:has(h3:text("Enfrentamientos"))');
+  check('Datos: cada barra muestra su partido y están los enfrentamientos', /local vs|visita en/.test(caption) && /Ganó Alianza Lima/.test(h2h), `${caption} · ${h2h.slice(0, 80)}`);
+  await page.screenshot({ path: path.join(OUT, '9-celular-datos.png'), fullPage: true });
+  check('Datos: sin desplazamiento horizontal en el celular', !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)));
+  // Básquet: el jugador ofrecido con su línea de P+R+A y sus partidos contra el rival de hoy.
+  await page.click('#tab-datos .sport:has-text("Básquet")');
+  await page.click('.datos-match:has-text("Knicks")');
+  await page.waitForSelector('.players .bars .col');
+  const playerLine = await page.textContent('.players .line-ctl');
+  const offered = await page.textContent('.players .chip-btn.active.offered');
+  await page.click('.players .segmented button:has-text("vs Cleveland")');
+  const vs = await page.$$eval('.players .bars .col', (cols) => cols.map((c) => c.querySelector('.val').textContent));
+  check('Datos: jugadores con la línea de la casa y sus partidos contra el rival', /11\.5/.test(playerLine) && /rebotes/i.test(offered) && JSON.stringify(vs) === '["15","29","23"]', `${playerLine} · ${offered} · ${JSON.stringify(vs)}`);
+  await page.click('#tab-datos .sport:has-text("Fútbol")');
+
   // Liquidación con los resultados publicados
   await page.click('.tabs button[data-tab="historial"]');
   await page.waitForSelector('.day');
@@ -221,6 +317,7 @@ async function withoutExtension(browser, errors) {
   const errors = [];
   try {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'es-PE', timezoneId: 'America/Lima' });
+    await context.addInitScript(LOW_THRESHOLDS);
     await context.addInitScript(MOCK);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: URL });
     const page = await context.newPage();
@@ -278,7 +375,22 @@ async function withoutExtension(browser, errors) {
       rowMarkets.join(' '),
     );
     check('analiza los Más/Menos de jugador de Betano con los datos de ESPN', rowMarkets.some((m) => m.startsWith('OU.pl_pts#LeBron James')) && rowMarkets.some((m) => m.startsWith('OU.pl_pra#')), rowMarkets.filter((m) => m.startsWith('OU.pl_')).join(' '));
+    check('analiza los jugadores de Apuesta Total (asistencias y triples)', rowMarkets.some((m) => m.startsWith('OU.pl_ast#')) && rowMarkets.some((m) => m.startsWith('OU.pl_3pm#') && !m.endsWith('#por')), rowMarkets.filter((m) => /^OU\.pl_(ast|3pm)#/.test(m)).join(' '));
+    check('básquet: 1.er tiempo con las líneas extra .5 de Apuesta Total (la principal es entera)', rowMarkets.includes('OU@h1') && rowMarkets.includes('HCP@h1'), rowMarkets.filter((m) => m.includes('@h1')).join(' '));
     check('"Double-double" no se analiza como Más/Menos', !rowMarkets.some((m) => /double/i.test(m)));
+    // Béisbol: el análisis gira en torno a los abridores (y el contexto) de la MLB.
+    const baseballFactors = await page.evaluate(async () => {
+      const st = await import(new URL('js/storage.js', location.href).href);
+      const out = [];
+      for (const p of await st.localPaths()) if (p.includes('historial/2')) for (const a of (await st.read(p))?.analyses || []) for (const k of a.picks || []) if (k.sport === 'baseball') out.push(...(k.factors || []));
+      return out;
+    });
+    check(
+      'béisbol: abridores, bullpen, estadio y clima en los datos de cada pick',
+      ['Abridores: ', 'Bullpen en los 3 días anteriores', 'Estadio', 'Clima: '].every((t) => baseballFactors.some((f) => f.startsWith(t))) && baseballFactors.some((f) => f.includes('Gerrit Cole')),
+      [...new Set(baseballFactors.filter((f) => /Abridores|Bullpen|Estadio|Clima/.test(f)))].slice(0, 4).join(' | '),
+    );
+    check('fuente MLB en el análisis', /MLB · \d+ partidos/.test(summary), summary.match(/MLB[^A-Z]*/)?.[0]);
     const levels = await page.$$eval('#tab-analisis .mrow', (rows) => rows.map((c) => c.className));
     const combos = await page.$$('#tab-analisis .card.combo');
     const matchCards = await page.$$('#tab-analisis .match-card');
@@ -287,18 +399,33 @@ async function withoutExtension(browser, errors) {
       levels.some((c) => / alta$/.test(c)) && levels.some((c) => c.includes('baja')) && combos.length > 0 && matchCards.length > 0,
       `${matchCards.length} partidos · ${levels.length} mercados · ${combos.length} combinadas`,
     );
+    // Por deporte y, dentro, por liga (en orden alfabético).
+    const sportHeads = await page.$$eval('#tab-analisis .grp-sport', (els) => els.map((e) => e.firstChild.textContent.trim()));
+    const leagueHeads = await page.$$eval('#tab-analisis .sport-group', (gs) => gs.map((g) => [...g.querySelectorAll('.grp-league')].map((e) => e.firstChild.textContent.trim())));
+    const sortedOk = leagueHeads.every((ls) => ls.join('|') === [...ls].sort((a, b) => a.localeCompare(b, 'es')).join('|'));
+    check('partidos por deporte y, dentro, por liga en orden', sportHeads[0] === '⚽ Fútbol' && sportHeads.length >= 2 && sortedOk && leagueHeads[0].length >= 2, `${sportHeads.join(', ')} · ${leagueHeads.map((l) => l.join(' / ')).join(' || ')}`);
+    // Cada partido de fútbol con los 8 mercados de la lista (con su apuesta o el motivo por el que no hay).
+    const footballRows = await page.$$eval('#tab-analisis .sport-group:first-child .match-card', (cards) => cards.map((c) => [...c.children].filter((e) => e.classList.contains('mrow')).length));
+    const missing = await page.$$eval('#tab-analisis .mrow.missing .meta', (els) => els.map((e) => e.textContent));
+    check('cada partido de fútbol muestra los 8 mercados de la lista', footballRows.length > 0 && footballRows.every((n) => n === 8), footballRows.join(', '));
+    check('los mercados sin apuesta dicen por qué', missing.length > 0 && missing.every((t) => /línea \.5|sin \.5|datos suficientes/.test(t)), [...new Set(missing)].join(' | '));
+    await page.click('#tab-analisis .segmented.sports button:has-text("Básquet")');
+    const onlyBasket = await page.$$eval('#tab-analisis .grp-sport', (els) => els.map((e) => e.firstChild.textContent.trim()));
+    check('el filtro por deporte muestra solo ese deporte', onlyBasket.join() === '🏀 Básquet', onlyBasket.join(', '));
+    await page.screenshot({ path: path.join(OUT, '2b-analisis-basquet.png'), fullPage: false });
+    await page.click('#tab-analisis .segmented.sports button:has-text("Todos")');
     const playerRows = await page.$$eval('.match-card h4', (els) => els.map((e) => e.textContent));
     check('los mercados de jugador van aparte en su partido', playerRows.some((t) => /^Jugadores \(\d+\)$/.test(t)), playerRows.join(' | '));
-    await page.click('#tab-analisis .segmented button:has-text("Baja")');
+    await page.click('#tab-analisis .segmented.levels:not(.sports) button:has-text("Baja")');
     const onlyLow = await page.$$eval('#tab-analisis .mrow', (rows) => rows.map((c) => c.className));
     check('el filtro por nivel muestra solo ese nivel', onlyLow.length > 0 && onlyLow.every((c) => c.includes('baja')), `${onlyLow.length} filas`);
-    await page.click('#tab-analisis .segmented button:has-text("Todos")');
+    await page.click('#tab-analisis .segmented.levels:not(.sports) button:has-text("Todos")');
     const comboText = await page.$$eval('.card.combo .odds', (els) => els.map((e) => Number(e.textContent)));
     check('las combinadas alcanzan la cuota objetivo', comboText.length > 0 && comboText.every((o) => o >= 5), comboText.join(', '));
     await page.screenshot({ path: path.join(OUT, '2-analisis.png'), fullPage: true });
     await page.click('text=Copiar picks');
     const copied = await page.evaluate(() => navigator.clipboard.readText());
-    check('copia los picks como texto', / vs /.test(copied) && copied.includes('@') && /\((Alta|Moderada-alta|Moderada|Baja)\)/.test(copied), copied.split('\n').slice(0, 4).join(' | '));
+    check('copia los picks como texto, por deporte y liga', / vs /.test(copied) && copied.includes('@') && /\((Alta|Moderada-alta|Moderada|Baja)\)/.test(copied) && copied.includes('⚽ Fútbol') && /\n— /.test(copied), copied.split('\n').slice(0, 5).join(' | '));
 
     // 3) Historial
     await page.click('.tabs button[data-tab="historial"]');
@@ -320,13 +447,24 @@ async function withoutExtension(browser, errors) {
     await page.waitForSelector('.day-body .status-pill.won, .day-body .status-pill.lost');
     const pills = await page.$$eval('.day-body .status-pill', (els) => els.map((e) => e.textContent));
     check('marca ganadas y perdidas', pills.includes('Ganada') && pills.includes('Perdida') && !pills.includes('Pendiente'), `${pills.length} apuestas`);
+    // Detalle del día por deporte y liga, con filtro por deporte.
+    const [histSports, histLeagues] = await page.$eval('.day-body .analysis-block', (b) => [
+      [...b.querySelectorAll('.grp-sport')].map((e) => e.textContent.trim()),
+      [...b.querySelector('.hist-sport').querySelectorAll('.grp-league')].map((e) => e.textContent.trim()),
+    ]);
+    check('el detalle del día va por deporte y liga', histSports[0] === '⚽ Fútbol' && histSports.length >= 2 && histLeagues.length >= 2 && histLeagues.join('|') === [...histLeagues].sort((a, b) => a.localeCompare(b, 'es')).join('|'), `${histSports.join(', ')} · ${histLeagues.join(' / ')}`);
+    await page.click('#tab-historial .segmented.sports button:has-text("Béisbol")');
+    const histBaseball = await page.$$eval('.day-body .grp-sport', (els) => [...new Set(els.map((e) => e.textContent.trim()))]);
+    check('el detalle del día se filtra por deporte', histBaseball.join() === '⚾ Béisbol', histBaseball.join(', '));
+    await page.screenshot({ path: path.join(OUT, '3e-historial-beisbol.png'), fullPage: false });
+    await page.click('#tab-historial .segmented.sports button:has-text("Todos")');
     const table = await page.textContent('.panel table');
     check('calcula aciertos y ganancia por nivel', /%/.test(table), table.replace(/\s+/g, ' ').slice(0, 160));
     const netPanel = await page.textContent('.panel:has(h3:text-is("Redes especializadas"))');
     const netIds = ['Football_Goals_Model', 'Football_Corners_Model', 'Football_CornersH1_Model', 'Football_ShotsOnTarget_Model', 'Basketball_TotalsH1_Model', 'Basketball_PlayerPoints_Model', 'Basketball_PlayerFieldGoalsAttempted_Model', 'Baseball_Totals_Model'];
     check(
-      'las redes especializadas registran los resultados de su mercado',
-      netIds.every((id) => netPanel.includes(id)) && !netPanel.includes('Basketball_PlayerProps_Model') && /[1-9]\d*\/200/.test(netPanel),
+      'las redes especializadas: una por mercado, entrenadas en GitHub Actions (la página no reentrena)',
+      netIds.every((id) => netPanel.includes(id)) && !netPanel.includes('Basketball_PlayerProps_Model') && /GitHub Actions/.test(netPanel) && !(await page.$('text=Reentrenar ahora')),
       netPanel.replace(/\s+/g, ' ').slice(0, 260),
     );
     const netRows = await page.$$eval('.nets-table tbody tr:not(.net-group)', (els) => els.length);
@@ -370,6 +508,11 @@ async function withoutExtension(browser, errors) {
     });
     check('el filtro por nivel cabe en el celular', levelsFit);
     await (await page.$('#tab-analisis .segmented.levels')).screenshot({ path: path.join(OUT, '4b-celular-niveles.png') });
+    const sportsFit = await page.$eval('#tab-analisis .segmented.sports', (el) => el.getBoundingClientRect().right <= window.innerWidth + 1 && el.scrollWidth <= el.clientWidth + 1);
+    check('el filtro por deporte cabe en el celular', sportsFit);
+    await (await page.$('#tab-analisis .segmented.sports')).screenshot({ path: path.join(OUT, '4d-celular-deportes.png') });
+    await page.$eval('#tab-analisis .league-group', (el) => el.scrollIntoView());
+    await page.screenshot({ path: path.join(OUT, '4e-celular-partido.png'), fullPage: false });
     const analysisOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     check('sin desplazamiento horizontal en el análisis (celular)', !analysisOverflow);
     await page.click('.tabs button[data-tab="historial"]');

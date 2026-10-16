@@ -60,7 +60,14 @@ function toOdds(e, page) {
       .map((m) => ({
         name: m.name || m.type || '',
         type: m.type || '',
-        selections: m.selections.map((s) => ({ name: s.name || s.fullName || '', price: priceOf(s) })).filter((s) => s.price > 1),
+        // La línea, si viene aparte del nombre ("Más de" con handicap 24.5): de respaldo.
+        selections: m.selections
+          .map((s) => {
+            const raw = s.handicap ?? s.line ?? s.points ?? m.handicap ?? m.line;
+            const line = raw != null && raw !== '' && Number.isFinite(Number(raw)) ? Number(raw) : null;
+            return { name: s.name || s.fullName || '', price: priceOf(s), ...(line != null ? { line } : {}) };
+          })
+          .filter((s) => s.price > 1),
       })),
   };
 }
@@ -209,7 +216,7 @@ export async function getOdds({ sport = 'football' } = {}) {
       vias.push(`${src.via} (${list.length} eventos)`);
       for (const e of list) events.set(String(e.id ?? `${e.name}|${e.startTime}`), e);
     }
-    if (events.size) return { mode: 'tab', via: vias.filter((v) => !v.endsWith('(0 eventos)')).join(', '), items: [...events.values()].map((e) => toOdds(e, page)), attempts };
+    if (events.size) return { mode: 'tab', via: vias.filter((v) => !v.endsWith('(0 eventos)')).join(', '), page: { url: found?.url, title: found?.title }, items: [...events.values()].map((e) => toOdds(e, page)), attempts };
     attempts.push({
       via: 'página del deporte',
       error: 'sin eventos con cuotas',
@@ -253,11 +260,43 @@ export default {
         event = { error: e.message };
       }
     }
+    // Básquet: qué trae la página del deporte (¿la NBA?) y la página de un partido
+    // (¿primer tiempo y jugadores?, ¿cómo vienen sus selecciones?).
+    let basketball;
+    try {
+      const b = await getOdds({ sport: 'basketball' });
+      const pick = b.items.find((e) => e.url && /nba/i.test(e.league)) || b.items.find((e) => e.url);
+      let pagina = null;
+      if (pick) {
+        const r = await getEventMarkets({ urls: { [pick.eventId]: pick.url } });
+        const markets = r.items[pick.eventId] || [];
+        const wanted = markets.filter((m) => /primer|1er|1ª|mitad|medio tiempo|jugador|puntos|rebotes|asistencias|triples/i.test(m.name));
+        pagina = {
+          partido: `${pick.home} vs ${pick.away}`,
+          liga: pick.league,
+          url: pick.url,
+          mercados: markets.length,
+          primerTiempoYJugadores: wanted.map((m) => m.name).slice(0, 60),
+          ejemplos: wanted.slice(0, 6).map((m) => ({ name: m.name, selections: m.selections.slice(0, 4) })),
+          notas: r.notes,
+        };
+      }
+      basketball = {
+        via: b.via,
+        page: b.page,
+        partidos: b.items.length,
+        ligas: [...new Set(b.items.map((e) => e.league).filter(Boolean))].slice(0, 15),
+        primeros: b.items.slice(0, 10).map((e) => `${e.home} vs ${e.away} · ${e.league || 'sin liga'}${e.url ? '' : ' · sin página'}`),
+        paginaDelPartido: pagina,
+      };
+    } catch (e) {
+      basketball = { error: e.message, attempts: e.attempts };
+    }
     return {
       mode,
       count: items.length,
       sample: items.slice(0, 3),
-      details: { via, attempts, marketNames: [...new Set(items.flatMap((e) => e.markets.map((m) => m.name)))].slice(0, 30), paginaDelPartido: event },
+      details: { via, attempts, marketNames: [...new Set(items.flatMap((e) => e.markets.map((m) => m.name)))].slice(0, 30), paginaDelPartido: event, basketball },
     };
   },
 };

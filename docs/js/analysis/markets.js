@@ -173,6 +173,9 @@ function offersFromBookmaker(source, markets, other, ev, swapped, stats) {
 }
 
 export const offersFromApuestaTotal = (markets, at, ev, swapped = false, stats) => offersFromBookmaker('apuestatotal', markets, at, ev, swapped, stats);
+
+// Jugadores con Más/Menos en las cuotas de un partido (nombres como los escribe la casa).
+export const offeredPlayers = (list = []) => [...new Set(list.filter((o) => /^OU\.pl_/.test(o.market)).map((o) => parseMarketId(o.market)?.n).filter(Boolean))];
 export const offersFromBetano = (markets, b, ev, swapped = false, stats) => offersFromBookmaker('betano', markets, b, ev, swapped, stats);
 
 // Probabilidad implícita de cada selección sin el margen de la casa,
@@ -222,8 +225,12 @@ const PAIRS = { OU: ['over', 'under'], HCP: ['home', 'away'], BTTS: ['yes', 'no'
 // líneas se descartan. Ej.: Más 2.5 @1.75 / Menos 2.5 @1.80 (diferencia 0.05)
 // gana a Más 3.5 @1.90 / Menos 3.5 @2.05 (0.15). Sin líneas enteras ni
 // asiáticas: con .5 no hay devolución. allowed: Set (o { has }) de mercados, o
-// una función (oferta) → bool. Devuelve las ofertas de las líneas elegidas.
-export function balancedLines(offers, allowed) {
+// una función (oferta) → bool. whole(mercado) → bool: mercados en los que, si la
+// casa no tiene ninguna línea .5, vale la entera más pareja (si el resultado cae
+// justo en la línea, se devuelve; p. ej. el 1.er tiempo del básquet en 88 o +1).
+// Devuelve las ofertas de las líneas elegidas.
+const isWholeLine = (line) => Number.isFinite(line) && Math.abs(line % 1) < 1e-9;
+export function balancedLines(offers, allowed, { whole = () => false } = {}) {
   const out = [];
   const ok = typeof allowed === 'function' ? allowed : (o) => allowed.has(o.market);
   const usable = offers.filter((o) => BETTABLE.includes(o.source) && o.price > 1 && ok(o));
@@ -232,23 +239,27 @@ export function balancedLines(offers, allowed) {
     const pair = PAIRS[spec?.t];
     if (!pair) continue;
     const hasLine = spec.t === 'OU' || spec.t === 'HCP';
-    const byLine = new Map(); // línea -> { selección: mejor oferta }
-    for (const o of list) {
-      if (hasLine ? !isHalfLine(o.line) : o.line != null) continue;
-      if (!pair.includes(o.sel)) continue;
-      const sides = byLine.get(o.line) || byLine.set(o.line, {}).get(o.line);
-      if (!sides[o.sel] || o.price > sides[o.sel].price) sides[o.sel] = o;
-    }
-    let best = null;
-    for (const sides of byLine.values()) {
-      const [a, b] = pair.map((s) => sides[s]);
-      if (!a || !b) continue;
-      // Margen de la casa fuera de lo normal: las dos cuotas no son del mismo mercado.
-      const overround = 1 / a.price + 1 / b.price;
-      if (overround < 0.98 || overround > 1.3) continue;
-      const diff = Math.round(Math.abs(a.price - b.price) * 1000);
-      if (!best || diff < best.diff || (diff === best.diff && overround < best.overround)) best = { diff, overround, a, b };
-    }
+    const pick = (valid) => {
+      const byLine = new Map(); // línea -> { selección: mejor oferta }
+      for (const o of list) {
+        if (hasLine ? !valid(o.line) : o.line != null) continue;
+        if (!pair.includes(o.sel)) continue;
+        const sides = byLine.get(o.line) || byLine.set(o.line, {}).get(o.line);
+        if (!sides[o.sel] || o.price > sides[o.sel].price) sides[o.sel] = o;
+      }
+      let best = null;
+      for (const sides of byLine.values()) {
+        const [a, b] = pair.map((s) => sides[s]);
+        if (!a || !b) continue;
+        // Margen de la casa fuera de lo normal: las dos cuotas no son del mismo mercado.
+        const overround = 1 / a.price + 1 / b.price;
+        if (overround < 0.98 || overround > 1.3) continue;
+        const diff = Math.round(Math.abs(a.price - b.price) * 1000);
+        if (!best || diff < best.diff || (diff === best.diff && overround < best.overround)) best = { diff, overround, a, b };
+      }
+      return best;
+    };
+    const best = pick(isHalfLine) || (hasLine && whole(list[0].market) ? pick(isWholeLine) : null);
     if (best) for (const o of [best.a, best.b]) out.push({ ...o, group: `${o.source}|${o.market}|${o.line ?? ''}` });
   }
   return out;

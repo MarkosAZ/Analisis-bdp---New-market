@@ -9,7 +9,9 @@ import { sentiment } from './news.js';
 // 3: una red por mercado (networks.js) y probabilidad solo con la estadística.
 // Las filas anteriores se calcularon mezclando el modelo con las cuotas: no se
 // usan para entrenar (upgradeFeatures devuelve null).
-export const FEATURE_VERSION = 3;
+// 4: análisis estadístico del fútbol ajustado con los partidos históricos (goles
+// calibrados, dispersión de tarjetas y remates): la probabilidad base cambió.
+export const FEATURE_VERSION = 4;
 
 export const FEATURES = [
   'logitBase', // probabilidad del análisis estadístico (escala logit)

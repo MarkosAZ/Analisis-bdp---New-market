@@ -9,7 +9,13 @@ const STOP = new Set(
     ' ',
   ),
 );
-const ALIASES = { utd: 'united', st: 'saint', ste: 'sainte', intl: 'international' };
+const ALIASES = {
+  utd: 'united', st: 'saint', ste: 'sainte', intl: 'international',
+  // Apodos cortos de la NBA y nombres en español ("Cavs", "Sixers", "Nueva York", "Filadelfia").
+  cavs: 'cavaliers', sixers: '76ers', mavs: 'mavericks', wolves: 'timberwolves', nueva: 'new', filadelfia: 'philadelphia',
+};
+// Ciudad abreviada al comienzo del nombre ("GS Warriors", "OKC Thunder", "NY Knicks").
+const CITY_ALIASES = { gs: 'golden state', gsw: 'golden state', okc: 'oklahoma city', ny: 'new york', nyk: 'new york', no: 'new orleans', nop: 'new orleans', sa: 'san antonio', sas: 'san antonio', bkn: 'brooklyn', phx: 'phoenix' };
 const RESERVE = new Set(['b', 'ii', 'iii', 'reserves', 'reservas', 'res']);
 const WOMEN = new Set(['w', 'women', 'womens', 'fem', 'femenino', 'femenina', 'f', 'ladies', 'damas']);
 
@@ -70,7 +76,8 @@ export function countryCode(name) {
 // con marcas de categoría (femenino, sub-21, reserva) separadas.
 export function nameTokens(name) {
   let s = basicNorm(name).replace(/\b(?:u|sub)\s?(\d{2})\b/g, 'u$1');
-  const words = s.split(' ').filter(Boolean);
+  let words = s.split(' ').filter(Boolean);
+  if (words.length >= 2 && CITY_ALIASES[words[0]]) words = [...CITY_ALIASES[words[0]].split(' '), ...words.slice(1)];
   const markers = [];
   const rest = [];
   for (const w of words) {

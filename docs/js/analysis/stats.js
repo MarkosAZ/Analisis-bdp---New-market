@@ -3,10 +3,29 @@
 // equipo en sus últimos partidos (lo que hace y lo que le permite el rival).
 // Cada equipo sigue una binomial negativa (más dispersa que Poisson) con su
 // media; las cuotas no intervienen.
+import { calibrate } from './models.js';
 import { FOOTBALL_STATS, statPriors } from './simulate.js';
 
 // Partidos con datos de cada equipo para dar una probabilidad.
 export const MIN_MATCHES = 4;
+
+// Ajustes de los mercados de estadísticas del fútbol (elegidos con la prueba
+// retrospectiva de unos 15 000 partidos; ver README). k 1000: Poisson (los remates
+// varían como una Poisson; las tarjetas y los córners, algo más).
+//  shrink: partidos "virtuales" con el promedio típico (FOOTBALL_STATS.mean).
+//  Por estadística (corners, cards, shots, shots_on) se pueden cambiar k
+//  (dispersión), h1 (parte del 1.er tiempo), mean (promedio típico), ratio
+//  (ventaja de local), shrink y shrinkH1 (el del 1.er tiempo); sin cambiar, los
+//  de simulate.js. t: calibración del Más/Menos del partido en escala logit (<1
+//  acerca al 50 %), elegida con las líneas reales de la casa (Sofascore, 2024-25):
+//  frente a ellas los córners y las tarjetas se pasaban de seguros.
+export const STATS = {
+  shrink: 3,
+  corners: { shrinkH1: 6, t: 0.5 },
+  cards: { k: 20, t: 0.35 },
+  shots: { k: 1000, shrink: 2 },
+  shots_on: { k: 1000 },
+};
 
 // Binomial negativa (k = dispersión; sin k, Poisson) hasta `max`.
 function nbPmf(mean, k, max) {
@@ -27,12 +46,14 @@ function nbPmf(mean, k, max) {
 // mercado. Devuelve { p, n, home, away, mean, sd } (n: partidos con datos;
 // home/away: medias usadas; mean/sd: del total, o de la diferencia local − visita
 // en el hándicap) o null si faltan datos.
-export function statProbability(sport, teamStats, spec, sel, line) {
-  const def = sport === 'football' ? FOOTBALL_STATS[spec?.stat] : null;
+export function statProbability(sport, teamStats, spec, sel, line, opts = {}) {
+  const o = { ...STATS, ...opts };
+  const def = sport === 'football' && FOOTBALL_STATS[spec?.stat] ? { ...FOOTBALL_STATS[spec.stat], ...(o[spec.stat] || {}) } : null;
   if (!def || !['OU', 'HCP'].includes(spec.t) || spec.team || !['ft', 'h1'].includes(spec.scope) || !Number.isFinite(line)) return null;
   const hcp = spec.t === 'HCP';
   if (hcp ? !['home', 'away'].includes(sel) : !['over', 'under'].includes(sel)) return null;
-  const prior = statPriors(sport, teamStats, { shrink: 3 })[spec.stat];
+  const shrink = (spec.scope === 'h1' ? def.shrinkH1 : null) ?? def.shrink ?? o.shrink;
+  const prior = statPriors(sport, teamStats, { shrink, only: spec.stat, def })[spec.stat];
   if (!prior || prior.n < MIN_MATCHES) return null;
   const share = spec.scope === 'h1' ? def.h1 : 1;
   const mh = prior.h * share;
@@ -50,7 +71,9 @@ export function statProbability(sport, teamStats, spec, sel, line) {
       if (hcp ? i - j + line > 0 : i + j > line) yes += w;
     }
   }
-  const pYes = yes / total;
+  // Calibración (solo el Más/Menos del partido: el hándicap y el 1.er tiempo no tienen
+  // líneas reales con que medirla).
+  const pYes = calibrate(yes / total, !hcp && spec.scope === 'ft' ? (def.t ?? 1) : 1);
   const variance = (m) => m + (def.k ? (m * m) / def.k : 0);
   const p = sel === 'under' || sel === 'away' ? 1 - pYes : pYes;
   return { p, n: prior.n, home: mh, away: ma, mean: hcp ? mh - ma : mh + ma, sd: Math.sqrt(variance(mh) + variance(ma)) };

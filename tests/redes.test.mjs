@@ -5,8 +5,9 @@ import { Corrector, MIN_SAMPLES } from '../docs/js/analysis/neural.js';
 import { NETWORKS, NetworkSet, networkOf, PLAYER_NETWORKS } from '../docs/js/analysis/networks.js';
 import { MARKETS } from '../docs/js/analysis/picks.js';
 import { rng } from '../docs/js/util.js';
-import { dropReplaced, hasPlayerFields, mergeRows, playerFieldsOf, rowCandidates, trainingRows } from '../docs/js/history.js';
+import { currentRows, dropReplaced, hasPlayerFields, mergeRows, playerFieldsOf, rowCandidates, trainingRows } from '../docs/js/history.js';
 import { versionBefore } from '../docs/js/util.js';
+import { readFileSync } from 'node:fs';
 
 const Z = FEATURES.indexOf('zLine');
 
@@ -202,21 +203,21 @@ test('variables casi constantes entran como 0 y los valores raros se recortan', 
 
 // ---- Filas de entrenamiento ----
 
-test('filas: una por mercado (el lado más probable), sin los dos lados de la línea', () => {
+test('filas: una por mercado (el lado más probable, como el pick), sin los dos lados de la línea', () => {
   const c = (eventId, market, sel, line, pBase) => ({ eventId, market, sel, line, pBase, key: `${market}|${sel}|${line ?? ''}` });
   const rows = rowCandidates([
     c(1, 'OU', 'over', 2.5, 0.62),
     c(1, 'OU', 'under', 2.5, 0.38),
     c(1, 'OU', 'over', 3.5, 0.41),
     c(1, 'OU', 'under', 3.5, 0.59),
-    c(1, 'BTTS', 'yes', null, 0.98), // fuera de la zona útil
+    c(1, 'BTTS', 'yes', null, 0.98), // muy probable: también alimenta la red
     c(1, 'BTTS', 'no', null, 0.02),
     c(2, 'OU', 'over', 2.5, 0.45),
     c(2, 'OU', 'under', 2.5, 0.55),
   ]);
   assert.deepEqual(
     rows.map((r) => `${r.eventId}|${r.market}|${r.sel}|${r.line}`).sort(),
-    ['1|OU|over|2.5', '2|OU|under|2.5'],
+    ['1|BTTS|yes|null', '1|OU|over|2.5', '2|OU|under|2.5'],
   );
 });
 
@@ -301,4 +302,22 @@ test('versión de la extensión: compara mayor, menor y parche', () => {
   assert.equal(versionBefore('1.0.0', '0.5.1'), false);
   assert.equal(versionBefore('0.4.9', '0.5.1'), true);
   assert.equal(versionBefore('0.5.10', '0.5.9'), false);
+});
+
+test('la página pide la versión de la extensión que está en el repositorio', () => {
+  // Si se cambia la extensión hay que subir su versión y la que pide la página (EXT_LATEST):
+  // así una extensión sin recargar muestra "Extensión: actualizar".
+  const manifest = JSON.parse(readFileSync(new URL('../extension/manifest.json', import.meta.url), 'utf8'));
+  const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+  assert.equal(app.match(/const EXT_LATEST = '([\d.]+)'/)?.[1], manifest.version);
+});
+
+test('entrenamiento: las filas de otra versión de las variables se quitan al guardar', async () => {
+  const { FEATURE_VERSION } = await import('../docs/js/analysis/features.js');
+  const rows = [
+    { key: 'a', fv: FEATURE_VERSION - 1, y: 1 },
+    { key: 'b', fv: FEATURE_VERSION, y: 0 },
+    { key: 'c', y: null },
+  ];
+  assert.deepEqual(currentRows(rows).map((r) => r.key), ['b']);
 });

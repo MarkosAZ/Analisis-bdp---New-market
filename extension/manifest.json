@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Análisis BDP - Conector",
-  "version": "0.5.1",
+  "version": "0.5.3",
   "description": "Obtiene partidos, estadísticas y cuotas desde tu navegador para la página Análisis BDP.",
   "permissions": [
     "scripting",
@@ -18,6 +18,8 @@
     "https://*.kmianko.com/*",
     "https://www.fotmob.com/*",
     "https://site.api.espn.com/*",
+    "https://site.web.api.espn.com/*",
+    "https://statsapi.mlb.com/*",
     "https://understat.com/*",
     "https://api.github.com/*"
   ],

@@ -2,7 +2,7 @@
 // Los datos salen de un "feed" de texto con registros separados por "~",
 // campos por "¬" y clave/valor por "÷". Requiere la cabecera x-fsign.
 import { FetchError, fetchDirect, runInSiteTab } from '../lib/net.js';
-import { toIso } from '../lib/model.js';
+import { isExhibition, toIso } from '../lib/model.js';
 
 const PAGE = 'https://www.flashscore.pe/';
 // Dirección del "feed" (203 = flashscore.pe). Con la extensión los datos se
@@ -334,25 +334,37 @@ export function h2hData(sections, homeId, awayId) {
     const s = sections.filter((x) => /ltimos partidos/i.test(x.title)).sort((a, b) => count(b) - count(a))[0];
     if (!s || !teamId || count(s) < s.rows.length / 2) return [];
     return s.rows
-      .filter((row) => row.hs != null && row.as != null && plays(row, teamId))
+      .filter((row) => row.hs != null && row.as != null && plays(row, teamId) && !isExhibition(row.league))
       .map((row) => toLast(row, teamId))
       .sort((a, b) => b.start - a.start);
   };
   const duel = sections.find((x) => /enfrentamientos/i.test(x.title));
   let h2h = null;
+  // Enfrentamientos con su marcador visto desde el local del partido a analizar
+  // (gf: lo que anotó el local de hoy), del más reciente al más antiguo.
+  const h2hGames = [];
   if (duel?.rows.length) {
     h2h = { homeWins: 0, draws: 0, awayWins: 0 };
     for (const row of duel.rows) {
-      if (row.hs == null || row.as == null) continue;
+      if (row.hs == null || row.as == null || isExhibition(row.league)) continue;
       if (row.hs === row.as) h2h.draws++;
       else {
         const winner = row.hs > row.as ? row.homeId : row.awayId;
         if (winner === homeId) h2h.homeWins++;
         else if (winner === awayId) h2h.awayWins++;
       }
+      const ours = row.homeId === homeId ? 'home' : row.awayId === homeId ? 'away' : null;
+      if (ours) h2hGames.push({ start: row.start, gf: ours === 'home' ? row.hs : row.as, ga: ours === 'home' ? row.as : row.hs, home: ours === 'home' });
     }
   }
-  return { lastHome: last(homeId), lastAway: last(awayId), h2h };
+  h2hGames.sort((a, b) => b.start - a.start);
+  // Enfrentamientos con su id (para pedir sus estadísticas) y quién fue local,
+  // del más reciente al más antiguo (pestaña Datos de la página).
+  const h2hList = (duel?.rows || [])
+    .filter((row) => row.hs != null && row.as != null && !isExhibition(row.league))
+    .map((row) => ({ start: row.start, fsId: row.id, homeId: row.homeId, awayId: row.awayId, home: row.home, away: row.away, hs: row.hs, as: row.as, league: row.league }))
+    .sort((a, b) => b.start - a.start);
+  return { lastHome: last(homeId), lastAway: last(awayId), h2h, h2hGames: h2hGames.slice(0, 10), h2hList };
 }
 
 export async function getNews() {

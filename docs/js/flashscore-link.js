@@ -55,6 +55,8 @@ export async function addTeamStats(events, details, sources, progress = () => {}
       const d = details[ev.id];
       const fsStats = { home: side(r.lastHome || []), away: side(r.lastAway || []) };
       d.teamStats = { home: mergeTeamStats(d.teamStats?.home, fsStats.home) || {}, away: mergeTeamStats(d.teamStats?.away, fsStats.away) || {} };
+      // Marcadores de los últimos enfrentamientos (béisbol: carreras de cada uno contra el otro).
+      if (r.h2hGames?.length) d.h2hGames = r.h2hGames;
       d.fsId = fs.id;
       withFs++;
     } catch {

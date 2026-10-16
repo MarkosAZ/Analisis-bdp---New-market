@@ -54,3 +54,8 @@ export function findAll(root, test, limit = 5000) {
   }
   return out;
 }
+
+// Partidos de exhibición que no sirven para la forma de un equipo: la Summer League
+// de la NBA (40 minutos, con novatos y suplentes: 160-200 puntos) y torneos de verano
+// parecidos. Con ellos el total esperado de la NBA salía 30-40 puntos bajo.
+export const isExhibition = (league = '') => /summer league|liga de verano|california classic|summer classic/i.test(String(league));

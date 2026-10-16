@@ -31,6 +31,13 @@ Sofascore (cualquier día) y Betano.
 Para actualizarla después de cambios en el repositorio: reemplaza la carpeta y pulsa el
 botón de recargar (↻) de la extensión en `chrome://extensions`. La versión 0.2.0 pide
 permisos nuevos (alarmas y almacenamiento de la extensión, y acceso a `api.github.com`).
+La 0.5.3 pide también los disparos de Apuesta Total ("Disparos a puerta totales" y
+"Disparos totales"), que en la página se ven como tiros al arco y remates totales, y en
+básquet los jugadores (puntos, rebotes, asistencias, triples y sus combinadas) y las
+líneas extra del primer tiempo. Además pide permiso para `site.web.api.espn.com`
+(el registro de partidos de cada jugador de la NBA) y el diagnóstico de Betano
+también prueba el básquet: si Betano no empareja los partidos de la NBA, copia el
+informe del diagnóstico (sección Betano → "Ver datos técnicos" → basketball).
 
 ## Guardar en GitHub (opcional)
 

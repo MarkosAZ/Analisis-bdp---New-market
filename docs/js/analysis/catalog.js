@@ -195,9 +195,10 @@ const STATS = [
   [/tarjetas? rojas?/, 'reds'],
   [/tarjeta|amonestacion/, 'cards'],
   [/corner|corneres|tiros? de esquina/, 'corners'],
-  [/tiros al arco|remates a puerta|tiros a puerta/, 'shots_on'],
+  [/tiros al arco|remates a puerta|tiros a puerta|remates al arco|disparos (?:a puertas?|al arco)/, 'shots_on'],
   [/tiros a porteria/, 'sog'],
-  [/remates totales|tiros totales/, 'shots'],
+  // "Disparos" solo es el total; "disparos fuera/bloqueados/al palo/a portería" son otros.
+  [/remates totales|tiros totales|disparos totales|total de disparos|total de remates|\bdisparos\b(?! (?:fuera|bloqueados|al palo|a porteria))/, 'shots'],
   [/faltas cometidas|\bfaltas\b/, 'fouls'],
   [/offside|fueras? de juego/, 'offsides'],
   [/saques de meta|saques de puerta/, 'goalkicks'],
@@ -258,6 +259,8 @@ const RALLY = new Set(['table-tennis', 'badminton', 'volleyball', 'beach-volley'
 export const OT_SPORTS = new Set(['basketball', 'ice-hockey', 'baseball', 'american-football', 'floorball']);
 export const SET_SPORTS = new Set(['tennis', 'volleyball', 'beach-volley', 'table-tennis', 'badminton', 'darts', 'esports', 'snooker']);
 
+const UNKNOWN_FOOTBALL_STAT = /disparo|remate|\btiros?\b|posesion|\bpases?\b|atajada|paradas?\b|\bcentros?\b|regate|despeje|intercepcion|bloqueo|esperados|\bxg\b|asistencia|toques|duelos|recuperacion|\bentradas\b/;
+
 function statOf(name, sport) {
   for (const [re, code] of STATS) {
     if (!re.test(name)) continue;
@@ -306,8 +309,9 @@ function scopeOf(name, sport) {
   // Mitades.
   if (/primer tiempo\s*\/\s*tiempo completo|medio tiempo\s*\/\s*tiempo completo|primer tiempo o tiempo completo/.test(name)) return 'ft';
   if (/mitad\s*\/\s*final|descanso\s*\/\s*final/.test(name)) return 'ft';
-  if (/primer tiempo|1er tiempo|medio tiempo|primera mitad|\b1(ra|a)? mitad|\b1 mitad|primera parte|\b1(ra|era|a)? parte\b/.test(name)) return 'h1';
-  if (/segundo tiempo|2do tiempo|segunda mitad|\b2(da|a)? mitad|\b2 mitad|segunda parte|\b2(da|a)? parte\b/.test(name)) return 'h2';
+  // "1ra/1era/1ª/1.ª/1° mitad", "1° tiempo", "1.er tiempo", "1T"; "2da/2ª mitad", "2° tiempo", "2T".
+  if (/primer tiempo|1er tiempo|medio tiempo|primera mitad|\b1\.?(ra|era|er|a)?\.? (mitad|parte|tiempo)\b|primera parte|\b1t\b/.test(name)) return 'h1';
+  if (/segundo tiempo|2do tiempo|segunda mitad|\b2\.?(da|do|a)?\.? (mitad|parte|tiempo)\b|segunda parte|\b2t\b/.test(name)) return 'h2';
   if (/tiempo reg|tiempo regular|fin tiempo reg/.test(name)) return 'reg';
   return 'ft';
 }
@@ -343,12 +347,17 @@ const PL_FIELD = `${PL_SHOT} de campo`;
 // Intentados ("tiros de 3 puntos intentados", "intentos de triples"); anotados ("triples anotados" o solo "triples").
 const plAttempts = (shot) => `${shot}(?:\\s+totales)?\\s+(?:intentad[oa]s|lanzad[oa]s|intentos)|intentos? de\\s+${shot}`;
 const plMade = (shot) => `${shot}(?:\\s+(?:anotad[oa]s|convertid[oa]s|encestad[oa]s))?`;
+// Combinadas en cualquier orden: "Puntos, rebotes y asistencias" o "Total de puntos, asistencias y rebotes".
+const plAnyOrder = (...parts) => {
+  const perms = (list) => (list.length <= 1 ? [list] : list.flatMap((x, i) => perms([...list.slice(0, i), ...list.slice(i + 1)]).map((r) => [x, ...r])));
+  return perms(parts).map((p) => p.join(PL_AND)).join('|');
+};
 const PLAYER_STATS = [
-  [`puntos${PL_AND}rebotes${PL_AND}asistencias`, 'pl_pra'],
-  [`puntos${PL_AND}rebotes`, 'pl_pr'],
-  [`puntos${PL_AND}asistencias`, 'pl_pa'],
-  [`rebotes${PL_AND}asistencias`, 'pl_ra'],
-  [`(?:robos|recuperaciones)${PL_AND}(?:tapones|bloqueos|tapas)`, 'pl_sb'],
+  [plAnyOrder('puntos', 'rebotes', 'asistencias'), 'pl_pra'],
+  [plAnyOrder('puntos', 'rebotes'), 'pl_pr'],
+  [plAnyOrder('puntos', 'asistencias'), 'pl_pa'],
+  [plAnyOrder('rebotes', 'asistencias'), 'pl_ra'],
+  [plAnyOrder('(?:robos|recuperaciones)', '(?:tapones|bloqueos|tapas)'), 'pl_sb'],
   // Los intentos antes que los anotados: "tiros de 3 puntos" es el comienzo de "tiros de 3 puntos intentados".
   [plAttempts(PL_THREES), 'pl_3pa'],
   [plAttempts(PL_TWOS), 'pl_2pa'],
@@ -372,8 +381,9 @@ const PLAYER_STATS = [
   code,
 ]);
 
-// Relleno que no es parte del nombre: "(incl. prórroga)", "Más/Menos", "del jugador".
-const PLAYER_FILLER = /\((?=[^)]*\b(?:incl|prorroga|extra|suplementario|ot)\b)[^)]*\)|\bincl(?:uye|uida|uido)?\.?\s+(?:la\s+)?(?:prorroga|tiempo extra|tiempo suplementario)\b|\bmas\s*\/\s*menos\b|\bmas\s+o\s+menos\b|\bover\s*\/\s*under\b|\bo\/u\b|\b(?:del|de)\s+jugador\b|\bjugador\b/g;
+// Relleno que no es parte del nombre: "(incl. prórroga)", "Más/Menos", "del jugador", "por jugador"
+// ("Tiros de 3 puntos anotados por jugador") y "sobrepasa los" ("Jugador Sobrepasa los Puntos": solo Más de).
+const PLAYER_FILLER = /\((?=[^)]*\b(?:incl|prorroga|extra|suplementario|ot)\b)[^)]*\)|\bincl(?:uye|uida|uido)?\.?\s+(?:la\s+)?(?:prorroga|tiempo extra|tiempo suplementario)\b|\bmas\s*\/\s*menos\b|\bmas\s+o\s+menos\b|\bover\s*\/\s*under\b|\bo\/u\b|\b(?:del|de|por)\s+jugador\b|\bjugador\b|\bsobrepasa(?:\s+(?:los|las))?\b/g;
 const PLAYER_LINE = /\(?(?<![\w.])\d+[.,]\d+(?![\w.])\)?/g;
 // Lo que no puede estar en el nombre de un jugador (periodos, equipos, otros mercados, cifras).
 const NOT_NAME_WORDS = [
@@ -564,7 +574,8 @@ function typeFromName(name, sport) {
 // Devuelve { spec, outcomes: [{ sel, line, price, label }] }, o { unsupported, reason }, o null (ignorar).
 export function parseMarket(rawName, selections = [], ctx = {}) {
   const sport = ctx.sport || 'football';
-  const name = localize(rawName, ctx.home, ctx.away);
+  // Apuesta Total dice "en ambas mitades" donde Betano dice "en ambos tiempos".
+  const name = localize(rawName, ctx.home, ctx.away).replace(/\b(?:ambas|las dos) mitades\b/g, 'ambos tiempos').replace(/\bcada mitad\b/g, 'cada tiempo');
   if (/super ?cuota|supercuota|boost|mejorada|cuota aumentada/.test(name)) return null;
   if (OUTRIGHT.test(name) || ['cricket', 'cycling', 'motorsport'].includes(sport) || (sport === 'snooker' && !sideLike(selections, ctx))) return unsupported('outright');
   if (sport === 'basketball') {
@@ -579,11 +590,19 @@ export function parseMarket(rawName, selections = [], ctx = {}) {
   if (!sels.length) return null;
 
   let stat = statOf(name, sport);
+  // Fútbol: una estadística que no se conoce no son goles (p. ej. "Pases totales",
+  // "Posesión", "Goles esperados"); sin esto, su Más/Menos se leería como goles.
+  if (sport === 'football' && stat === 'score' && UNKNOWN_FOOTBALL_STAT.test(name)) return unsupported('special');
   if (NO_DATA_STATS.has(stat)) return unsupported('special');
   if (stat === 'pistol') return unsupported('special');
   let scope = scopeOf(name, sport);
   const team = teamOf(name);
   let type = typeFromName(name, sport);
+  // "En ambos tiempos / en cada tiempo": solo los tipos que lo entienden (gana, anota
+  // o Más/Menos en cada tiempo). Los demás no son el mercado del partido: p. ej.
+  // "Ambos equipos anotan en ambas mitades" no es "Ambos equipos anotan", ni
+  // "Tarjetas mostradas en ambas mitades" es "Más de 0.5 tarjetas".
+  if (/\b(?:ambos|cada) tiempos?\b/.test(name) && !['WINALL', 'SCOREALL', 'ALLPER'].includes(type)) return unsupported('special');
   const nameLine = numbers(name.replace(/\d{1,2}:\d{2}/g, '')).filter((x) => !Number.isInteger(x) || /\(\d+\.?\d*\)|mas de \d|menos \d/.test(name)).pop();
 
   // Por las selecciones, si el nombre no lo dijo.

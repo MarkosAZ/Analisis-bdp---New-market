@@ -6,6 +6,7 @@ import { toIso } from '../lib/model.js';
 const API = 'https://site.api.espn.com/apis/site/v2/sports/soccer';
 const SPORTS_API = 'https://site.api.espn.com/apis/site/v2/sports';
 const BASKET_API = `${SPORTS_API}/basketball`;
+const WEB_API = 'https://site.web.api.espn.com/apis/common/v3/sports/basketball';
 
 const STATE = { pre: 'pendiente', in: 'en_vivo', post: 'finalizado' };
 
@@ -324,6 +325,54 @@ export function teamLogs(games, teamId, out = []) {
   return { teamGames, players };
 }
 
+// ---- Registro de partidos de cada jugador ----
+
+// Palabras de un nombre de jugador: sin tildes, signos ni sufijos ("Jr.", "III").
+const SUFFIXES = new Set(['jr', 'sr', 'ii', 'iii', 'iv']);
+const nameWords = (s) =>
+  String(s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/['’.]/g, '')
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w && !SUFFIXES.has(w));
+
+// ¿`name` (como lo escribe la casa: "LeBron James", "L. James", "James L.") es el
+// atleta de ESPN `athlete` ({ displayName })?
+export function sameAthlete(name, athlete) {
+  const a = nameWords(name);
+  const b = nameWords(athlete?.displayName);
+  if (!a.length || !b.length) return false;
+  if (a.join(' ') === b.join(' ')) return true;
+  const rest = b.slice(1).join(' ');
+  if (a.length >= 2 && a[0].length === 1) return a[0] === b[0][0] && a.slice(1).join(' ') === rest;
+  if (a.length >= 2 && a[a.length - 1].length === 1) return a[a.length - 1] === b[0][0] && a.slice(0, -1).join(' ') === rest;
+  return false;
+}
+
+// Partidos de un jugador en su registro de ESPN (gamelog de una temporada): la
+// temporada regular y los playoffs (la pretemporada no), del más reciente al más
+// antiguo: [{ start, min, pts, ... }] (sin rebotes ofensivos ni defensivos: el
+// registro no los trae).
+export function gamesFromGamelog(data) {
+  const cols = Object.fromEntries(Object.entries(BOX_COLUMNS).map(([f, alts]) => [f, columnIndex({ names: data?.names, labels: data?.labels }, alts)]));
+  const out = [];
+  for (const type of data?.seasonTypes || []) {
+    if (/pre-?season|pretemporada|all-?star/i.test(type.displayName || type.name || '')) continue;
+    for (const cat of type.categories || []) {
+      for (const e of cat.events || []) {
+        const ev = data.events?.[e.eventId];
+        const start = toMs(ev?.gameDate);
+        const row = athleteRow({ stats: e.stats }, cols);
+        // Rival (sigla) y si jugó de local: para ver sus partidos contra el rival de hoy.
+        if (Number.isFinite(start) && !row.dnp) out.push({ start, ...row, opp: ev?.opponent?.abbreviation || null, home: ev?.atVs ? ev.atVs !== '@' : null });
+      }
+    }
+  }
+  return out.sort((a, b) => b.start - a.start);
+}
+
 // ---- Pedidos (con caché en memoria) ----
 
 const getJson = async (url) => (await fetchData(url, { modes: ['direct'] })).data;
@@ -393,6 +442,59 @@ async function scoreboardGame({ league, home, away, start, maxAgeMs }) {
   return null;
 }
 
+// Plantel actual de un equipo: [{ id, displayName, shortName }].
+const rosterCache = new Map();
+const teamRoster = (league, teamId) =>
+  memo(rosterCache, `${league}|${teamId}`, async () => {
+    const data = await getJson(`${BASKET_API}/${league}/teams/${teamId}/roster`);
+    return (data.athletes || [])
+      .flatMap((a) => (Array.isArray(a.items) ? a.items : [a]))
+      .filter((a) => a?.id != null)
+      .map((a) => ({ id: String(a.id), displayName: a.displayName || a.fullName || '', shortName: a.shortName || null }));
+  });
+// Registro de un jugador en una temporada (no cambia durante el análisis).
+const logCache = new Map();
+const athleteLog = (league, id, season) =>
+  memo(logCache, `${league}|${id}|${season}`, async () => gamesFromGamelog(await getJson(`${WEB_API}/${league}/athletes/${id}/gamelog?season=${season}`)), 400);
+
+// Jugadores pedidos (`names`, los que ofrece la casa) que en los partidos del equipo
+// tienen menos de `n`: traspasados, novatos o los que descansaron al cierre de la
+// temporada anterior. Se completan con su registro de ESPN de esta temporada y la
+// anterior (también los partidos con otro equipo). `out`: bajas [{ id, name }].
+async function fillFromGamelogs({ league, team, logs, names, before, n, season, out = [] }) {
+  if (!names?.length) return logs;
+  let roster;
+  try {
+    roster = await teamRoster(league, team.id);
+  } catch {
+    return logs; // sin plantel: quedan los partidos del equipo
+  }
+  const wanted = roster.filter((a) => names.some((x) => sameAthlete(x, a)));
+  const outIds = new Set(out.map((o) => o.id).filter(Boolean));
+  const players = [...logs.players];
+  const close = (x, y) => Math.abs(x.start - y.start) < 6 * 3600000; // el mismo partido
+  await pool(wanted, async (a) => {
+    const i = players.findIndex((p) => sameAthlete(p.name, a));
+    const games = [...(i >= 0 ? players[i].games : [])];
+    if (games.length >= n) return;
+    for (const year of [season, season - 1]) {
+      if (games.length >= n) break;
+      let list = [];
+      try {
+        list = await athleteLog(league, a.id, year);
+      } catch {
+        continue; // sin registro de esa temporada
+      }
+      for (const g of list) if (g.start < before && !games.some((x) => close(x, g))) games.push(g);
+      games.sort((x, y) => y.start - x.start);
+    }
+    const last = games.slice(0, n);
+    if (i >= 0) players[i] = { ...players[i], games: last };
+    else if (last.length) players.push({ name: a.displayName, short: a.shortName, games: last, out: outIds.has(a.id) });
+  });
+  return { ...logs, players };
+}
+
 // Temporada (año en que termina) si el calendario no la informa.
 const seasonOf = (league, ms) => {
   const d = new Date(ms);
@@ -401,16 +503,18 @@ const seasonOf = (league, ms) => {
 
 // Últimos `n` partidos terminados de un equipo antes de `before`: calendario actual y,
 // si no alcanzan (p. ej. la NBA en pretemporada), temporada regular actual y anterior.
-async function lastGames(league, teamId, before, n) {
+// regular: el partido a analizar es de la temporada regular (o playoffs); si ESPN
+// todavía muestra la pretemporada (los primeros días), esos partidos no cuentan.
+async function lastGames(league, teamId, before, n, { regular = false } = {}) {
   const base = `${BASKET_API}/${league}/teams/${teamId}/schedule`;
   const found = new Map();
   const add = (data) => {
     for (const g of finishedGames(data, before)) if (!found.has(g.id)) found.set(g.id, g);
   };
   const first = await getJson(base);
-  add(first);
   const season = Number(first.requestedSeason?.year ?? first.season?.year) || seasonOf(league, before);
   const type = Number(first.requestedSeason?.type ?? first.season?.type);
+  if (!(regular && type === 1)) add(first);
   const more = [...(type !== 2 ? [`${base}?season=${season}&seasontype=2`] : []), `${base}?season=${season - 1}&seasontype=2`];
   for (const url of more) {
     if (found.size >= n) break;
@@ -427,8 +531,10 @@ async function lastGames(league, teamId, before, n) {
 // { mode, home: { team, teamGames, players }, away: {...} } (formato de jugadores del
 // contrato). `out` sale de las bajas del partido a analizar si está en el marcador.
 // Un equipo que ESPN no tiene (amistosos de pretemporada con clubes de otras ligas)
-// queda sin jugadores; el error es solo si no está ninguno de los dos.
-export async function getPlayerLogs({ league, home, away, start, n = 10 } = {}) {
+// queda sin jugadores; el error es solo si no está ninguno de los dos. `names`: los
+// jugadores que ofrece la casa; si les faltan partidos con el equipo se completan con
+// su registro de ESPN (fillFromGamelogs). regular: el partido no es de pretemporada.
+export async function getPlayerLogs({ league, home, away, start, n = 10, names = [], regular = false } = {}) {
   checkLeague(league);
   const before = Number.isFinite(toMs(start)) ? toMs(start) : Date.now();
   const teams = await leagueTeams(league);
@@ -447,7 +553,7 @@ export async function getPlayerLogs({ league, home, away, start, n = 10 } = {}) 
   }
   const side = async (team, name) => {
     if (!team) return { team: name, teamGames: 0, players: [] };
-    const list = await lastGames(league, team.id, before, n);
+    const list = await lastGames(league, team.id, before, n, { regular });
     const games = [];
     const errors = [];
     await pool(list, async (g) => {
@@ -458,10 +564,58 @@ export async function getPlayerLogs({ league, home, away, start, n = 10 } = {}) 
       }
     });
     if (list.length && !games.length) throw new Error(`ESPN ${team.displayName}: sin box scores (${errors[0]})`);
-    return { team: team.displayName, ...teamLogs(games, team.id, outs[team.id] || []) };
+    const logs = teamLogs(games, team.id, outs[team.id] || []);
+    return { team: team.displayName, ...(await fillFromGamelogs({ league, team, logs, names, before, n, season: seasonOf(league, before), out: outs[team.id] })) };
   };
-  const [hs, as] = await Promise.all([side(h, home), side(a, away)]);
+  // Si falla un equipo, el otro conserva sus jugadores (el error solo si fallan los dos).
+  const sides = await Promise.allSettled([side(h, home), side(a, away)]);
+  if (sides.every((x) => x.status === 'rejected')) throw sides[0].reason;
+  // El equipo que falló lleva su error (para avisarlo y no guardarlo en caché).
+  const [hs, as] = sides.map((x, i) =>
+    x.status === 'fulfilled' ? x.value : { team: [h, a][i]?.displayName || [home, away][i], teamGames: 0, players: [], error: String(x.reason?.message || x.reason) },
+  );
+  // Un traspasado que enfrenta a su equipo anterior aparece en los partidos de los dos:
+  // queda solo en el equipo de su plantel actual (si no, su nombre empata y se descarta).
+  if (names?.length) {
+    const rosters = await Promise.all([h, a].map((t) => (t ? teamRoster(league, t.id).catch(() => null) : null)));
+    const onRoster = (p, roster) => Boolean(roster?.some((r) => sameAthlete(p.name, r)));
+    hs.players = hs.players.filter((p) => !onRoster(p, rosters[1]) || onRoster(p, rosters[0]));
+    as.players = as.players.filter((p) => !onRoster(p, rosters[0]) || onRoster(p, rosters[1]));
+  }
   return { mode: 'direct', home: hs, away: as };
+}
+
+// Registro de esta temporada y la anterior de los jugadores pedidos (`names`, los
+// que ofrece la casa) de ambos equipos, con el rival de cada partido (pestaña Datos
+// de la página): { home: { team, abbr, players: [{ name, games }] }, away: {...} };
+// cada partido { start, opp (sigla), home, min, pts, ... }, del más reciente al más viejo.
+export async function getPlayerHistory({ league, home, away, start, names = [] } = {}) {
+  checkLeague(league);
+  const before = Number.isFinite(toMs(start)) ? toMs(start) : Date.now();
+  const teams = await leagueTeams(league);
+  const season = seasonOf(league, before);
+  const side = async (team, name) => {
+    if (!team || !names.length) return { team: team?.displayName || name, abbr: team?.abbreviation || null, players: [] };
+    const roster = await teamRoster(league, team.id).catch(() => []);
+    const players = [];
+    await pool(
+      roster.filter((a) => names.some((x) => sameAthlete(x, a))),
+      async (a) => {
+        const games = [];
+        for (const year of [season, season - 1]) {
+          try {
+            for (const g of await athleteLog(league, a.id, year)) if (g.start < before) games.push(g);
+          } catch {
+            // sin registro de esa temporada
+          }
+        }
+        if (games.length) players.push({ name: a.displayName, games: games.sort((x, y) => y.start - x.start) });
+      },
+    );
+    return { team: team.displayName, abbr: team.abbreviation || null, players };
+  };
+  const [hs, as] = await Promise.all([side(matchEspnTeam(home, teams), home), side(matchEspnTeam(away, teams), away)]);
+  return { home: hs, away: as };
 }
 
 // Box score del partido (nombres de equipo y hora de inicio): { id, state, score, players }

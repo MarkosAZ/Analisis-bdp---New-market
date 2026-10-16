@@ -7,10 +7,11 @@ import espn, * as espnApi from './sources/espn.js';
 import understat, * as understatApi from './sources/understat.js';
 import betano, * as betanoApi from './sources/betano.js';
 import apuestatotal, * as apuestatotalApi from './sources/apuestatotal.js';
+import mlb, * as mlbApi from './sources/mlb.js';
 import * as githubApi from './sources/github.js';
 import { closeIdleTabs, CLOSE_TABS_ALARM } from './lib/net.js';
 
-export const SOURCES = [sofascore, flashscore, fotmob, espn, understat, betano, apuestatotal];
+export const SOURCES = [sofascore, flashscore, fotmob, espn, understat, betano, apuestatotal, mlb];
 
 const API = {
   sofascore: sofascoreApi,
@@ -20,6 +21,7 @@ const API = {
   understat: understatApi,
   betano: betanoApi,
   apuestatotal: apuestatotalApi,
+  mlb: mlbApi,
   github: githubApi,
 };
 
@@ -32,6 +34,7 @@ const PAGE_ALLOWED = {
   understat: ['getTeamStrength'],
   betano: ['getOdds', 'getEventMarkets'],
   apuestatotal: ['getEventList', 'getMarkets', 'getOdds'],
+  mlb: ['getGameContext'],
   github: ['status', 'getFile', 'putFile', 'getPublicConfig'],
 };
 // Solo desde las páginas de la propia extensión (configurar el token).

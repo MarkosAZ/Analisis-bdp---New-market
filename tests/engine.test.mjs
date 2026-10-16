@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { analyzeEvent } from '../docs/js/analysis/engine.js';
+import { analyzeEvent, baseCandidates, withPublished } from '../docs/js/analysis/engine.js';
 import { FEATURES } from '../docs/js/analysis/features.js';
+import { evaluate } from '../docs/js/analysis/outcomes.js';
 import { offersFromApuestaTotal, offersFromBetano, offersFromSofascore } from '../docs/js/analysis/markets.js';
 import { NetworkSet } from '../docs/js/analysis/networks.js';
 import { buildCombos, DEFAULT_SETTINGS, marketsOf, selectPicks } from '../docs/js/analysis/picks.js';
@@ -141,6 +142,18 @@ test('córners, tarjetas, tiros al arco y remates: con los promedios de cada equ
   assert.equal(analyzeEvent(ev, details, list, {}).candidates.length, 0);
 });
 
+test('mercados con línea .5 pero sin datos de los equipos: quedan anotados con ese motivo', () => {
+  const list = offersFromBetano(betanoStats, { home: 'Belgium', away: 'Türkiye' }, ev);
+  // Sin los tiros de los equipos: tiros al arco y remates no se pueden calcular.
+  const partial = { home: { corners: teamStats.home.corners, cards: teamStats.home.cards }, away: { corners: teamStats.away.corners, cards: teamStats.away.cards } };
+  const r = baseCandidates(ev, { ...details, teamStats: partial }, list, {});
+  assert.deepEqual(r.noData.sort(), ['OU.shots', 'OU.shots_on']);
+  assert.ok(r.candidates.some((c) => c.market === 'OU.corners'));
+  assert.ok(!r.candidates.some((c) => c.market.startsWith('OU.shots')));
+  // Con todos los datos no falta ninguno.
+  assert.deepEqual(baseCandidates(ev, { ...details, teamStats }, list, {}).noData, []);
+});
+
 // Hándicap de córners (Betano "Hándicap de Córners - Dobles"): la diferencia de
 // córners con los promedios de cada equipo; el de tres opciones (con empate) no.
 test('hándicap de córners: línea .5 más pareja y probabilidad con los promedios', () => {
@@ -258,8 +271,8 @@ test('del análisis al historial: picks, combinadas, filas de entrenamiento y re
   assert.ok(stored.picks.every((p) => p.status === 'pending' && p.match && p.odds > 1));
   for (const k of stored.combos) assert.ok(k.legs.every((l) => l.market && l.match));
   const rows = trainingRows(result);
-  // Una fila por mercado de cada partido (la más probable entre 50 % y 97 %).
-  const useful = all.filter((c) => c.pBase >= 0.5 && c.pBase <= 0.97);
+  // Una fila por mercado de cada partido (la más probable, como el pick de ese mercado).
+  const useful = all.filter((c) => Number.isFinite(c.pBase));
   assert.equal(rows.length, new Set(useful.map((c) => `${c.eventId}|${c.market}`)).size);
   assert.equal(new Set(rows.map((r) => r.key)).size, rows.length);
   for (const r of rows) {
@@ -304,11 +317,44 @@ test('jugadores: el nombre de la casa se busca en los datos y la línea más par
   assert.deepEqual(keys.filter((k) => k.includes('pl_')).sort(), ['OU.pl_pts#LeBron James|over|24.5', 'OU.pl_pts#LeBron James|under|24.5']);
   const over = candidates.find((c) => c.key === 'OU.pl_pts#LeBron James|over|24.5');
   assert.equal(over.via, 'jugador');
-  assert.ok(over.p > 0.8, `promedia 30 puntos: ${over.p}`);
+  // Promedia 30 puntos (la calibración acerca al 50 %, pero sigue muy por encima).
+  assert.ok(over.p > 0.7, `promedia 30 puntos: ${over.p}`);
   assert.equal(over.label, 'LeBron James: Más de 24.5 puntos');
   assert.ok(over.factors.some((f) => f.startsWith('LeBron James (Lakers): ')));
   // Baja anunciada (Davis), pocos partidos (Tatum: 2) o sin datos (Durant): no se analizan.
   assert.ok(!keys.some((k) => /Davis|Tatum|Durant/.test(k)));
+});
+
+// Apuesta Total: el jugador va en cada selección ("LeBron James Más de 24.5") y un
+// mercado trae a varios jugadores; la línea de respaldo es la × 100 (QAParam1).
+test('jugadores de Apuesta Total: cada jugador por separado, con su nombre buscado en los datos', () => {
+  const games = (pts, ast) => Array.from({ length: 10 }, (_, i) => ({ start: Date.parse('2026-10-01T00:00:00Z') - i * 2 * 864e5, min: 34, pts, reb: 7, ast, tpm: 2, stl: 1, blk: 1, tov: 3, oreb: 1, dreb: 6, ftm: 5, fgm: 11 }));
+  const players = {
+    source: 'espn',
+    home: { teamGames: 10, players: [{ name: 'LeBron James', short: 'L. James', out: false, games: games(30, 8) }] },
+    away: { teamGames: 10, players: [{ name: 'Jayson Tatum', short: 'J. Tatum', out: false, games: games(27, 5) }] },
+  };
+  const sel = (who, side, line, price) => ({ name: `${who} ${side} ${line}`, price, line: (side === 'Más de' ? 100 : -100) * line });
+  const at = [
+    { name: 'Puntos del jugador (incl. prórroga)', selections: [sel('LeBron James', 'Más de', 24.5, 1.85), sel('LeBron James', 'Menos de', 24.5, 1.85), sel('Jayson Tatum', 'Más de', 26.5, 1.8), sel('Jayson Tatum', 'Menos de', 26.5, 1.9)] },
+    { name: 'Asistencias del jugador (incl. Prórroga)', selections: [sel('L. James', 'Más de', 7.5, 1.9), sel('L. James', 'Menos de', 7.5, 1.8)] },
+  ];
+  const list = offersFromApuestaTotal(at, { home: 'Lakers', away: 'Celtics' }, basketEv);
+  const { candidates } = analyzeEvent(basketEv, { ...basketDetails, players }, list, {});
+  const keys = candidates.map((c) => c.key).filter((k) => k.includes('pl_')).sort();
+  assert.deepEqual(keys, [
+    'OU.pl_ast#LeBron James|over|7.5',
+    'OU.pl_ast#LeBron James|under|7.5',
+    'OU.pl_pts#Jayson Tatum|over|26.5',
+    'OU.pl_pts#Jayson Tatum|under|26.5',
+    'OU.pl_pts#LeBron James|over|24.5',
+    'OU.pl_pts#LeBron James|under|24.5',
+  ]);
+  const p = (k) => candidates.find((c) => c.key === k).p;
+  // Cada jugador con sus propias cuotas (sin el margen de la casa mezclado entre jugadores).
+  assert.ok(Math.abs(p('OU.pl_pts#LeBron James|over|24.5') + p('OU.pl_pts#LeBron James|under|24.5') - 1) < 1e-9);
+  assert.ok(p('OU.pl_pts#LeBron James|over|24.5') > 0.7);
+  assert.ok(p('OU.pl_pts#Jayson Tatum|over|26.5') > 0.5);
 });
 
 test('jugadores: un Más/Menos de jugador nunca se toma como el total del partido', () => {
@@ -316,4 +362,55 @@ test('jugadores: un Más/Menos de jugador nunca se toma como el total del partid
   const list = offersFromBetano(betano, { home: 'Lakers', away: 'Celtics' }, basketEv);
   const { candidates } = analyzeEvent(basketEv, basketDetails, list, {});
   assert.ok(!candidates.some((c) => c.market === 'OU'), 'sin datos de jugadores no hay candidato, y nunca como total del partido');
+});
+
+test('básquet: el 1.er tiempo solo con línea entera se analiza con la entera (empate en la línea: se devuelve)', () => {
+  const at = { home: 'Lakers', away: 'Celtics' };
+  const sel = (name, price) => ({ name, price });
+  const markets = [
+    { name: 'Hándicap - 1° Mitad', selections: [sel('Lakers +1', 1.78), sel('Celtics -1', 1.83)] },
+    { name: '1ra Mitad Puntos Asiáticos', selections: [sel('Más de 107', 1.8), sel('Menos de 107', 1.8), sel('Más de 110', 2.2), sel('Menos de 110', 1.6)] },
+    { name: 'Total de puntos (incl. prórroga)', selections: [sel('Más de 214.5', 1.85), sel('Menos de 214.5', 1.85)] },
+  ];
+  const r = baseCandidates(basketEv, basketDetails, offersFromApuestaTotal(markets, at, basketEv), {});
+  const by = Object.fromEntries(r.candidates.map((c) => [c.key, c]));
+  // La entera más pareja (107, no 110) y el hándicap +1, simulados.
+  assert.deepEqual(Object.keys(by).filter((k) => k.includes('@h1')).sort(), ['HCP@h1|away|1', 'HCP@h1|home|1', 'OU@h1|over|107', 'OU@h1|under|107']);
+  assert.equal(by['OU@h1|over|107'].via, 'simulación');
+  assert.equal(by['OU@h1|over|107'].label, 'Más de 107 puntos (1.er tiempo) · justo en la línea se devuelve');
+  // Probabilidad sin contar el empate en la línea: las dos suman 1.
+  assert.ok(Math.abs(by['OU@h1|over|107'].pModel + by['OU@h1|under|107'].pModel - 1) < 1e-9);
+  assert.ok(Math.abs(by['HCP@h1|home|1'].pModel + by['HCP@h1|away|1'].pModel - 1) < 1e-9);
+  assert.deepEqual(r.wholeOnly, []);
+  // Con una línea .5 se usa la .5.
+  const extra = [...markets, { name: '1ra Mitad Total de Puntos (extra)', selections: [sel('Más de 107.5', 1.85), sel('Menos de 107.5', 1.85)] }];
+  const keys = baseCandidates(basketEv, basketDetails, offersFromApuestaTotal(extra, at, basketEv), {}).candidates.map((c) => c.key);
+  assert.ok(keys.includes('OU@h1|over|107.5') && !keys.includes('OU@h1|over|107'));
+  // Liquidación: justo en la línea se devuelve.
+  const rec = { state: 'finalizado', final: [110, 100], per: [[55, 52], [55, 48]], nReg: 4 };
+  assert.equal(evaluate('OU@h1', 'over', 107, rec), 'void');
+  assert.equal(evaluate('OU@h1', 'over', 107, { ...rec, per: [[55, 53], [55, 47]] }), 'won');
+  assert.equal(evaluate('HCP@h1', 'home', 1, { ...rec, per: [[30, 31], [30, 21]] }), 'void');
+});
+
+test('fútbol: un mercado solo con líneas enteras sigue sin analizarse', () => {
+  const sel = (name, price) => ({ name, price });
+  const markets = [{ name: 'Total de goles', selections: [sel('Más de 3', 1.9), sel('Menos de 3', 1.9)] }];
+  const r = baseCandidates(ev, {}, offersFromApuestaTotal(markets, { home: ev.home.name, away: ev.away.name }, ev), {});
+  assert.deepEqual(r.candidates, []);
+  assert.deepEqual(r.wholeOnly, ['OU']);
+});
+
+test('cuotas publicadas: solo los mercados que no llegaron en vivo (nunca una línea vieja)', () => {
+  const o = (market, sel, line, price, source = 'apuestatotal') => ({ source, market, sel, line, price, group: `${source}|${market}|${line}` });
+  // En vivo: el total ya se movió a 231.5 y el 1.er tiempo a 117.5 (extensión sin actualizar: sin jugadores).
+  const live = [o('OU', 'over', 231.5, 1.9), o('OU', 'under', 231.5, 1.9), o('OU@h1', 'over', 117.5, 1.95), o('OU@h1', 'under', 117.5, 1.85), o('OU', 'over', 230.5, 1.8, 'betano')];
+  // Publicado horas antes: líneas viejas y los jugadores.
+  const published = [o('OU', 'over', 228.5, 1.9), o('OU', 'under', 228.5, 1.9), o('OU@h1', 'over', 115.5, 1.9), o('OU@h1', 'under', 115.5, 1.9), o('OU.pl_pts#Cade Cunningham', 'over', 24.5, 1.85), o('OU.pl_pts#Cade Cunningham', 'under', 24.5, 1.85)];
+  const merged = withPublished(live, published);
+  assert.deepEqual(merged.filter((x) => x.source === 'apuestatotal' && x.market === 'OU').map((x) => x.line), [231.5, 231.5]);
+  assert.deepEqual(merged.filter((x) => x.market === 'OU@h1').map((x) => x.line), [117.5, 117.5]);
+  assert.equal(merged.filter((x) => x.market.startsWith('OU.pl_')).length, 2, 'los jugadores publicados sí se suman');
+  // Sin nada en vivo de Apuesta Total: todo lo publicado.
+  assert.equal(withPublished([o('OU', 'over', 230.5, 1.8, 'betano')], published).length, 7);
 });
