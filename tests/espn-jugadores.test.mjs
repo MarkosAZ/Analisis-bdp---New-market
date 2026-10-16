@@ -7,6 +7,7 @@ import {
   finishedGames,
   gamesFromGamelog,
   getBoxScore,
+  getPlayerHistory,
   getPlayerLogs,
   getScoreboard,
   matchEspnTeam,
@@ -545,6 +546,23 @@ test('getPlayerLogs: los jugadores ofrecidos con pocos partidos en el equipo se 
   // Sin nombres no se piden planteles ni registros.
   const plain = await getPlayerLogs({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, n: 10 });
   assert.ok(!plain.away.players.some((p) => p.name === 'Anthony Davis'));
+});
+
+// Usa el plantel y los registros de Dallas de la prueba anterior.
+test('getPlayerHistory (pestaña Datos): los de más minutos de cada equipo y los ofrecidos', async () => {
+  const names = (r) => r.away.players.map((p) => p.name);
+  // Sin nada ofrecido: el de más minutos (Davis 12 × 35 frente a Lively 12 × 18); sin la pretemporada.
+  const top1 = await getPlayerHistory({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, top: 1 });
+  assert.deepEqual(names(top1), ['Anthony Davis']);
+  assert.equal(top1.away.players[0].games.length, 12);
+  assert.equal(top1.away.abbr, 'DAL');
+  assert.deepEqual(top1.home.players, [], 'Houston sin plantel en ESPN');
+  // Un ofrecido entra aunque no esté entre los de más minutos; uno sin partidos (Klay, sin registro), no.
+  const offered = await getPlayerHistory({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, top: 1, names: ['D. Lively', 'Klay Thompson'] });
+  assert.deepEqual(names(offered), ['Anthony Davis', 'Dereck Lively II']);
+  // Sin top: solo los ofrecidos.
+  const only = await getPlayerHistory({ league: 'nba', home: 'Houston Rockets', away: 'Dallas Mavericks', start: START, names: ['D. Lively'] });
+  assert.deepEqual(names(only), ['Dereck Lively II']);
 });
 
 test('getPlayerLogs: un traspasado que enfrenta a su equipo anterior queda solo en su equipo actual', async () => {

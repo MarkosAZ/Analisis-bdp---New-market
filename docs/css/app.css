@@ -340,6 +340,7 @@ dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }
 .chip-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 12px; cursor: pointer; font-size: 14px; }
 .chip-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
 .chip-btn small { font-size: 12px; opacity: 0.85; }
+.player-team { display: grid; gap: 4px; }
 .line-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .line-ctl .icon-btn { font-size: 18px; line-height: 1; }
 .line-ctl .line-val { min-width: 44px; text-align: center; font-size: 18px; font-variant-numeric: tabular-nums; }

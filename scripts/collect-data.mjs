@@ -54,6 +54,8 @@ const DETAIL_BUDGET_MS = 6 * 60000; // tiempo máximo para pedir feeds de detall
 const DATA_MATCHES = 15;
 const DATA_H2H = 10;
 const DATA_PLAYER_GAMES = 20;
+const DATA_TOP_PLAYERS = 8; // de cada equipo, los de más minutos (más los que ofrece la casa)
+const PLAYER_HISTORY_CACHE = path.resolve('.cache/jugadores-datos-v1'); // jugadores de la pestaña Datos (por partido)
 const DATA_STARTS = 20;
 const DATA_BUDGET_MS = 5 * 60000;
 const DATA_H2H_MS = 4 * 60000; // H2H de los partidos sin cuotas (los que no alcanzan, en la próxima corrida)
@@ -100,6 +102,21 @@ async function h2hCached(ev, { fetch = true } = {}) {
   return data;
 }
 
+
+// Jugadores de un partido de la NBA o la WNBA para la pestaña Datos (ESPN), con caché
+// de unas horas: se vuelve a pedir si vence o si la casa ofrece a alguien que no estaba.
+async function playerHistoryCached(ev, league, names) {
+  const file = path.join(PLAYER_HISTORY_CACHE, `${ev.id.slice(3)}.json`);
+  try {
+    const cached = JSON.parse(await fs.readFile(file, 'utf8'));
+    if (Date.now() - cached.at < PLAYER_LOGS_HOURS * 3600000 && names.every((n) => cached.names.includes(n))) return cached.data;
+  } catch {
+    // sin caché
+  }
+  const data = await getPlayerHistory({ league, home: ev.home.name, away: ev.away.name, start: ev.start, names, top: DATA_TOP_PLAYERS });
+  await writeJson(file, { at: Date.now(), names, data });
+  return data;
+}
 
 // Presupuesto de pedidos de feeds de detalle de cada etapa: lo que no alcanza queda
 // para la próxima corrida (los feeds quedan en caché) y la página se publica igual.
@@ -453,14 +470,15 @@ async function main() {
         const home = m.homeId && ev.home.id ? m.homeId === ev.home.id : basicNorm(m.home) === basicNorm(ev.home.name);
         h2h.push({ start: m.start, home, gf: home ? m.hs : m.as, ga: home ? m.as : m.hs, league: m.league, stats: compactMatchStats(await stats(m.fsId), !home) });
       }
-      // Jugadores ofrecidos (NBA y WNBA): sus últimos 20 y, en dos temporadas, todos contra el rival de hoy.
+      // Jugadores (NBA y WNBA, partidos por jugar): los de más minutos de cada equipo y
+      // los que ofrece la casa; sus últimos 20 y, en dos temporadas, todos contra el rival de hoy.
       const players = [];
       let abbr = null; // siglas de ESPN de los dos equipos (las de los rivales en el registro)
       const league = ev.sport === 'basketball' ? basketballLeague(ev) : null;
       const names = league && offers[ev.id] ? offeredPlayers(offers[ev.id]) : [];
-      if (names.length) {
+      if (league && ev.state === 'pendiente') {
         try {
-          const r = await getPlayerHistory({ league, home: ev.home.name, away: ev.away.name, start: ev.start, names });
+          const r = await playerHistoryCached(ev, league, names);
           abbr = [r.home.abbr, r.away.abbr];
           for (const [side, mine, rival] of [['home', r.home, r.away], ['away', r.away, r.home]]) {
             for (const p of mine.players) players.push({ side, name: p.name, games: p.games.filter((g, i) => i < DATA_PLAYER_GAMES || (rival.abbr && g.opp === rival.abbr)) });

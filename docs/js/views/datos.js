@@ -478,9 +478,12 @@ export class DatosView {
     if (!players.length) return [];
     const { st } = this;
     const same = (a, b) => Boolean(matchPlayer(a, [{ name: b }]));
-    const player = players.find((p) => p.name === st.player) || players[0];
-    const lines = D.playerLines(offers, player.name, same);
-    const code = st.playerStat && D.PLAYER_CHART_STATS.includes(st.playerStat) ? st.playerStat : Object.keys(lines)[0] || 'pl_pts';
+    const linesOf = new Map(players.map((p) => [p, D.playerLines(offers, p.name, same)]));
+    const hasLines = (p) => Object.keys(linesOf.get(p)).length > 0;
+    // Por defecto, el primero que ofrece la casa (o el de más minutos del local).
+    const player = players.find((p) => p.name === st.player) || players.find(hasLines) || players[0];
+    const lines = linesOf.get(player);
+    const code = st.playerStat && D.PLAYER_CHART_STATS.includes(st.playerStat) ? st.playerStat : Object.keys(lines)[0] || 'pl_pra';
     const teamName = player.side === 'home' ? ev.home.name : ev.away.name;
     const rivalAbbr = data.abbr ? data.abbr[player.side === 'home' ? 1 : 0] : null;
     const rivalName = player.side === 'home' ? ev.away.name : ev.home.name;
@@ -495,12 +498,25 @@ export class DatosView {
       h(
         'div',
         { class: 'panel chart-card players' },
-        h('h3', {}, 'Jugadores', h('span', { class: 'note' }, ' · los que ofrece la casa (registro de ESPN)')),
-        h(
-          'div',
-          { class: 'stat-chips', role: 'group', 'aria-label': 'Jugador' },
-          players.map((p) => h('button', { type: 'button', class: `chip-btn${p === player ? ' active' : ''}`, 'aria-pressed': String(p === player), onclick: () => pick({ player: p.name, playerStat: null }) }, p.name)),
-        ),
+        h('h3', {}, 'Jugadores', h('span', { class: 'note' }, ' · los de más minutos de cada equipo (registro de ESPN); con • los que tienen línea en Apuesta Total')),
+        ['home', 'away'].map((side) => {
+          const list = players.filter((p) => p.side === side);
+          const name = side === 'home' ? ev.home.name : ev.away.name;
+          return list.length
+            ? h(
+                'div',
+                { class: 'player-team' },
+                h('span', { class: 'note' }, name),
+                h(
+                  'div',
+                  { class: 'stat-chips', role: 'group', 'aria-label': `Jugadores de ${name}` },
+                  list.map((p) =>
+                    h('button', { type: 'button', class: `chip-btn${p === player ? ' active' : ''}`, 'aria-pressed': String(p === player), title: hasLines(p) ? 'Tiene línea en Apuesta Total' : '', onclick: () => pick({ player: p.name, playerStat: null }) }, p.name, hasLines(p) ? h('small', {}, ' •') : null),
+                  ),
+                ),
+              )
+            : null;
+        }),
         h('h4', {}, `${player.name} · ${teamName}`),
         h(
           'div',

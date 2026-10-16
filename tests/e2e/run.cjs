@@ -109,7 +109,12 @@ async function fixtures() {
       away: { name: 'Cleveland Cavaliers', last: nbaLast(5).map((m) => ({ ...m, opp: 'Miami Heat', league: 'NBA', stats: null })) },
       h2h: [],
       abbr: ['NY', 'CLE'],
-      players: [{ side: 'home', name: 'Mitchell Robinson', games: robinson }],
+      // De más a menos minutos; solo Robinson tiene línea en la casa.
+      players: [
+        { side: 'home', name: 'Jalen Brunson', games: robinson.map((g) => ({ ...g, min: 35, pts: g.pts + 15 })) },
+        { side: 'home', name: 'Mitchell Robinson', games: robinson },
+        { side: 'away', name: 'Donovan Mitchell', games: robinson.map((g) => ({ ...g, opp: 'NY', pts: g.pts + 20 })) },
+      ],
     }),
     'noticias.json': {
       generated,
@@ -265,11 +270,17 @@ async function withoutExtension(browser, errors) {
   await page.click('#tab-datos .sport:has-text("Básquet")');
   await page.click('.datos-match:has-text("Knicks")');
   await page.waitForSelector('.players .bars .col');
+  const teams = await page.$$eval('.players .player-team', (els) => els.map((e) => `${e.querySelector('.note').textContent}: ${[...e.querySelectorAll('.chip-btn')].map((b) => b.textContent).join(', ')}`));
+  check('Datos: jugadores de los dos equipos; por defecto, el que tiene línea', JSON.stringify(teams) === '["New York Knicks: Jalen Brunson, Mitchell Robinson •","Cleveland Cavaliers: Donovan Mitchell"]' && (await page.textContent('.players .player-team .chip-btn.active')) === 'Mitchell Robinson •', JSON.stringify(teams));
   const playerLine = await page.textContent('.players .line-ctl');
   const offered = await page.textContent('.players .chip-btn.active.offered');
   await page.click('.players .segmented button:has-text("vs Cleveland")');
   const vs = await page.$$eval('.players .bars .col', (cols) => cols.map((c) => c.querySelector('.val').textContent));
   check('Datos: jugadores con la línea de la casa y sus partidos contra el rival', /11\.5/.test(playerLine) && /rebotes/i.test(offered) && JSON.stringify(vs) === '["15","29","23"]', `${playerLine} · ${offered} · ${JSON.stringify(vs)}`);
+  // Uno sin línea: P+R+A con una línea cerca del promedio.
+  await page.click('.players .chip-btn:has-text("Donovan Mitchell")');
+  const noLine = await page.textContent('.players .line-ctl');
+  check('Datos: un jugador sin línea de la casa usa una cerca del promedio', /cerca del promedio/.test(noLine) && (await page.textContent('.players .stat-chips[aria-label="Estadística del jugador"] .chip-btn.active')).startsWith('Puntos + rebotes + asistencias'), noLine);
   await page.click('#tab-datos .sport:has-text("Fútbol")');
 
   // Liquidación con los resultados publicados
