@@ -485,7 +485,7 @@ function totalsTrend(d, e) {
 // Mercados que se analizan con la línea entera cuando la casa no tiene .5: el 1.er
 // tiempo del básquet (Apuesta Total lo da en 88 o +1). Se simula y la probabilidad
 // es sin contar el empate en la línea, que se devuelve.
-const wholeLinesOk = (sport, market) => {
+export const wholeLinesOk = (sport, market) => {
   const spec = parseMarketId(market);
   return sport === 'basketball' && spec?.scope === 'h1' && spec.stat === 'score' && (spec.t === 'OU' || spec.t === 'HCP');
 };
