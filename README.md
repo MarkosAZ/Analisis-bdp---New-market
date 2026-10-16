@@ -177,6 +177,20 @@ GitHub Actions con el flujo *Datos históricos*):
   (`scripts/historico/completar.mjs`, desde una sesión con internet: Sofascore
   no responde a GitHub Actions); solo faltan algunos amistosos y eliminatorias
   que Sofascore tampoco tiene.
+- **Fútbol, resto de ligas apostables** (Sofascore, unos 142 000 partidos de
+  191 torneos desde 2023-24, en `data/historico/futbol/sofascore/`): segundas y
+  terceras divisiones (Championship, LaLiga Hypermotion, 2. Bundesliga, Serie
+  B, Ligue 2...), Eredivisie, Süper Lig, Escocia, Austria, Suiza, Grecia,
+  Dinamarca, Polonia, Chequia y el resto de Europa; Argentina, Colombia, Chile,
+  Ecuador, Uruguay, Paraguay, Bolivia, Venezuela, Liga 2 de Perú, Série B y C y
+  estaduales de Brasil; Liga MX, USL, Centroamérica; Japón, Corea, China,
+  Arabia Saudí, Australia...; Egipto, Marruecos, Sudáfrica...; copas
+  nacionales; ligas femeninas; Concacaf, AFC, CAF, Mundial de Clubes y
+  amistosos de clubes. Mismo formato que ESPN, con córners del 1.er tiempo
+  donde Sofascore los tiene (`scripts/historico/sofascore.mjs`, también desde
+  una sesión con internet). `equipos.json` une 698 equipos de Sofascore con su
+  id de ESPN para que, por ejemplo, un equipo de la Premier tenga en su
+  historia también la FA Cup y la EFL Cup.
 - **NBA** (ESPN, 3 temporadas): cuartos y estadísticas de cada jugador.
 - **MLB** (statsapi, 2023 a 2026): abridores probables y sus aperturas.
 
@@ -208,13 +222,17 @@ moneda) se ajustó el análisis estadístico con los partidos hasta junio de
 - **Fútbol**: el modelo de goles se pasaba de seguro (decía 58 % y acertaba
   55 %) y ambos anotan era peor que la frecuencia fija; ahora se calibran. En
   los partidos con cuotas reales la casa al cierre sigue siendo mejor (0.666
-  contra 0.682): la ventaja frente a la casa es chica.
+  contra 0.682): la ventaja frente a la casa es chica. Con las ligas de
+  Sofascore (61 000 partidos de prueba en vez de 7 000) los mismos ajustes
+  siguen ganando a la frecuencia fija en todos los mercados (goles 0.6850
+  contra 0.6875, ambos anotan 0.6863, córners 0.6839, tarjetas 0.6835).
 - **NBA**: frente a una línea puesta con la media reciente el modelo casi no
   tiene ventaja, así que sus desvíos se ampliaron: ya no inventa ventajas.
 - **MLB**: el modelo (ajustado con 2026) también gana a la frecuencia fija en
   2023, 2024 y 2025.
 
 ```
+NODE_USE_ENV_PROXY=1 node scripts/historico/sofascore.mjs  # actualiza las ligas de Sofascore (sesión con internet)
 node scripts/historico/prueba.mjs [futbol] [nba] [mlb]   # prueba retrospectiva por mercado
 node scripts/historico/ajuste-futbol.mjs                 # busca los ajustes del fútbol
 node scripts/historico/ajuste-nba.mjs                    # y los de la NBA
