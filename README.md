@@ -170,8 +170,13 @@ GitHub Actions con el flujo *Datos históricos*):
   Suecia, Liga 1 de Perú, Champions, Europa League, Conference League,
   Libertadores, Sudamericana, Liga de Naciones, Eurocopa, Copa América,
   Mundiales, eliminatorias y amistosos. Con córners, tarjetas, remates, tiros
-  al arco, goles por tiempo y, donde hay relato, córners del 1.er tiempo. Más
-  las cuotas de cierre de football-data.co.uk y el xG de Understat.
+  al arco, goles por tiempo y córners del 1.er tiempo. Más las cuotas de cierre
+  de football-data.co.uk y el xG de Understat. Lo que ESPN no trae (córners del
+  1.er tiempo de Bélgica, Noruega, Suecia y Perú, estadísticas de la Liga 1 2024,
+  de eliminatorias y amistosos...) se completa con Sofascore
+  (`scripts/historico/completar.mjs`, desde una sesión con internet: Sofascore
+  no responde a GitHub Actions); solo faltan algunos amistosos y eliminatorias
+  que Sofascore tampoco tiene.
 - **NBA** (ESPN, 3 temporadas): cuartos y estadísticas de cada jugador.
 - **MLB** (statsapi, 2023 a 2026): abridores probables y sus aperturas.
 
