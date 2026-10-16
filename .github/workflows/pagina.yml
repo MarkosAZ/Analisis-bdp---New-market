@@ -69,8 +69,17 @@ jobs:
           key: datos-${{ github.run_id }}
           restore-keys: datos-
 
+      # Versión del commit en app.js, app.css y cada import: el navegador guarda los
+      # archivos hasta 10 minutos, y un index.html nuevo con un .js viejo de la caché
+      # deja la página a medias (p. ej. una pestaña nueva vacía).
       - name: Copiar la página
-        run: cp -r docs site
+        run: |
+          cp -r docs site
+          v="${GITHUB_SHA::8}"
+          sed -i -E "s#(src=\"js/app\.js)\"#\1?v=$v\"#; s#(href=\"css/app\.css)\"#\1?v=$v\"#" site/index.html
+          find site/js -name '*.js' -exec sed -i -E "s#((from|import) '\.\.?/[^']+\.js)'#\1?v=$v'#g" {} +
+          grep -q "js/app.js?v=$v" site/index.html
+          if grep -rnE "(from|import) '\.\.?/[^']+\.js'" site/js; then echo "::error::Hay importes sin versión"; exit 1; fi
 
       - name: Recolectar datos
         run: |
