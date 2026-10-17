@@ -29,7 +29,10 @@ const levelRows = (m) => [
   statsRow('Baja (aparte)', m.byLevel?.baja || ZERO, 'aparte'),
 ];
 
-// Aciertos de un día por nivel de confianza: "Alta 3/4" (acertadas / resueltas).
+// Porcentaje de acierto (acertadas de las resueltas), o nada si no hay resueltas.
+const hitPct = (st) => (st.won + st.lost ? h('span', { class: 'lvl-pct' }, ` · ${pct(st.won / (st.won + st.lost))}`) : null);
+
+// Aciertos de un día por nivel de confianza: "Alta 3/4 · 75%" (acertadas / resueltas).
 function levelChips(m) {
   const items = [...LEVELS.map((l) => [l.id, LEVEL_SHORT[l.id] || l.name, m.byLevel?.[l.id]]), ['combo', 'Combinadas', m.combos]];
   return items
@@ -37,7 +40,7 @@ function levelChips(m) {
     .map(([id, name, st]) => {
       const resolved = st.won + st.lost;
       const title = `${name}: ${st.won} acertadas de ${resolved} resueltas${st.pending ? `, ${st.pending} pendientes` : ''}${st.void ? `, ${st.void} nulas` : ''}`;
-      return h('span', { class: `chip lvl lvl-${id}`, title }, h('span', { class: 'lvl-name' }, name), ` ${st.won}/${resolved}`, st.pending ? h('span', { class: 'note' }, ` +${st.pending}`) : null);
+      return h('span', { class: `chip lvl lvl-${id}`, title }, h('span', { class: 'lvl-name' }, name), ` ${st.won}/${resolved}`, hitPct(st), st.pending ? h('span', { class: 'note' }, ` +${st.pending}`) : null);
     });
 }
 
@@ -420,7 +423,7 @@ export function renderHistorial(root, app) {
               'span',
               { class: 'day-line' },
               h('b', {}, 'Errores de cuota'),
-              h('span', { class: 'chip', title: 'Acertados de los resueltos' }, `${s.errores.won}/${s.errores.won + s.errores.lost}`),
+              h('span', { class: 'chip', title: 'Acertados de los resueltos' }, `${s.errores.won}/${s.errores.won + s.errores.lost}`, hitPct(s.errores)),
               s.errores.pending ? h('span', { class: 'chip' }, `${s.errores.pending} pendientes`) : null,
               s.errores.staked ? money(s.errores.profit) : null,
             )

@@ -351,7 +351,7 @@ async function withoutExtension(browser, errors) {
   const errorsLine = await page.textContent('.day-line:has(b:text("Errores de cuota"))');
   check(
     'Errores de cuota: se liquidan y tienen su seguimiento',
-    JSON.stringify(settledErrors.sort()) === '["Menos de 7.5 tarjetas: won","Más de 6.5 córners: won"]' && /Todos2100%/.test(errorsPanel.replace(/\s+/g, '')) && /2\/2/.test(errorsLine) && (await page.$$('.day-body .method-tag.errores')).length === 1,
+    JSON.stringify(settledErrors.sort()) === '["Menos de 7.5 tarjetas: won","Más de 6.5 córners: won"]' && /Todos2100%/.test(errorsPanel.replace(/\s+/g, '')) && /2\/2 · 100%/.test(errorsLine) && (await page.$$('.day-body .method-tag.errores')).length === 1,
     `${settledErrors.join(', ')} · ${errorsPanel.replace(/\s+/g, ' ').slice(-90)} · ${errorsLine}`,
   );
   const index = JSON.parse(repo.get('docs/data/historial/index.json').text).days[DAY];
@@ -360,7 +360,12 @@ async function withoutExtension(browser, errors) {
   check('el detalle del día se filtra por método', (await page.$$('.day-body .method-tag.estadistico')).length === 0 && (await page.$$('.day-body .method-tag.red_neuronal')).length === 1);
   // Aciertos del día por nivel de confianza: en la cabecera y en la tabla del día abierto.
   const levelChips = await page.$$eval('.day-line .chip.lvl', (els) => els.map((e) => e.textContent.trim()));
-  check('cada día cuenta los aciertos por nivel', levelChips.length > 0 && levelChips.every((t) => /^(Alta|Mod-alta|Moderada|Baja|Combinadas) \d+\/\d+/.test(t)), levelChips.join(' | '));
+  // "Mod-alta 2/3 · 67%": acertadas de las resueltas y su porcentaje (sin resueltas, sin porcentaje).
+  const chipOk = (t) => {
+    const m = t.match(/^(Alta|Mod-alta|Moderada|Baja|Combinadas) (\d+)\/(\d+)(?: · (\d+)%)?/);
+    return Boolean(m) && (Number(m[3]) ? Number(m[4]) === Math.round((100 * Number(m[2])) / Number(m[3])) : m[4] == null);
+  };
+  check('cada día cuenta los aciertos por nivel, con su porcentaje', levelChips.length > 0 && levelChips.every(chipOk) && levelChips.some((t) => /%/.test(t)), levelChips.join(' | '));
   const dayTable = await page.textContent('.day-body .day-table');
   check('el día abierto muestra la tabla por nivel', /Red neuronal: aciertos del día por nivel/.test(dayTable) && /Total picks/.test(dayTable), dayTable.replace(/\s+/g, ' ').slice(0, 160));
   await page.screenshot({ path: path.join(OUT, '8-celular-historial.png'), fullPage: false });
