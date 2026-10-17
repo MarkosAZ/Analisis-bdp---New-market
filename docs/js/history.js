@@ -689,25 +689,20 @@ export function randomInt(n) {
   return x % n;
 }
 
-// Sorteo de `n` apuestas: se barajan todas (Fisher-Yates, todas con la misma
-// probabilidad) y se toman las primeras, sin dos del mismo mercado de un partido
-// (serían el otro lado o la otra línea de la misma apuesta).
+// Sorteo de `n` apuestas: cada mercado de cada partido tiene la misma probabilidad
+// de salir. Se barajan los mercados (Fisher-Yates) y de cada uno de los primeros `n`
+// sale una de las opciones que mandaron los análisis, también al azar: así no salen dos
+// del mismo mercado (serían el otro lado o la otra línea de la misma apuesta).
 export function drawRandom(pool, n, rand = randomInt) {
-  const list = [...pool];
-  for (let i = list.length - 1; i > 0; i--) {
+  const markets = [...groupBy(pool, (b) => `${b.eventId}|${b.market}`).values()];
+  for (let i = markets.length - 1; i > 0; i--) {
     const j = rand(i + 1);
-    [list[i], list[j]] = [list[j], list[i]];
+    [markets[i], markets[j]] = [markets[j], markets[i]];
   }
-  const out = [];
-  const markets = new Set();
-  for (const b of list) {
-    if (out.length >= n) break;
-    const market = `${b.eventId}|${b.market}`;
-    if (markets.has(market)) continue;
-    markets.add(market);
-    out.push({ ...b, from: [...b.from] });
-  }
-  return out;
+  return markets.slice(0, n).map((options) => {
+    const b = options[options.length > 1 ? rand(options.length) : 0];
+    return { ...b, from: [...b.from] };
+  });
 }
 
 // Sortea y guarda en el historial del día: { day, draw, pool } (draw null si no hay

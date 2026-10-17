@@ -199,7 +199,7 @@ function randomDrawPanel(app) {
     h(
       'p',
       { class: 'note' },
-      'Sortea las que elijas entre todas las apuestas que mandó el análisis del día elegido arriba: estadístico, red neuronal y errores de cuota, todas con la misma probabilidad (con el generador criptográfico del navegador). Solo las de partidos que todavía no empiezan, sin repetir ni dos del mismo mercado de un partido. Cada sorteo se guarda en el historial del día y se liquida como las demás.',
+      'Sortea las que elijas entre todas las apuestas que mandó el análisis del día elegido arriba: estadístico, red neuronal y errores de cuota. Cada mercado de cada partido tiene la misma probabilidad de salir (con el generador criptográfico del navegador); si los análisis mandaron dos opciones del mismo mercado, sale una de ellas, al azar. Solo las de partidos que todavía no empiezan. Cada sorteo se guarda en el historial del día y se liquida como las demás.',
     ),
     h('p', { class: 'note random-pool' }, status),
     last

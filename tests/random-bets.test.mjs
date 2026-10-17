@@ -67,6 +67,28 @@ test('Random Bets: cada apuesta tiene la misma probabilidad (generador criptogr�
   for (const [id, c] of count) assert.ok(c > 1750 && c < 2250, `${id}: ${c}`);
 });
 
+test('Random Bets: cada mercado tiene la misma probabilidad aunque los análisis manden dos opciones', () => {
+  // A: Más y Menos de 2.5 (del estadístico y de la red); B y C: una opción cada uno.
+  const pool = [
+    { ...bet('A', 'OU', 'over', 2.5, 1.9), from: ['estadistico'] },
+    { ...bet('A', 'OU', 'under', 2.5, 1.9), from: ['red_neuronal'] },
+    { ...bet('B', '1X2', 'home', null, 2), from: ['estadistico'] },
+    { ...bet('C', 'BTTS', 'yes', null, 1.8), from: ['errores'] },
+  ];
+  const one = new Map();
+  const two = new Map();
+  const N = 12000;
+  for (let i = 0; i < N; i++) {
+    const [b] = drawRandom(pool, 1);
+    one.set(`${b.eventId}|${b.sel}`, (one.get(`${b.eventId}|${b.sel}`) || 0) + 1);
+    for (const x of drawRandom(pool, 2)) two.set(x.eventId, (two.get(x.eventId) || 0) + 1);
+  }
+  // Una: cada mercado 1/3; en A, cada opción 1/6.
+  for (const [k, share] of [['A|over', 1 / 6], ['A|under', 1 / 6], ['B|home', 1 / 3], ['C|yes', 1 / 3]]) assert.ok(Math.abs(one.get(k) / N - share) < 0.02, `${k}: ${one.get(k)}`);
+  // Dos: cada mercado sale en 2 de cada 3 sorteos (B no sale siempre).
+  for (const id of ['A', 'B', 'C']) assert.ok(Math.abs(two.get(id) / N - 2 / 3) < 0.02, `${id}: ${two.get(id)}`);
+});
+
 test('Random Bets: en el resumen del día y en los totales, aparte de los métodos', () => {
   const draws = [
     { id: 'rb-1', created: '2026-10-17T11:30:00Z', asked: 2, pool: 6, bets: [{ ...bet('e1', 'OU', 'over', 2.5, 1.85), status: 'won', from: ['estadistico'] }, { ...bet('e9', 'ML', 'home', null, 1.5, { sport: 'basketball' }), status: 'lost', from: ['errores'] }] },

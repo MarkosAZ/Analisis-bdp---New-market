@@ -315,6 +315,7 @@ export function parseH2H(text) {
         focusHome: r.KS === 'home',
         result: r.WIS || null, // w / l / d para el equipo de la sección
         league: r.KF || '',
+        country: r.KH || '', // país (o "Mundial") de la liga: hay ligas con el mismo nombre en varios países
       });
     }
   }
@@ -328,7 +329,7 @@ function toLast(row, teamId) {
   const ga = home ? row.as : row.hs;
   let r = { w: 'W', l: 'L', d: 'D' }[row.result?.[0]];
   if (!r && gf != null && ga != null) r = gf > ga ? 'W' : gf < ga ? 'L' : 'D';
-  return { start: row.start, home, gf, ga, r: r || 'D', opp: home ? row.away : row.home, league: row.league, fsId: row.id || null };
+  return { start: row.start, home, gf, ga, r: r || 'D', opp: home ? row.away : row.home, league: row.league, country: row.country || '', fsId: row.id || null };
 }
 
 // ev: partido con home.id / away.id de Flashscore. Devuelve los datos que usa el modelo.
@@ -376,7 +377,7 @@ export function h2hData(sections, homeId, awayId) {
   // del más reciente al más antiguo (pestaña Datos de la página).
   const h2hList = (duel?.rows || [])
     .filter((row) => row.hs != null && row.as != null && !isExhibition(row.league))
-    .map((row) => ({ start: row.start, fsId: row.id, homeId: row.homeId, awayId: row.awayId, home: row.home, away: row.away, hs: row.hs, as: row.as, league: row.league }))
+    .map((row) => ({ start: row.start, fsId: row.id, homeId: row.homeId, awayId: row.awayId, home: row.home, away: row.away, hs: row.hs, as: row.as, league: row.league, country: row.country || '' }))
     .sort((a, b) => b.start - a.start);
   return { lastHome: last(homeId), lastAway: last(awayId), h2h, h2hGames: h2hGames.slice(0, 10), h2hList };
 }

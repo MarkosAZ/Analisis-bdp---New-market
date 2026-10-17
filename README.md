@@ -239,10 +239,11 @@ historial de resultados. Funciona en el **celular y en la PC**:
   los picks del estadístico y de la red neuronal (de todos los niveles; lo
   último de cada mercado si se volvió a analizar) y los errores de cuota. Solo
   las de partidos que todavía no empiezan y una vez cada una (si dos métodos
-  mandaron la misma, cuenta una, con la mejor cuota y de dónde salió). Todas
-  tienen la misma probabilidad: se barajan con el generador criptográfico del
-  navegador (`crypto.getRandomValues`, no `Math.random`) y no salen dos del mismo
-  mercado de un partido. Cada sorteo se guarda en el historial del día y se
+  mandaron la misma, cuenta una, con la mejor cuota y de dónde salió). Cada
+  mercado de cada partido tiene la misma probabilidad de salir: se barajan con el
+  generador criptográfico del navegador (`crypto.getRandomValues`, no
+  `Math.random`) y, si los análisis mandaron dos opciones del mismo mercado (el
+  otro lado u otra línea), sale una de ellas, al azar. Cada sorteo se guarda en el historial del día y se
   liquida como los picks; el panel "Random Bets" da resueltas, aciertos, ganancia
   y ROI (a 1 u cada una), en total y por deporte, y cada día muestra sus sorteos.
 

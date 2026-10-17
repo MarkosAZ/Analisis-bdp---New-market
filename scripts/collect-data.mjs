@@ -153,11 +153,14 @@ function feedsCached(fsId, kinds, b) {
 // caché permanente de solo lo que usa la página: { teams, players } o null. Un partido
 // sin esa tabla (la API responde 404: las ligas menores no la tienen) se recuerda como
 // tal si ya pasaron 2 días (antes puede llegar tarde). En cada corrida, una liga cuyos
-// primeros 3 partidos no la tienen (y ninguno sí) no se sigue pidiendo.
+// primeros 3 partidos no la tienen (y ninguno sí) no se sigue pidiendo. La liga es su
+// país y su nombre ("Austria|2. Liga": hay ligas con el mismo nombre en varios países);
+// sin los dos (H2H guardados antes de leer el país) no se salta nada.
 const footballBoxes = new Map();
-const footballLeagues = new Map(); // liga -> { none, ok } en esta corrida
+const footballLeagues = new Map(); // "país|liga" -> { none, ok } en esta corrida
+const leagueKey = (m) => (m.country && m.league ? `${m.country}|${m.league}` : '');
 const leagueWithout = (league) => {
-  const s = footballLeagues.get(league);
+  const s = league ? footballLeagues.get(league) : null;
   return Boolean(s && s.ok === 0 && s.none >= 3);
 };
 function footballPlayersOf(fsId, start, league = '') {
@@ -182,9 +185,11 @@ function footballPlayersOf(fsId, start, league = '') {
         if (e?.status !== 404) return undefined; // otro error: se reintenta en la próxima corrida
         data = null;
       }
-      const stats = footballLeagues.get(league) || { none: 0, ok: 0 };
-      stats[data ? 'ok' : 'none']++;
-      footballLeagues.set(league, stats);
+      if (league) {
+        const stats = footballLeagues.get(league) || { none: 0, ok: 0 };
+        stats[data ? 'ok' : 'none']++;
+        footballLeagues.set(league, stats);
+      }
       if (data) await writeJson(file, data);
       else if (Date.now() - start > 2 * 86400000) await writeJson(file, { none: true });
       return data;
@@ -627,10 +632,10 @@ async function main() {
             const data = await footballPlayersOf(fsId, start, league);
             if (data) matches.push({ start, home, opp: sameTeam(opp, rival) ? rival : opp, data });
           };
-          for (const m of (last || []).slice(0, DATA_MATCHES)) await add(m.fsId, m.start, m.home, m.opp, m.league);
+          for (const m of (last || []).slice(0, DATA_MATCHES)) await add(m.fsId, m.start, m.home, m.opp, leagueKey(m));
           for (const m of (d.h2hList || []).slice(0, DATA_H2H)) {
             const home = m.homeId && ev.home.id ? m.homeId === ev.home.id : sameTeam(m.home, ev.home.name);
-            await add(m.fsId, m.start, isHome ? home : !home, rival, m.league);
+            await add(m.fsId, m.start, isHome ? home : !home, rival, leagueKey(m));
           }
           return teamPlayersFromPMS(matches.sort((a, b) => b.start - a.start), { top: DATA_TOP_PLAYERS });
         };
