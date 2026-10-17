@@ -500,7 +500,7 @@ export class DatosView {
       h(
         'div',
         { class: 'panel chart-card players' },
-        h('h3', {}, 'Jugadores', h('span', { class: 'note' }, ' · los de más minutos de cada equipo (registro de ESPN); con • los que tienen línea en Apuesta Total')),
+        h('h3', {}, 'Jugadores', h('span', { class: 'note' }, ' · los de más minutos de cada equipo (ESPN en la NBA y la WNBA; Flashscore en las demás ligas); con • los que tienen línea en Apuesta Total')),
         ['home', 'away'].map((side) => {
           const list = players.filter((p) => p.side === side);
           const name = side === 'home' ? ev.home.name : ev.away.name;
@@ -556,11 +556,12 @@ export class DatosView {
               line,
               items: series.map(({ value, game }) => ({
                 value,
-                label: `${game.home === false ? '@' : ''}${game.opp || '?'}`,
+                // Sigla de ESPN (NBA y WNBA) o, en las demás ligas, la del nombre del rival.
+                label: `${game.home === false ? '@' : ''}${!game.opp ? '?' : game.opp.length > 4 ? D.shortName(game.opp) : game.opp}`,
                 title: `${fmtDate(game.start)} · ${game.home === false ? 'visita en' : 'vs'} ${game.opp || '?'} · ${statName}: ${fmtNum(value)}${Number.isFinite(game.min) ? ` · ${game.min} min` : ''}`,
               })),
             })
-          : h('p', { class: 'note' }, vs ? `No jugó contra ${rivalName} en las dos últimas temporadas.` : 'Sin partidos con esta estadística.'),
+          : h('p', { class: 'note' }, vs ? `No jugó contra ${rivalName} en los partidos que tenemos.` : 'Sin partidos con esta estadística.'),
       ),
     ];
   }

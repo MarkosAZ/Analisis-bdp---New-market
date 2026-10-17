@@ -27,14 +27,14 @@ import { getEventList, getMarkets } from '../extension/sources/apuestatotal.js';
 import { getTeamStrength } from '../extension/sources/understat.js';
 import { basicNorm, bestByName, countryCode, matchEvent } from '../docs/js/analysis/matching.js';
 import { offeredPlayers, offersFromApuestaTotal } from '../docs/js/analysis/markets.js';
-import { basketballLeague, isPreseason, matchPlayer } from '../docs/js/analysis/players.js';
+import { basketballLeague, isPreseason, matchPlayer, teamPlayersFromBox } from '../docs/js/analysis/players.js';
 import { isMlb } from '../docs/js/analysis/baseball.js';
 import { getGameContext, lastStarts } from '../extension/sources/mlb.js';
 import { addDays, limaToday } from '../docs/js/util.js';
 import { ACTIVE_SPORTS } from '../docs/js/sports.js';
 import { marketsOf } from '../docs/js/analysis/picks.js';
 import { compactDay, compactMatchData, compactMatchStats, compactResult } from '../docs/js/data-format.js';
-import { parseFsGames, parseFsIncidents, parseFsStats, periodsFromRow, recordFromFlashscore } from '../docs/js/analysis/records.js';
+import { parseFsGames, parseFsIncidents, parseFsPlayers, parseFsStats, periodsFromRow, recordFromFlashscore } from '../docs/js/analysis/records.js';
 import { teamStatsFrom } from '../docs/js/analysis/teamstats.js';
 
 const OUT = path.resolve(process.argv[2] || 'site', 'data/fuente');
@@ -59,6 +59,7 @@ const PLAYER_HISTORY_CACHE = path.resolve('.cache/jugadores-datos-v1'); // jugad
 const DATA_STARTS = 20;
 const DATA_BUDGET_MS = 5 * 60000;
 const DATA_H2H_MS = 4 * 60000; // H2H de los partidos sin cuotas (los que no alcanzan, en la próxima corrida)
+const DATA_BOX_MS = 4 * 60000; // estadísticas de jugadores de Flashscore (básquet sin ESPN; quedan en caché)
 const CACHE_HOURS = 12;
 const AHEAD = [0, 1];
 const BACK = [-7, -6, -5, -4, -3, -2, -1];
@@ -125,6 +126,7 @@ const budget = (ms) => ({ ms, max: MAX_DETAIL_FETCHES, used: 0, start: 0 });
 const STATS_BUDGET = budget(DETAIL_BUDGET_MS); // estadísticas de los equipos (análisis)
 const RECORDS_BUDGET = budget(DETAIL_BUDGET_MS); // registros de los partidos analizados (liquidar)
 const DATA_BUDGET = budget(DATA_BUDGET_MS); // más partidos y enfrentamientos (pestaña Datos)
+const BOX_BUDGET = budget(DATA_BOX_MS); // jugadores de las ligas de básquet sin ESPN (pestaña Datos)
 const hasBudget = (b) => b.used < b.max && (!b.start || Date.now() - b.start < b.ms);
 
 // Feeds de detalle de un partido terminado, con caché permanente.
@@ -152,6 +154,28 @@ async function feedsCached(fsId, kinds, b) {
 // Estadísticas de un partido terminado (df_st de Flashscore, con caché), o null.
 // Solo se recuerda lo leído: si faltó presupuesto, otra etapa puede pedirlo.
 const parsedStats = new Map();
+// Estadísticas de cada jugador de un partido de básquet terminado (df_psn de
+// Flashscore, con caché): [{ team, players }] o null.
+const parsedBoxes = new Map();
+async function matchPlayers(fsId) {
+  if (parsedBoxes.has(fsId)) return parsedBoxes.get(fsId);
+  let f;
+  try {
+    f = await feedsCached(fsId, ['psn'], BOX_BUDGET);
+  } catch {
+    return null;
+  }
+  if (typeof f.psn !== 'string') return null;
+  let teams = null;
+  try {
+    teams = parseFsPlayers(f.psn);
+  } catch {
+    // tabla ilegible
+  }
+  parsedBoxes.set(fsId, teams);
+  return teams;
+}
+
 async function matchStats(fsId, sport, b) {
   const key = `${sport}|${fsId}`;
   if (parsedStats.has(key)) return parsedStats.get(key);
@@ -489,6 +513,36 @@ async function main() {
         } catch (e) {
           log(`Datos, jugadores ${ev.home.name} - ${ev.away.name}: ${e.message}`);
         }
+      } else if (ev.sport === 'basketball' && ev.state === 'pendiente') {
+        // Las demás ligas: la tabla de jugadores de Flashscore de los últimos partidos de
+        // cada equipo y de sus enfrentamientos (los de más minutos y los que ofrece la casa).
+        const allNames = offers[ev.id] ? offeredPlayers(offers[ev.id]) : [];
+        const sameTeam = (a, b) => basicNorm(a) === basicNorm(b);
+        const side = async (last, isHome, rival) => {
+          const matches = [];
+          const seen = new Set();
+          const add = async (fsId, start, home, opp) => {
+            if (!fsId || seen.has(fsId)) return;
+            seen.add(fsId);
+            const teams = await matchPlayers(fsId);
+            if (teams?.length) matches.push({ start, home, opp: sameTeam(opp, rival) ? rival : opp, teams });
+          };
+          for (const m of (last || []).slice(0, DATA_MATCHES)) await add(m.fsId, m.start, m.home, m.opp);
+          for (const m of (d.h2hList || []).slice(0, DATA_H2H)) {
+            const home = m.homeId && ev.home.id ? m.homeId === ev.home.id : sameTeam(m.home, ev.home.name);
+            await add(m.fsId, m.start, isHome ? home : !home, rival);
+          }
+          return teamPlayersFromBox(matches.sort((a, b) => b.start - a.start), { top: DATA_TOP_PLAYERS, names: allNames });
+        };
+        const sides = [
+          ['home', await side(d.lastHome, true, ev.away.name)],
+          ['away', await side(d.lastAway, false, ev.home.name)],
+        ];
+        for (const [s, list] of sides) for (const p of list) players.push({ side: s, name: p.name, games: p.games.filter((g, i) => i < DATA_PLAYER_GAMES || g.opp === (s === 'home' ? ev.away.name : ev.home.name)) });
+        if (players.length) {
+          abbr = [ev.home.name, ev.away.name]; // el rival de cada partido va con su nombre
+          dataPlayers++;
+        }
       }
       // Abridores (MLB): sus últimas aperturas (si no se pueden leer, las del contexto).
       let pitchers = null;
@@ -510,7 +564,7 @@ async function main() {
     },
     8,
   );
-  log(`Datos: ${Object.keys(matchData).length} partidos (${rest.length} sin cuotas: ${extra.missing} sin H2H todavía, ${extra.errors} errores; ${DATA_BUDGET.used} feeds nuevos; ${dataPlayers} con jugadores, ${dataPitchers} con abridores)`);
+  log(`Datos: ${Object.keys(matchData).length} partidos (${rest.length} sin cuotas: ${extra.missing} sin H2H todavía, ${extra.errors} errores; ${DATA_BUDGET.used} feeds nuevos; ${dataPlayers} con jugadores (${BOX_BUDGET.used} tablas de Flashscore nuevas), ${dataPitchers} con abridores)`);
 
   // 4) xG de Understat (fútbol, 5 grandes ligas).
   const xg = {};

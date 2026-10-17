@@ -98,6 +98,74 @@ function statValue(raw, pick) {
   return Number.isFinite(v) ? v : null;
 }
 
+// ---- Jugadores de Flashscore (básquet de las ligas que ESPN no cubre) ----
+// df_psn_1_<id>: una sección "General" y una por equipo (PA÷nombre del equipo), con
+// las columnas (PF) y una fila por jugador (PJ nombre "Martin T.", PK su página, PC
+// los valores en el orden de las columnas; "-" = 0 o sin dato).
+const PSN_FIELDS = { PTS: 'pts', REB: 'reb', AST: 'ast', MIN: 'min', TCA: 'fgm', TCI: 'fga', '2PA': 'p2m', '2PI': 'p2a', '3PA': 'tpm', '3PI': 'tpa', TLA: 'ftm', TLI: 'fta', RO: 'oreb', RD: 'dreb', BR: 'stl', BP: 'tov', TA: 'blk' };
+const psnRecord = (raw) => Object.fromEntries(raw.split('¬').filter((kv) => kv.includes('÷')).map((kv) => [kv.slice(0, kv.indexOf('÷')), kv.slice(kv.indexOf('÷') + 1)]));
+const minutesOf = (v) => {
+  const m = String(v || '').match(/^(\d+):(\d{1,2})$/);
+  return m ? Math.round((Number(m[1]) + Number(m[2]) / 60) * 10) / 10 : Number.isFinite(Number(v)) && v !== '' ? Number(v) : null;
+};
+
+// Nombre completo: "Martin T." + /jugador/martin-tyrese/ID/ → "Tyrese Martin".
+export function fsPlayerName(display, url = '') {
+  const m = String(display || '').trim().match(/^(.+?)\s+(\S)\.$/);
+  const slug = String(url).split('/').filter(Boolean)[1] || '';
+  if (!m || !slug) return String(display || '').trim();
+  const last = m[1];
+  const parts = slug.split('-');
+  const nLast = last.split(/[\s-]+/).filter(Boolean).length;
+  const first = parts.slice(nLast);
+  if (!first.length || first[0][0] !== m[2].toLowerCase()) return String(display).trim();
+  return `${first.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} ${last}`;
+}
+
+// → [{ team, players: [{ id, name, short, min, pts, reb, ... }] }] (sin la sección
+// General). Un "-" vale 0 si la columna tiene algún número en el equipo; si no, el
+// dato no está (null). Sin minutos: no jugó (no va).
+export function parseFsPlayers(text) {
+  const sections = [];
+  let cur = null;
+  let cols = [];
+  for (const raw of String(text || '').split('~')) {
+    const r = psnRecord(raw);
+    if ('PA' in r) {
+      cur = { team: r.PA, cols: [...cols], rows: [] };
+      sections.push(cur);
+      continue;
+    }
+    if ('PF' in r && cur) {
+      if (r.PF === 'Jugador') cur.cols = [];
+      else cur.cols.push(r.PF);
+      cols = cur.cols;
+      continue;
+    }
+    if ('PJ' in r && cur) cur.rows.push({ short: r.PJ, url: r.PK || '', values: String(r.PC || '').split('|') });
+  }
+  return sections.slice(1).map((sec) => {
+    const has = sec.cols.map((_, i) => sec.rows.some((row) => row.values[i] != null && row.values[i] !== '-' && row.values[i] !== ''));
+    const players = [];
+    for (const row of sec.rows) {
+      const p = { id: row.url.split('/').filter(Boolean)[2] || row.short, name: fsPlayerName(row.short, row.url), short: row.short };
+      sec.cols.forEach((col, i) => {
+        const f = PSN_FIELDS[col];
+        if (!f) return;
+        const v = row.values[i];
+        p[f] = f === 'min' ? minutesOf(v) : v == null || v === '-' || v === '' ? (has[i] ? 0 : null) : Number(v);
+      });
+      // Tiros de campo: si no vienen, de 2 + de 3.
+      if (p.fgm == null && p.p2m != null && p.tpm != null) p.fgm = p.p2m + p.tpm;
+      if (p.fga == null && p.p2a != null && p.tpa != null) p.fga = p.p2a + p.tpa;
+      delete p.p2m;
+      delete p.p2a;
+      if (p.min) players.push(p);
+    }
+    return { team: sec.team, players };
+  });
+}
+
 // df_st_1_<id> → { corners: { ft: [6, 3], h1: [...] }, ... }
 export function parseFsStats(text, sport) {
   const stats = {};

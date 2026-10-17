@@ -284,3 +284,38 @@ export function playerValue(rec, name, code) {
   const value = statValue(row, code);
   return value == null ? null : { value };
 }
+
+// ---- Jugadores de las demás ligas (estadísticas de Flashscore de cada partido) ----
+
+// Jugadores de un equipo con sus partidos (pestaña Datos), de sus últimos partidos con
+// la tabla de cada uno (records.parseFsPlayers). matches: [{ start, home, opp, teams }]
+// del más reciente al más viejo. Su equipo es la sección que se repite en todos (el
+// rival cambia; si hay uno solo, la que no es el rival). Los `top` con más minutos en
+// sus últimos 30 y los pedidos (`names`, los que ofrece la casa): [{ name, games }],
+// de más a menos minutos; cada partido { start, opp, home, min, pts, reb, ... }.
+export function teamPlayersFromBox(matches = [], { top = 8, names = [] } = {}) {
+  const count = new Map();
+  for (const m of matches) for (const t of m.teams || []) count.set(normName(t.team), (count.get(normName(t.team)) || 0) + 1);
+  const ours = (m) => {
+    const list = m.teams || [];
+    if (matches.length > 1) {
+      const best = [...list].sort((a, b) => (count.get(normName(b.team)) || 0) - (count.get(normName(a.team)) || 0))[0];
+      if (best && (count.get(normName(best.team)) || 0) > 1) return best;
+    }
+    return list.find((t) => normName(t.team) !== normName(m.opp)) || null;
+  };
+  const byId = new Map();
+  for (const m of matches) {
+    const team = ours(m);
+    for (const p of team?.players || []) {
+      const { id, name, short, ...stats } = p;
+      if (!byId.has(id)) byId.set(id, { name, games: [] });
+      byId.get(id).games.push({ start: m.start, opp: m.opp, home: m.home, ...stats });
+    }
+  }
+  const players = [...byId.values()].map((p) => ({ ...p, games: p.games.sort((a, b) => b.start - a.start) }));
+  const minutes = (p) => p.games.slice(0, 30).reduce((s, g) => s + (g.min || 0), 0);
+  const ranked = players.sort((a, b) => minutes(b) - minutes(a) || a.name.localeCompare(b.name));
+  const offered = new Set(names.map((n) => matchPlayer(n, ranked)).filter(Boolean));
+  return ranked.filter((p, i) => i < top || offered.has(p));
+}
