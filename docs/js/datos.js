@@ -31,9 +31,10 @@ export const TEAM_STATS = {
 export const statsOf = (sport) => TEAM_STATS[sport] || [{ id: 'score', name: 'Tantos', of: (m) => sum([m.gf, m.ga]), market: 'OU', step: 1 }];
 export const statById = (sport, id) => statsOf(sport).find((s) => s.id === id) || statsOf(sport)[0];
 
-// De quién: el total del partido, lo que hizo el equipo o lo que le hicieron.
-export const WHO = { total: 'Del partido', for: 'A favor', against: 'En contra' };
-export const valueOf = (pair, who) => (!pair ? null : who === 'for' ? pair[0] : who === 'against' ? pair[1] : both(pair));
+// De quién: el total del partido, lo que hizo el equipo, lo que le hicieron o la
+// diferencia (a favor menos en contra: lo que mira un hándicap).
+export const WHO = { total: 'Del partido', for: 'A favor', against: 'En contra', diff: 'Diferencia' };
+export const valueOf = (pair, who) => (!pair ? null : who === 'for' ? pair[0] : who === 'against' ? pair[1] : who === 'diff' ? pair[0] - pair[1] : both(pair));
 
 // Últimos `n` partidos (la lista viene del más reciente al más viejo); venue: 'all',
 // 'home' (solo de local) o 'away' (solo de visita).
@@ -69,13 +70,14 @@ export function summarize(values, line) {
   return { n, avg: n ? xs.reduce((s, x) => s + x, 0) / n : null, median: median(xs), over, under, push: Number.isFinite(line) ? push : 0, pct: over + under ? over / (over + under) : null };
 }
 
-// Línea por defecto: la de la casa o, si no la hay, una .5 cerca del promedio.
-export function defaultLine(values, offered = null) {
+// Línea por defecto: la de la casa o, si no la hay, una .5 cerca del promedio (no
+// menos de `min`: en la diferencia puede ser negativa).
+export function defaultLine(values, offered = null, { min = 0.5 } = {}) {
   if (Number.isFinite(offered)) return offered;
   const xs = values.filter(Number.isFinite);
-  if (!xs.length) return 0.5;
+  if (!xs.length) return Math.max(min, 0.5);
   const avg = xs.reduce((s, x) => s + x, 0) / xs.length;
-  return Math.max(0.5, Math.round(avg) - 0.5);
+  return Math.max(min, Math.round(avg) - 0.5);
 }
 
 // Línea de la casa de un mercado (la más pareja, como en el análisis), o null.

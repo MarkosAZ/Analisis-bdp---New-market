@@ -645,6 +645,11 @@ export async function uploadLocalToGithub({ onProgress = () => {} } = {}) {
       const merged = remote || { date: local.date, analyses: [] };
       const ids = new Set(merged.analyses.map((a) => a.id));
       merged.analyses.push(...local.analyses.filter((a) => !ids.has(a.id)));
+      // Errores de cuota (aparte de los análisis): los que no estén ya en GitHub.
+      const errorKey = (e) => `${e.run}|${e.eventId}|${e.key}`;
+      const have = new Set((merged.errores || []).map(errorKey));
+      const extra = (local.errores || []).filter((e) => !have.has(errorKey(e)));
+      if (extra.length) merged.errores = [...(merged.errores || []), ...extra];
       await store.write(path, merged, `Historial: subir datos locales del ${local.date}`);
       days.push(merged);
     } else {

@@ -277,7 +277,8 @@ app.canSave = () => store.canWrite();
 
 // Guarda en el historial los análisis que aún no se guardaron.
 app.saveAnalyses = async (list = Object.values(app.state.analyses)) => {
-  const pending = list.filter((a) => a && !a.saved && a.candidates.length);
+  // También sin picks si tiene errores de cuota (el modelo pide más partidos que los errores).
+  const pending = list.filter((a) => a && !a.saved && (a.candidates.length || a.errores?.length));
   if (!pending.length || !store.canWrite()) return;
   try {
     await history.saveAnalysis(pending);

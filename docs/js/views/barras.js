@@ -21,8 +21,9 @@ export function barChart({ items, line = null, name = '' }) {
   const avg = values.length ? values.reduce((s, x) => s + x, 0) / values.length : null;
   const hasLine = Number.isFinite(line);
   const diverging = fromLine(values, line);
-  // Escala: fracción de la altura desde abajo.
-  let lo = 0;
+  // Escala: fracción de la altura desde abajo (con negativos, p. ej. la diferencia,
+  // el cero queda más arriba y esas barras bajan desde él).
+  let lo = Math.min(0, ...values, hasLine ? line : 0) * 1.1;
   let hi = Math.max(1, ...values, hasLine ? line : 0) * 1.08;
   if (diverging) {
     lo = line - Math.max(1, ...values.map((v) => line - v)) * 1.1;
@@ -37,10 +38,10 @@ export function barChart({ items, line = null, name = '' }) {
   const cols = items.map((x) => {
     const a = y(Math.min(base, x.value));
     const b = y(Math.max(base, x.value));
-    const down = diverging && x.value < line;
+    const down = diverging ? x.value < line : x.value < 0;
     return h(
       'button',
-      { type: 'button', class: `col ${sideOf(x.value)}`, title: x.title, 'aria-label': x.title, onmouseenter: () => show(x), onfocus: () => show(x), onclick: () => show(x) },
+      { type: 'button', class: `col ${sideOf(x.value)}${down ? ' down' : ''}`, title: x.title, 'aria-label': x.title, onmouseenter: () => show(x), onfocus: () => show(x), onclick: () => show(x) },
       h('span', { class: 'bar', style: `bottom:${pc(a)};height:${pc(b - a)}` }),
       // El valor en la punta: arriba de la barra o, si baja desde la línea, debajo.
       h('span', { class: `val${down ? ' down' : ''}`, style: down ? `top:${pc(1 - a)}` : `bottom:${pc(b)}` }, fmtNum(x.value)),
@@ -48,6 +49,7 @@ export function barChart({ items, line = null, name = '' }) {
   });
   // Las dos líneas sin texto encima (taparía el valor de una barra): las nombra la leyenda.
   const marks = [];
+  if (lo < 0 && !diverging) marks.push(h('div', { class: 'zero', style: `bottom:${pc(y(0))}` }));
   if (hasLine) marks.push(h('div', { class: 'thr', style: `bottom:${pc(y(line))}` }));
   if (Number.isFinite(avg)) marks.push(h('div', { class: 'avg', style: `bottom:${pc(y(avg))}` }));
   const legend = items.length

@@ -274,6 +274,12 @@ async function withoutExtension(browser, errors) {
   check('Datos: cada barra muestra su partido y están los enfrentamientos', /local vs|visita en/.test(caption) && /Ganó Alianza Lima/.test(h2h), `${caption} · ${h2h.slice(0, 80)}`);
   await page.screenshot({ path: path.join(OUT, '9-celular-datos.png'), fullPage: true });
   check('Datos: sin desplazamiento horizontal en el celular', !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)));
+  // Diferencia (a favor menos en contra): barras hacia abajo desde el cero cuando perdió.
+  await page.click('.datos-filters .segmented button:has-text("Diferencia")');
+  const diffDown = await page.$$eval('.chart-grid .chart-card .bars .col.down', (cols) => cols.length);
+  const diffZero = await page.$$eval('.chart-grid .chart-card .bars .zero', (z) => z.length);
+  check('Datos: la diferencia muestra barras negativas desde el cero', diffDown > 0 && diffZero === 2 && !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)), `${diffDown} barras abajo · ${diffZero} ceros`);
+  await page.click('.datos-filters .segmented button:has-text("Del partido")');
   // Básquet: el jugador ofrecido con su línea de P+R+A y sus partidos contra el rival de hoy.
   await page.click('#tab-datos .sport:has-text("Básquet")');
   await page.click('.datos-match:has-text("Knicks")');

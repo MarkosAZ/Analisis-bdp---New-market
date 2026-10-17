@@ -93,15 +93,16 @@ export class ErroresView {
   // Errores de este análisis para el seguimiento (Historial), con lo elegido en la
   // pestaña (partidos, local/visita y exigencia).
   async track() {
+    const settings = { ...this.st }; // los de ahora: se pueden cambiar mientras lee los datos
     await this.prepare();
     const a = this.analysis();
-    return a ? E.trackedErrors(this.errors(), { ...this.st, run: a.run, created: a.created }) : [];
+    return a ? E.trackedErrors(this.errors(settings), { ...settings, run: a.run, created: a.created }) : [];
   }
 
-  errors() {
+  errors(settings = this.st) {
     const a = this.analysis();
     if (!a || this.loadedRun !== a.run) return [];
-    return E.findErrors(a, (id) => this.data.get(id) || null, this.st);
+    return E.findErrors(a, (id) => this.data.get(id) || null, settings);
   }
 
   updateBadge() {
@@ -173,7 +174,7 @@ export class ErroresView {
     // Probabilidad del análisis para esta opción (si la calculó).
     const probs = Object.entries(this.app.state.analyses)
       .filter(([, x]) => x?.run === a.run)
-      .map(([method, x]) => [method, x.candidates.find((c) => c.eventId === e.eventId && c.market === e.market && c.sel === e.sel && c.line === e.line)])
+      .map(([method, x]) => [method, x.candidates.find((c) => String(c.eventId) === String(e.eventId) && c.market === e.market && c.sel === e.sel && c.line === e.line)])
       .filter(([, c]) => c);
     const range = e.player ? `Sus últimos ${this.st.n}` : `Últimos ${this.st.n} de cada equipo${this.st.venue === 'split' ? ' (local de local, visita de visita)' : ''}`;
     const evidence =
@@ -219,7 +220,8 @@ export class ErroresView {
     const st = this.app.state.datos;
     const patch = { id, n: this.st.n, venue: this.st.venue, line: { ...st.line } };
     if (e.player) Object.assign(patch, { player: e.player, playerStat: e.stat, playerN: [5, 10, 15, 20].includes(this.st.n) ? this.st.n : 10, playerVs: false, line: { ...patch.line, [`p|${e.player}|${e.stat}`]: e.line } });
-    else Object.assign(patch, { stat: e.stat, who: 'total', ...(e.kind === 'total' ? { line: { ...patch.line, [`${e.stat}|total`]: e.line } } : {}) });
+    // Hándicap: la diferencia de cada equipo (a favor menos en contra) en sus partidos.
+    else Object.assign(patch, { stat: e.stat, who: e.kind === 'margin' ? 'diff' : 'total', ...(e.kind === 'total' ? { line: { ...patch.line, [`${e.stat}|total`]: e.line } } : {}) });
     this.app.openDatos(patch, { date: limaDateOf(ev.start), sport: ev.sport });
   }
 }
