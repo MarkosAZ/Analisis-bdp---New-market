@@ -142,7 +142,7 @@ export class ErroresView {
       h(
         'p',
         { class: 'note' },
-        'La línea más pareja de cada casa frente a los datos del partido: el promedio de los últimos partidos de cada equipo (o del jugador) y cuántas veces pasaron esa línea. Cuando quedan lejos, la opción que favorecen los datos aparece aquí. Qué tan lejos depende de cuánto varía cada mercado: un gol de diferencia pesa lo que varios puntos en el básquet.',
+        'La línea más pareja de cada casa frente a los datos del partido: el promedio de los últimos partidos de cada equipo (o del jugador) y cuántas veces pasaron esa línea. Cuando quedan lejos, la opción que favorecen los datos aparece aquí, siempre que los enfrentamientos entre ambos (o los partidos del jugador contra el rival) digan lo mismo. Qué tan lejos depende de cuánto varía cada mercado: un gol de diferencia pesa lo que varios puntos en el básquet.',
       ),
       h(
         'div',
@@ -189,6 +189,18 @@ export class ErroresView {
             `${e.player ? `Promedio de ${e.player}` : 'Promedio del partido'}: ${fmtNum(e.avg)} ${what} · línea ${fmtNum(e.line)} (${signed(e.gap)})`,
             `${up ? 'Pasó' : 'Quedó por debajo de'} la línea en ${e.hits} de ${e.n} (${pctText(e.hits / e.n)})`,
           ];
+    // Lo que dicen los enfrentamientos (o los partidos del jugador contra este rival).
+    const rival = e.side === 'home' ? ev.away : ev.home;
+    const hh = e.h2h;
+    evidence.push(
+      !hh
+        ? e.player
+          ? `Menos de 3 partidos contra ${rival} en los datos: solo cuentan sus últimos partidos`
+          : `Menos de 3 enfrentamientos con ${what} en los datos: solo cuentan los últimos partidos`
+        : e.kind === 'margin'
+          ? `En los enfrentamientos, ${ev.home} sacó en promedio ${signed(hh.avg)}; con este hándicap, ${up ? ev.home : ev.away} habría ganado ${hh.hits} de ${hh.n}`
+          : `${e.player ? `Contra ${rival}` : 'En los enfrentamientos'}: promedio ${fmtNum(hh.avg)} · ${up ? 'pasó' : 'quedó por debajo de'} la línea en ${hh.hits} de ${hh.n}`,
+    );
     return h(
       'div',
       { class: 'panel error-card' },

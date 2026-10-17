@@ -18,6 +18,8 @@
   --modalta: #2f6fd0;
   --mod: #b26a00;
   --baja: #6b7785;
+  --rand: #0f766e;
+  --rand-text: #ffffff;
   --radius: 12px;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
   color-scheme: light;
@@ -43,6 +45,8 @@
     --modalta: #7fb0ff;
     --mod: #f0a948;
     --baja: #9aa5b1;
+    --rand: #5eead4;
+    --rand-text: #0b1220;
     --shadow: none;
     color-scheme: dark;
   }
@@ -219,6 +223,19 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .method-tag { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 1px 8px; color: #fff; background: var(--accent); }
 .method-tag.red_neuronal { background: var(--nn); }
 .method-tag.errores { background: var(--text); color: var(--surface); }
+.method-tag.random { background: var(--rand); color: var(--rand-text); }
+.origin-tag { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 0 7px; border: 1px solid currentColor; white-space: nowrap; }
+.origin-tag.o-estadistico { color: var(--accent); }
+.origin-tag.o-red_neuronal { color: var(--nn); }
+.origin-tag.o-errores { color: var(--text); }
+.random-panel { margin-bottom: 16px; display: grid; gap: 8px; }
+.random-panel h3, .random-panel p { margin: 0; }
+.random-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.random-head h3 { flex: 1 1 auto; }
+.random-count { display: flex; gap: 6px; align-items: center; font-size: 14px; color: var(--muted); }
+.random-n { width: 4.5em; border: 1px solid var(--line); border-radius: 9px; padding: 6px 8px; background: var(--surface); color: var(--text); }
+.random-last { border-top: 1px solid var(--line); padding-top: 10px; }
+.random-last h4 { margin: 0 0 8px; font-size: 14px; }
 tr.total td { font-weight: 700; border-bottom: 0; }
 tr.aparte td { color: var(--muted); border-top: 2px solid var(--line); }
 .compare { margin-bottom: 14px; }

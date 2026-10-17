@@ -4,8 +4,9 @@
 //
 // Archivos (dentro de docs/ en GitHub o en el navegador):
 //   data/historial/index.json         resumen por día
-//   data/historial/AAAA-MM-DD.json    análisis del día con sus picks y combinadas, y los
+//   data/historial/AAAA-MM-DD.json    análisis del día con sus picks y combinadas, los
 //                                     errores de cuota (aparte: son los mismos en los dos métodos)
+//                                     y los sorteos de Random Bets
 //   data/entrenamiento/AAAA-MM.json   selecciones analizadas + resultado real (para la red)
 //   data/modelo/redes.json            pesos de las redes especializadas (una por mercado y por estadística de jugador)
 import * as ext from './ext.js';
@@ -258,6 +259,7 @@ export function latestByMethod(day) {
 }
 
 const methodStats = () => ({ ...emptyStats(), byLevel: {}, combos: emptyStats() });
+const randomBetsOf = (day) => (day.random || []).flatMap((r) => r.bets); // apuestas de los sorteos de Random Bets
 
 // Resumen de un día: por método (methods) y la suma de ambos. Los picks de
 // nivel Baja tienen su fila (byLevel.baja) pero no entran en los totales.
@@ -287,7 +289,15 @@ export function daySummary(day) {
       addResult((out.errores.bySport[e.sport] ||= emptyStats()), e.status, e.odds);
     }
   }
-  out.pendingAll = out.pending + out.combos.pending + (out.byLevel.baja?.pending || 0) + (out.errores?.pending || 0);
+  // Random Bets: las apuestas de todos los sorteos del día, también por deporte.
+  if (day.random?.length) {
+    out.random = { ...emptyStats(), bySport: {}, draws: day.random.length };
+    for (const b of randomBetsOf(day)) {
+      addResult(out.random, b.status, b.odds);
+      addResult((out.random.bySport[b.sport] ||= emptyStats()), b.status, b.odds);
+    }
+  }
+  out.pendingAll = out.pending + out.combos.pending + (out.byLevel.baja?.pending || 0) + (out.errores?.pending || 0) + (out.random?.pending || 0);
   return out;
 }
 
@@ -324,7 +334,7 @@ async function refreshIndex(days) {
 
 // Totales de todos los días: por método (con sus niveles y combinadas) y en conjunto.
 export function totals(index) {
-  const out = { all: emptyStats(), byLevel: {}, byMethod: {}, combos: emptyStats(), methods: {}, errores: { ...emptyStats(), bySport: {} } };
+  const out = { all: emptyStats(), byLevel: {}, byMethod: {}, combos: emptyStats(), methods: {}, errores: { ...emptyStats(), bySport: {} }, random: { ...emptyStats(), bySport: {} } };
   const add = (a, b) => {
     for (const k of Object.keys(emptyStats())) a[k] += b[k] || 0;
   };
@@ -333,6 +343,8 @@ export function totals(index) {
     add(out.combos, s.combos || {});
     add(out.errores, s.errores || {});
     for (const [k, v] of Object.entries(s.errores?.bySport || {})) add((out.errores.bySport[k] ||= emptyStats()), v);
+    add(out.random, s.random || {});
+    for (const [k, v] of Object.entries(s.random?.bySport || {})) add((out.random.bySport[k] ||= emptyStats()), v);
     for (const [k, v] of Object.entries(s.byLevel || {})) add((out.byLevel[k] ||= emptyStats()), v);
     for (const [k, v] of Object.entries(s.byMethod || {})) add((out.byMethod[k] ||= emptyStats()), v);
     for (const [method, m] of Object.entries(s.methods || {})) {
@@ -425,8 +437,9 @@ const monthsBack = (n) => {
   return out;
 };
 
-// Apuestas de un día: picks y patas de combinadas de cada análisis y los errores de cuota.
-const legsOfDay = (day) => [...day.analyses.flatMap((a) => [...a.picks, ...(a.combos || []).flatMap((k) => k.legs)]), ...(day.errores || [])];
+// Apuestas de un día: picks y patas de combinadas de cada análisis, los errores de
+// cuota y las de los sorteos de Random Bets.
+const legsOfDay = (day) => [...day.analyses.flatMap((a) => [...a.picks, ...(a.combos || []).flatMap((k) => k.legs)]), ...(day.errores || []), ...randomBetsOf(day)];
 
 export async function updateResults({ onProgress = () => {} } = {}) {
   const now = Date.now();
@@ -593,6 +606,7 @@ export async function updateResults({ onProgress = () => {} } = {}) {
       }
     }
     for (const e of day.errores || []) if (resolveLeg(e, results, now)) (resolved++, (changed = true));
+    for (const b of randomBetsOf(day)) if (resolveLeg(b, results, now)) (resolved++, (changed = true));
     if (changed) {
       await store.write(dayPath(day.date), day, `Historial: resultados del ${day.date}`);
       changedDays.push(day);
@@ -620,6 +634,88 @@ export async function updateResults({ onProgress = () => {} } = {}) {
   // estos resultados y los partidos históricos.
   onProgress('Listo', 1);
   return { checked: list.length, resolved, newRows, skipped };
+}
+
+// ---- Random Bets ----
+
+// Apuestas del día que se pueden sortear: los picks de cada método (lo último de cada
+// mercado, de todos los niveles) y los errores de cuota, pendientes y de partidos que
+// todavía no empiezan. Una vez cada una: si dos métodos (o un método y un error de
+// cuota) mandaron la misma, cuenta una vez, con la mejor cuota y de dónde salió.
+export const RANDOM_ORIGINS = { estadistico: 'Estadístico', red_neuronal: 'Red neuronal', errores: 'Error de cuota' };
+export function randomPool(day, now = Date.now()) {
+  const pool = new Map();
+  const add = (b, from) => {
+    if (!b || b.status !== 'pending' || !(b.start > now) || !(b.odds > 1)) return;
+    const key = `${b.eventId}|${b.market}|${b.sel}|${b.line}`;
+    const old = pool.get(key);
+    if (old) {
+      if (!old.from.includes(from)) old.from.push(from);
+      if (b.odds > old.odds) Object.assign(old, { odds: b.odds, source: b.source });
+      return;
+    }
+    pool.set(key, {
+      key: b.key || `${b.market}|${b.sel}|${b.line}`,
+      eventId: b.eventId,
+      sport: b.sport,
+      start: b.start,
+      match: b.match,
+      url: b.url || null,
+      ...(b.fsId ? { fsId: b.fsId } : {}),
+      market: b.market,
+      sel: b.sel,
+      line: b.line,
+      label: b.label,
+      status: 'pending',
+      odds: b.odds,
+      source: b.source,
+      from: [from],
+    });
+  };
+  for (const [method, { picks }] of latestByMethod(day || {})) for (const p of picks.values()) add(p, method);
+  for (const e of day?.errores || []) add(e, 'errores');
+  return [...pool.values()];
+}
+
+// Entero al azar en [0, n) con el generador criptográfico del navegador (no
+// Math.random): los valores del final que harían más probable a unos que a otros se
+// descartan y se vuelve a sacar.
+export function randomInt(n) {
+  const limit = Math.floor(0x100000000 / n) * n;
+  const buf = new Uint32Array(1);
+  let x;
+  do x = crypto.getRandomValues(buf)[0];
+  while (x >= limit);
+  return x % n;
+}
+
+// Sorteo de `n` apuestas: cada mercado de cada partido tiene la misma probabilidad
+// de salir. Se barajan los mercados (Fisher-Yates) y de cada uno de los primeros `n`
+// sale una de las opciones que mandaron los análisis, también al azar: así no salen dos
+// del mismo mercado (serían el otro lado o la otra línea de la misma apuesta).
+export function drawRandom(pool, n, rand = randomInt) {
+  const markets = [...groupBy(pool, (b) => `${b.eventId}|${b.market}`).values()];
+  for (let i = markets.length - 1; i > 0; i--) {
+    const j = rand(i + 1);
+    [markets[i], markets[j]] = [markets[j], markets[i]];
+  }
+  return markets.slice(0, n).map((options) => {
+    const b = options[options.length > 1 ? rand(options.length) : 0];
+    return { ...b, from: [...b.from] };
+  });
+}
+
+// Sortea y guarda en el historial del día: { day, draw, pool } (draw null si no hay
+// apuestas por jugar). Cada sorteo queda aparte, con cuántas se pidieron y entre cuántas.
+export async function saveRandomDraw(date, n, { now = Date.now(), rand = randomInt } = {}) {
+  const day = await store.read(dayPath(date));
+  const pool = randomPool(day, now);
+  if (!pool.length) return { day, draw: null, pool: 0 };
+  const draw = { id: `rb-${now.toString(36)}-${rand(1e6).toString(36)}`, created: new Date(now).toISOString(), asked: n, pool: pool.length, bets: drawRandom(pool, n, rand) };
+  day.random = [...(day.random || []), draw];
+  await store.write(dayPath(date), day, `Historial: Random Bets del ${date}`);
+  await refreshIndex([day]);
+  return { day, draw, pool: pool.length };
 }
 
 // ---- Redes especializadas ----
@@ -650,6 +746,10 @@ export async function uploadLocalToGithub({ onProgress = () => {} } = {}) {
       const have = new Set((merged.errores || []).map(errorKey));
       const extra = (local.errores || []).filter((e) => !have.has(errorKey(e)));
       if (extra.length) merged.errores = [...(merged.errores || []), ...extra];
+      // Sorteos de Random Bets: los que no estén ya en GitHub.
+      const draws = new Set((merged.random || []).map((r) => r.id));
+      const moreDraws = (local.random || []).filter((r) => !draws.has(r.id));
+      if (moreDraws.length) merged.random = [...(merged.random || []), ...moreDraws];
       await store.write(path, merged, `Historial: subir datos locales del ${local.date}`);
       days.push(merged);
     } else {

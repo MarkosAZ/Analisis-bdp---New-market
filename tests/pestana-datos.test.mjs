@@ -7,7 +7,7 @@ import { compactDay, compactMatchData, compactMatchStats, expandDay, expandMatch
 import * as D from '../docs/js/datos.js';
 
 const rec = (fields) => Object.entries(fields).map(([k, v]) => `${k}÷${v}`).join('¬') + '¬~';
-const row = (t, homeId, awayId, hs, as, id, league = 'Liga') => rec({ KC: t, UQ: homeId, UO: awayId, KJ: `Equipo ${homeId}`, KK: `Equipo ${awayId}`, KU: hs, KT: as, KP: id, KF: league });
+const row = (t, homeId, awayId, hs, as, id, league = 'Liga', country = 'Perú') => rec({ KC: t, UQ: homeId, UO: awayId, KJ: `Equipo ${homeId}`, KK: `Equipo ${awayId}`, KU: hs, KT: as, KP: id, KF: league, KH: country });
 
 test('H2H de Flashscore: lista de enfrentamientos con su id y quién fue local (sin exhibiciones)', () => {
   const feed = [
@@ -30,6 +30,8 @@ test('H2H de Flashscore: lista de enfrentamientos con su id y quién fue local (
     ],
   );
   assert.equal(d.h2hList[0].home, 'Equipo A');
+  // Con el país de la liga (hay ligas con el mismo nombre en varios países).
+  assert.deepEqual([d.h2hList[0].league, d.h2hList[0].country, d.lastHome[0].league, d.lastHome[0].country], ['Liga', 'Perú', 'Liga', 'Perú']);
 });
 
 test('archivo de un partido: estadísticas orientadas y ida y vuelta (jugadores y abridores)', () => {

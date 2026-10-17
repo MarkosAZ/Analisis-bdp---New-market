@@ -6,6 +6,10 @@
 // "Lejos" depende de cuánto varía cada mercado: la diferencia entre el promedio y la
 // línea se mide en desviaciones de esos mismos partidos (un gol en los goles pesa lo
 // que unos 8 puntos en el total del básquet).
+//
+// Los enfrentamientos entre ambos (o los partidos del jugador contra el rival de hoy)
+// tienen que decir lo mismo: si hay al menos 3, su promedio también queda del lado del
+// error y al menos la mitad pasó la línea hacia ese lado.
 import * as D from './datos.js';
 import { parseMarketId } from './analysis/catalog.js';
 import { matchPlayer } from './analysis/players.js';
@@ -28,6 +32,8 @@ export const LEVELS = {
 const MIN_N = { total: 6, margin: 5 };
 // Desviación mínima (con pocos partidos muy parecidos no se exagera la diferencia).
 const MIN_SD = { total: 0.5, margin: 1 };
+// Enfrentamientos mínimos para que cuenten (con menos, solo los últimos partidos).
+const MIN_H2H = 3;
 
 // Muestra de un mercado: { kind: 'total' | 'margin', values, stat, player }.
 //  - total: el total del partido en los últimos `n` de cada equipo (todos, o el local
@@ -40,7 +46,7 @@ export function sampleOf(data, sport, market, { n = 10, venue = 'all' } = {}) {
   if (spec.t === 'OU' && /^pl_/.test(spec.stat)) {
     const player = matchPlayer(String(spec.n ?? ''), data.players || []);
     if (!player) return null;
-    return { kind: 'total', values: D.playerSeries(D.playerGames(player, { n }), spec.stat).map((x) => x.value), stat: spec.stat, player: player.name };
+    return { kind: 'total', values: D.playerSeries(D.playerGames(player, { n }), spec.stat).map((x) => x.value), stat: spec.stat, player: player.name, side: player.side };
   }
   const statId = TEAM_STAT[sport]?.[market];
   if (!statId || (spec.t !== 'OU' && spec.t !== 'HCP')) return null;
@@ -53,6 +59,25 @@ export function sampleOf(data, sport, market, { n = 10, venue = 'all' } = {}) {
   const ma = margins(away);
   const k = Math.min(mh.length, ma.length);
   return { kind: 'margin', values: Array.from({ length: k }, (_, i) => mh[i] - ma[i]), stat: statId };
+}
+
+// Enfrentamientos: la misma estadística en los últimos `n` entre ambos (como en la
+// pestaña Datos; en el hándicap, la diferencia del local de hoy en cada uno), o lo del
+// jugador en todos sus partidos contra el rival de hoy. { kind, values } o null.
+export function h2hSampleOf(data, sport, market, { n = 10 } = {}) {
+  const spec = parseMarketId(market);
+  if (!data || !spec) return null;
+  if (spec.t === 'OU' && /^pl_/.test(spec.stat)) {
+    const player = matchPlayer(String(spec.n ?? ''), data.players || []);
+    const rival = player && data.abbr ? data.abbr[player.side === 'home' ? 1 : 0] : null;
+    if (!rival) return null;
+    return { kind: 'total', values: D.playerSeries(D.playerGames(player, { vs: rival }), spec.stat).map((x) => x.value) };
+  }
+  const statId = TEAM_STAT[sport]?.[market];
+  if (!statId || (spec.t !== 'OU' && spec.t !== 'HCP')) return null;
+  const stat = D.statById(sport, statId);
+  const total = spec.t === 'OU';
+  return { kind: total ? 'total' : 'margin', values: D.seriesOf((data.h2h || []).slice(0, n), stat, total ? 'total' : 'diff').map((x) => x.value) };
 }
 
 // Frente a la línea: { n, avg, sd, gap, z, up, down, upN, downN }. gap > 0 favorece
@@ -86,7 +111,7 @@ export function lineGroups(lines = []) {
 }
 
 // Errores de cuota de un análisis: por partido y mercado, el más fuerte, del más
-// fuerte al más débil. dataOf(eventId) → datos del partido (expandMatchData) o null.
+// fuerte al más débil (h2h: lo de los enfrentamientos, si hay al menos 3). dataOf(eventId) → datos del partido (expandMatchData) o null.
 export function findErrors(analysis, dataOf, { n = 10, venue = 'all', level = 'media' } = {}) {
   const L = LEVELS[level] || LEVELS.media;
   const out = [];
@@ -95,6 +120,7 @@ export function findErrors(analysis, dataOf, { n = 10, venue = 'all', level = 'm
     const data = ev ? dataOf(eventId) : null;
     if (!data) continue;
     const samples = new Map();
+    const h2hSamples = new Map();
     const best = new Map();
     for (const g of lineGroups(lines)) {
       if (!samples.has(g.market)) samples.set(g.market, sampleOf(data, ev.sport, g.market, { n, venue }));
@@ -104,9 +130,15 @@ export function findErrors(analysis, dataOf, { n = 10, venue = 'all', level = 'm
       const [up, down] = s.kind === 'margin' ? ['home', 'away'] : ['over', 'under'];
       const sel = r.z >= L.z && r.up >= L.hit ? up : r.z <= -L.z && r.down >= L.hit ? down : null;
       if (!sel || !g.sides[sel]) continue;
+      // Los enfrentamientos no pueden decir lo contrario.
+      if (!h2hSamples.has(g.market)) h2hSamples.set(g.market, h2hSampleOf(data, ev.sport, g.market, { n }));
+      const hs = h2hSamples.get(g.market);
+      const vs = hs && hs.values.length >= MIN_H2H ? evaluate(hs.values, g.line, hs.kind) : null;
+      if (vs && !(sel === up ? vs.gap > 0 && vs.up >= 0.5 : vs.gap < 0 && vs.down >= 0.5)) continue;
       const pick = g.sides[sel];
       const other = g.sides[sel === up ? down : up] || null;
-      const e = { eventId, ev, market: g.market, line: g.line, sel, label: pick.label, price: pick.price, source: pick.source, other, kind: s.kind, stat: s.stat, player: s.player || null, ...r, hits: sel === up ? r.upN : r.downN, strength: Math.abs(r.z) };
+      const h2h = vs ? { n: vs.n, avg: vs.avg, hits: sel === up ? vs.upN : vs.downN } : null;
+      const e = { eventId, ev, market: g.market, line: g.line, sel, label: pick.label, price: pick.price, source: pick.source, other, kind: s.kind, stat: s.stat, player: s.player || null, side: s.side || null, ...r, hits: sel === up ? r.upN : r.downN, h2h, strength: Math.abs(r.z) };
       if (!best.has(g.market) || e.strength > best.get(g.market).strength) best.set(g.market, e);
     }
     out.push(...best.values());
@@ -140,6 +172,7 @@ export function trackedErrors(errors, { n, venue, level, run, created } = {}) {
     avg: r1(e.avg),
     hits: e.hits,
     of: e.n,
+    ...(e.h2h ? { h2h: { avg: r1(e.h2h.avg), hits: e.h2h.hits, of: e.h2h.n } } : {}),
     z: r1(e.z),
     settings: { n, venue, level },
     run: run || null,

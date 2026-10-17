@@ -88,6 +88,12 @@ async function fixtures() {
     home: { name: 'Alianza Lima', last: lastOf(1) },
     away: { name: 'Sporting Cristal', last: lastOf(2) },
     h2h: Array.from({ length: 6 }, (_, i) => ({ start: at(-24 * (40 + 60 * i)), home: i % 2 === 0, gf: i % 3, ga: (i + 1) % 2, league: 'Liga 1', stats: compactMatchStats({ corners: { ft: [5 + i, 4] } }, i % 2 === 1) })),
+    // Remates de los jugadores (Flashscore): el que más remata del local y uno de la visita.
+    players: [
+      { side: 'home', name: 'Hernán Barcos', games: Array.from({ length: 6 }, (_, i) => ({ start: at(-24 * (3 + 4 * i)), opp: i === 2 ? 'Sporting Cristal' : 'Melgar', home: i % 2 === 0, min: 90, sh: 3 + (i % 3), sot: 1 + (i % 2), gl: i % 2, xg: 0.4 })) },
+      { side: 'away', name: 'Martín Cauteruccio', games: [{ start: at(-72), opp: 'Cusco FC', home: true, min: 80, sh: 2, sot: 1, gl: 0, xg: 0.2 }] },
+    ],
+    abbr: ['Alianza Lima', 'Sporting Cristal'],
   };
   const nba = { ...ev('b2', 'NBA', 'EE. UU.', 'US', 1000, 'New York Knicks', 'Cleveland Cavaliers', 21), sport: 'basketball' };
   // Como el registro de ESPN: tiros anotados e intentados, sin rebotes ofensivos ni defensivos.
@@ -272,6 +278,18 @@ async function withoutExtension(browser, errors) {
   const caption = await page.textContent('.chart-grid .chart-card .bars-caption');
   const h2h = await page.textContent('#tab-datos .chart-card:has(h3:text("Enfrentamientos"))');
   check('Datos: cada barra muestra su partido y están los enfrentamientos', /local vs|visita en/.test(caption) && /Ganó Alianza Lima/.test(h2h), `${caption} · ${h2h.slice(0, 80)}`);
+  // Jugadores de fútbol: tiros al arco por defecto y remates; contra el rival de hoy.
+  const footGroups = await page.$$eval('.players .stat-group', (els) => els.map((e) => `${e.querySelector('.note').textContent}: ${[...e.querySelectorAll('.chip-btn')].map((b) => b.textContent).join(', ')}`));
+  const sotVals = await page.$$eval('.players .bars .col', (cols) => cols.map((c) => c.querySelector('.val').textContent));
+  await page.click('.players .stat-group .chip-btn:text-is("Remates totales")');
+  const shVals = await page.$$eval('.players .bars .col', (cols) => cols.map((c) => c.querySelector('.val').textContent));
+  await page.click('.players .segmented button:has-text("vs Sporting Cristal")');
+  const vsVals = await page.$$eval('.players .bars .col', (cols) => cols.map((c) => c.querySelector('.val').textContent));
+  check(
+    'Datos: jugadores de fútbol con tiros al arco y remates',
+    JSON.stringify(footGroups) === '["Remates: Tiros al arco, Remates totales","Otras: Goles, xG, Minutos"]' && JSON.stringify(sotVals) === '["2","1","2","1","2","1"]' && JSON.stringify(shVals) === '["5","4","3","5","4","3"]' && JSON.stringify(vsVals) === '["5"]',
+    `${JSON.stringify(footGroups)} · ${JSON.stringify(sotVals)} · ${JSON.stringify(shVals)} · ${JSON.stringify(vsVals)}`,
+  );
   await page.screenshot({ path: path.join(OUT, '9-celular-datos.png'), fullPage: true });
   check('Datos: sin desplazamiento horizontal en el celular', !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)));
   // Diferencia (a favor menos en contra): barras hacia abajo desde el cero cuando perdió.
@@ -313,6 +331,12 @@ async function withoutExtension(browser, errors) {
     errorCards.length === 2 && errorCards.every((c) => c.startsWith('Alianza Lima vs Sporting Cristal')) && errorCards.some((c) => /Más de 6\.5 córners.*@1\.85 Apuesta Total/.test(c)) && errorCards.some((c) => /Menos de 7\.5 tarjetas.*@1\.88 Apuesta Total/.test(c)) && /en 1 de 3 partidos con datos/.test(errorNote),
     `${errorCards.join(' / ')} · ${errorNote.slice(-120)}`,
   );
+  const evidence = await page.$$eval('.error-card .err-evidence', (lists) => lists.map((l) => l.textContent).join(' / '));
+  check(
+    'Errores de cuota: con lo que dicen los enfrentamientos',
+    /En los enfrentamientos: promedio 11\.5 · pasó la línea en 6 de 6/.test(evidence) && /Menos de 3 enfrentamientos con tarjetas en los datos/.test(evidence),
+    evidence,
+  );
   await page.screenshot({ path: path.join(OUT, '10-celular-errores.png'), fullPage: true });
   const savedErrors = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).errores || [];
   check('Errores de cuota: se guardan en el historial con su cuota', savedErrors.length === 2 && savedErrors.every((e) => e.status === 'pending' && e.odds > 1 && e.settings.level === 'media'), JSON.stringify(savedErrors.map((e) => [e.label, e.odds, e.status])));
@@ -328,6 +352,30 @@ async function withoutExtension(browser, errors) {
   await page.click('.tabs button[data-tab="historial"]');
   await page.waitForSelector('.day');
   check('el historial muestra que guarda en GitHub', (await page.textContent('#tab-historial .banner')).includes('Guardando en GitHub'));
+  // Random Bets: sortea 3 entre todas las apuestas por jugar del día (los dos métodos y los errores de cuota).
+  await page.waitForFunction(() => /por jugar/.test(document.querySelector('.random-panel .random-pool')?.textContent || ''), null, { timeout: 15000 });
+  const poolText = await page.textContent('.random-panel .random-pool');
+  await page.fill('.random-panel .random-n', '3');
+  await page.click('.random-panel button:has-text("Random Bets")');
+  await page.waitForFunction(() => /Random Bets:|No se pudo|No quedan/.test(document.querySelector('#toast').textContent), null, { timeout: 15000 });
+  const randomToast = await page.textContent('#toast');
+  await page.waitForSelector('.random-last li');
+  const draws = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).random || [];
+  const drawn = draws[0]?.bets || [];
+  const lastItems = await page.$$eval('.random-last li', (els) => els.map((e) => e.textContent));
+  check(
+    'Random Bets: sortea las pedidas entre los picks de los dos métodos y los errores de cuota y las guarda',
+    /\(\d+ del estadístico · \d+ de la red neuronal · 2 errores de cuota\)/.test(poolText) &&
+      /Random Bets: 3 apuestas sorteadas de \d+, guardadas en el historial/.test(randomToast) &&
+      draws.length === 1 &&
+      drawn.length === 3 &&
+      drawn.every((b) => b.status === 'pending' && b.odds > 1 && b.from.length > 0) &&
+      new Set(drawn.map((b) => `${b.eventId}|${b.market}`)).size === 3 &&
+      lastItems.length === 3,
+    `${poolText} · ${randomToast} · ${JSON.stringify(drawn.map((b) => [b.label, b.from]))}`,
+  );
+  check('Random Bets: sin desplazamiento horizontal en el celular', !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)));
+  await page.locator('.random-panel').screenshot({ path: path.join(OUT, '11-celular-random-bets.png') });
   await page.evaluate(() => {
     const real = Date.now.bind(Date);
     Date.now = () => real() + 36 * 3600000;
@@ -354,6 +402,16 @@ async function withoutExtension(browser, errors) {
     JSON.stringify(settledErrors.sort()) === '["Menos de 7.5 tarjetas: won","Más de 6.5 córners: won"]' && /Todos2100%/.test(errorsPanel.replace(/\s+/g, '')) && /2\/2 · 100%/.test(errorsLine) && (await page.$$('.day-body .method-tag.errores')).length === 1,
     `${settledErrors.join(', ')} · ${errorsPanel.replace(/\s+/g, ' ').slice(-90)} · ${errorsLine}`,
   );
+  const settledRandom = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).random[0].bets;
+  const randomPanelText = (await page.textContent('#tab-historial .grid2 .panel:has(h3:text("Random Bets"))')).replace(/\s+/g, '');
+  const randomLine = await page.textContent('.day-line:has(b:text("Random Bets"))');
+  check(
+    'Random Bets: se liquidan y tienen su seguimiento',
+    settledRandom.every((b) => b.status !== 'pending') && /Todas3/.test(randomPanelText) && /\d\/\d/.test(randomLine) && (await page.$$('.day-body .method-tag.random')).length === 1 && (await page.$$('.day-body .analysis-block:has(.method-tag.random) li')).length === 3,
+    `${settledRandom.map((b) => `${b.label}: ${b.status}`).join(', ')} · ${randomPanelText.slice(0, 120)} · ${randomLine}`,
+  );
+  const errorLegs = await page.textContent('.day-body .analysis-block:has(.method-tag.errores)');
+  check('Errores de cuota: el día muestra los enfrentamientos de cada uno', /prom\. 9\.7 · 18 de 20 · enfrent\. 11\.5 \(6 de 6\)/.test(errorLegs.replace(/\s+/g, ' ')), errorLegs.replace(/\s+/g, ' ').slice(0, 300));
   const index = JSON.parse(repo.get('docs/data/historial/index.json').text).days[DAY];
   check('el resumen guarda los resultados de cada método', index.methods.estadistico.won + index.methods.estadistico.lost > 0 && index.methods.red_neuronal.won + index.methods.red_neuronal.lost > 0, JSON.stringify(index.methods).slice(0, 160));
   await page.click('#tab-historial .segmented button:has-text("Red neuronal")');

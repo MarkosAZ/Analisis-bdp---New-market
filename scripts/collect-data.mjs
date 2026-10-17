@@ -19,7 +19,7 @@
 // Uso: node scripts/collect-data.mjs [salida] (por defecto "site")
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getH2H, getMatchFeeds, getNews as flashscoreNews, getSportDay, SPORT_IDS } from '../extension/sources/flashscore.js';
+import { getFootballPlayerStats, getH2H, getMatchFeeds, getNews as flashscoreNews, getSportDay, SPORT_IDS } from '../extension/sources/flashscore.js';
 import { getAllNews as espnNews, getBoxScore, getPlayerHistory, getPlayerLogs } from '../extension/sources/espn.js';
 import { getNews as fotmobNews } from '../extension/sources/fotmob.js';
 import { compactNews } from '../docs/js/analysis/news.js';
@@ -27,14 +27,14 @@ import { getEventList, getMarkets } from '../extension/sources/apuestatotal.js';
 import { getTeamStrength } from '../extension/sources/understat.js';
 import { basicNorm, bestByName, countryCode, matchEvent } from '../docs/js/analysis/matching.js';
 import { offeredPlayers, offersFromApuestaTotal } from '../docs/js/analysis/markets.js';
-import { basketballLeague, isPreseason, matchPlayer, teamPlayersFromBox } from '../docs/js/analysis/players.js';
+import { basketballLeague, isPreseason, matchPlayer, teamPlayersFromBox, teamPlayersFromPMS } from '../docs/js/analysis/players.js';
 import { isMlb } from '../docs/js/analysis/baseball.js';
 import { getGameContext, lastStarts } from '../extension/sources/mlb.js';
 import { addDays, limaToday } from '../docs/js/util.js';
 import { ACTIVE_SPORTS } from '../docs/js/sports.js';
 import { marketsOf } from '../docs/js/analysis/picks.js';
 import { compactDay, compactMatchData, compactMatchStats, compactResult } from '../docs/js/data-format.js';
-import { parseFsGames, parseFsIncidents, parseFsPlayers, parseFsStats, periodsFromRow, recordFromFlashscore } from '../docs/js/analysis/records.js';
+import { footballPlayersFromPMS, parseFsGames, parseFsIncidents, parseFsPlayers, parseFsStats, periodsFromRow, recordFromFlashscore } from '../docs/js/analysis/records.js';
 import { teamStatsFrom } from '../docs/js/analysis/teamstats.js';
 
 const OUT = path.resolve(process.argv[2] || 'site', 'data/fuente');
@@ -56,10 +56,13 @@ const DATA_H2H = 10;
 const DATA_PLAYER_GAMES = 20;
 const DATA_TOP_PLAYERS = 8; // de cada equipo, los de más minutos (más los que ofrece la casa)
 const PLAYER_HISTORY_CACHE = path.resolve('.cache/jugadores-datos-v1'); // jugadores de la pestaña Datos (por partido)
+const FOOTBALL_PLAYERS_CACHE = path.resolve('.cache/jugadores-futbol-v1'); // remates de cada jugador en partidos de fútbol terminados
 const DATA_STARTS = 20;
 const DATA_BUDGET_MS = 5 * 60000;
 const DATA_H2H_MS = 4 * 60000; // H2H de los partidos sin cuotas (los que no alcanzan, en la próxima corrida)
 const DATA_BOX_MS = 4 * 60000; // estadísticas de jugadores de Flashscore (básquet sin ESPN; quedan en caché)
+const DATA_FOOT_MS = 4 * 60000; // remates de cada jugador de fútbol (Flashscore; quedan en caché)
+const DATA_FOOT_MAX = 1500; // partidos de fútbol nuevos por corrida (dos pedidos cada uno)
 const CACHE_HOURS = 12;
 const AHEAD = [0, 1];
 const BACK = [-7, -6, -5, -4, -3, -2, -1];
@@ -127,20 +130,76 @@ const STATS_BUDGET = budget(DETAIL_BUDGET_MS); // estadísticas de los equipos (
 const RECORDS_BUDGET = budget(DETAIL_BUDGET_MS); // registros de los partidos analizados (liquidar)
 const DATA_BUDGET = budget(DATA_BUDGET_MS); // más partidos y enfrentamientos (pestaña Datos)
 const BOX_BUDGET = budget(DATA_BOX_MS); // jugadores de las ligas de básquet sin ESPN (pestaña Datos)
+const FOOT_BUDGET = { ...budget(DATA_FOOT_MS), max: DATA_FOOT_MAX }; // jugadores de fútbol (pestaña Datos)
 const hasBudget = (b) => b.used < b.max && (!b.start || Date.now() - b.start < b.ms);
 
 // Feeds de detalle de un partido terminado, con caché permanente. De a uno por
 // partido: dos etapas (o dos trabajos) que lo piden a la vez no repiten el pedido ni
 // pisan lo que guardó la otra (el segundo ya lo encuentra en la caché).
 const feedLocks = new Map();
+function withLock(key, run) {
+  const next = (feedLocks.get(key) || Promise.resolve()).then(run, run);
+  const done = next.catch(() => {});
+  feedLocks.set(key, done);
+  done.then(() => feedLocks.get(key) === done && feedLocks.delete(key));
+  return next;
+}
 function feedsCached(fsId, kinds, b) {
   const id = String(fsId).replace(/^fs:/, '');
-  const run = () => readFeeds(id, kinds, b);
-  const next = (feedLocks.get(id) || Promise.resolve()).then(run, run);
-  const done = next.catch(() => {});
-  feedLocks.set(id, done);
-  done.then(() => feedLocks.get(id) === done && feedLocks.delete(id));
-  return next;
+  return withLock(id, () => readFeeds(id, kinds, b));
+}
+
+// Remates de cada jugador de un partido de fútbol terminado (API de Flashscore), con
+// caché permanente de solo lo que usa la página: { teams, players } o null. Un partido
+// sin esa tabla (la API responde 404: las ligas menores no la tienen) se recuerda como
+// tal si ya pasaron 2 días (antes puede llegar tarde). En cada corrida, una liga cuyos
+// primeros 3 partidos no la tienen (y ninguno sí) no se sigue pidiendo. La liga es su
+// país y su nombre ("Austria|2. Liga": hay ligas con el mismo nombre en varios países);
+// sin los dos (H2H guardados antes de leer el país) no se salta nada.
+const footballBoxes = new Map();
+const footballLeagues = new Map(); // "país|liga" -> { none, ok } en esta corrida
+const leagueKey = (m) => (m.country && m.league ? `${m.country}|${m.league}` : '');
+const leagueWithout = (league) => {
+  const s = league ? footballLeagues.get(league) : null;
+  return Boolean(s && s.ok === 0 && s.none >= 3);
+};
+function footballPlayersOf(fsId, start, league = '') {
+  const id = String(fsId).replace(/^fs:/, '');
+  if (!footballBoxes.has(id)) {
+    const p = withLock(`futbol:${id}`, async () => {
+      const file = path.join(FOOTBALL_PLAYERS_CACHE, `${id}.json`);
+      try {
+        const cached = JSON.parse(await fs.readFile(file, 'utf8'));
+        return cached.none ? null : cached;
+      } catch {
+        // sin caché
+      }
+      if (!hasBudget(FOOT_BUDGET) || leagueWithout(league)) return undefined;
+      FOOT_BUDGET.start ||= Date.now();
+      FOOT_BUDGET.used++;
+      let data;
+      try {
+        const { sse, sd } = await getFootballPlayerStats(id);
+        data = footballPlayersFromPMS(sse, sd);
+      } catch (e) {
+        if (e?.status !== 404) return undefined; // otro error: se reintenta en la próxima corrida
+        data = null;
+      }
+      if (league) {
+        const stats = footballLeagues.get(league) || { none: 0, ok: 0 };
+        stats[data ? 'ok' : 'none']++;
+        footballLeagues.set(league, stats);
+      }
+      if (data) await writeJson(file, data);
+      else if (Date.now() - start > 2 * 86400000) await writeJson(file, { none: true });
+      return data;
+    }).then((data) => {
+      if (data === undefined) footballBoxes.delete(id); // sin presupuesto o con error: otro puede pedirlo
+      return data ?? null;
+    });
+    footballBoxes.set(id, p);
+  }
+  return footballBoxes.get(id);
 }
 
 async function readFeeds(id, kinds, b) {
@@ -315,6 +374,7 @@ async function main() {
   await pruneCache(PLAYERS_CACHE);
   await pruneCache(PLAYER_LOGS_CACHE, 3);
   await pruneCache(PLAYER_HISTORY_CACHE, 3);
+  await pruneCache(FOOTBALL_PLAYERS_CACHE, 150); // 15 partidos de un equipo pueden ser 4 meses
   const started = Date.now();
   const sports = Object.keys(SPORT_IDS).filter((s) => ACTIVE_SPORTS.includes(s)); // solo fútbol, básquet y béisbol
   const upcoming = {}; // fecha -> deporte -> partidos
@@ -559,6 +619,33 @@ async function main() {
           abbr = [ev.home.name, ev.away.name]; // el rival de cada partido va con su nombre
           dataPlayers++;
         }
+      } else if (ev.sport === 'football' && ev.state === 'pendiente') {
+        // Fútbol: remates y tiros al arco de cada jugador (API de Flashscore) en los
+        // últimos 15 partidos de cada equipo y sus enfrentamientos.
+        const sameTeam = (a, b) => basicNorm(a) === basicNorm(b);
+        const side = async (last, isHome, rival) => {
+          const matches = [];
+          const seen = new Set();
+          const add = async (fsId, start, home, opp, league) => {
+            if (!fsId || seen.has(fsId)) return;
+            seen.add(fsId);
+            const data = await footballPlayersOf(fsId, start, league);
+            if (data) matches.push({ start, home, opp: sameTeam(opp, rival) ? rival : opp, data });
+          };
+          for (const m of (last || []).slice(0, DATA_MATCHES)) await add(m.fsId, m.start, m.home, m.opp, leagueKey(m));
+          for (const m of (d.h2hList || []).slice(0, DATA_H2H)) {
+            const home = m.homeId && ev.home.id ? m.homeId === ev.home.id : sameTeam(m.home, ev.home.name);
+            await add(m.fsId, m.start, isHome ? home : !home, rival, leagueKey(m));
+          }
+          return teamPlayersFromPMS(matches.sort((a, b) => b.start - a.start), { top: DATA_TOP_PLAYERS });
+        };
+        for (const [s, list] of [['home', await side(d.lastHome, true, ev.away.name)], ['away', await side(d.lastAway, false, ev.home.name)]]) {
+          for (const p of list) players.push({ side: s, name: p.name, games: p.games.filter((g, i) => i < DATA_PLAYER_GAMES || g.opp === (s === 'home' ? ev.away.name : ev.home.name)) });
+        }
+        if (players.length) {
+          abbr = [ev.home.name, ev.away.name];
+          dataPlayers++;
+        }
       }
       // Abridores (MLB): sus últimas aperturas (si no se pueden leer, las del contexto).
       let pitchers = null;
@@ -580,7 +667,7 @@ async function main() {
     },
     8,
   );
-  log(`Datos: ${Object.keys(matchData).length} partidos (${rest.length} sin cuotas: ${extra.missing} sin H2H todavía, ${extra.errors} errores; ${DATA_BUDGET.used} feeds nuevos; ${dataPlayers} con jugadores (${BOX_BUDGET.used} tablas de Flashscore nuevas), ${dataPitchers} con abridores)`);
+  log(`Datos: ${Object.keys(matchData).length} partidos (${rest.length} sin cuotas: ${extra.missing} sin H2H todavía, ${extra.errors} errores; ${DATA_BUDGET.used} feeds nuevos; ${dataPlayers} con jugadores (${BOX_BUDGET.used} tablas de básquet y ${FOOT_BUDGET.used} partidos de fútbol nuevos de Flashscore), ${dataPitchers} con abridores)`);
 
   // 4) xG de Understat (fútbol, 5 grandes ligas).
   const xg = {};

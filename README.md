@@ -47,6 +47,14 @@ historial de resultados. Funciona en el **celular y en la PC**:
     P+R, P+A, R+A); tiros de campo, triples, de 2 y libres, anotados e intentados;
     robos, tapones, robos+tapones, pérdidas y minutos. Con la línea de la casa si
     la ofrece (si no, una cerca del promedio).
+  - **Jugadores del fútbol**: de las estadísticas de jugadores de Flashscore de los
+    últimos 15 partidos de cada equipo y de sus enfrentamientos, los 8 que más
+    rematan de cada equipo (sin arqueros). Sus últimos 5, 10, 15 o 20 partidos o
+    los que jugó contra el rival de hoy, en tiros al arco y remates totales; y
+    goles, goles esperados (xG) y minutos. Las ligas menores no tienen esa tabla
+    (en cada corrida, una liga cuyos primeros 3 partidos no la tienen no se sigue
+    pidiendo); los partidos quedan en caché y se completan de a poco (hasta 1500
+    partidos nuevos o 4 minutos por actualización).
   - **Abridores de la MLB**: sus últimas 5, 10 o 20 aperturas en ponches, hits
     y carreras limpias permitidos, bases por bolas y entradas lanzadas.
   - Cada partido es un archivo `data/fuente/datos/<id>.json` (unos 4 KB) que la
@@ -63,7 +71,13 @@ historial de resultados. Funciona en el **celular y en la PC**:
   jugador, queda lejos de la línea y lo confirma cuántas veces la pasaron, la opción
   que favorecen los datos aparece como error de cuota, con su cuota, la de la otra
   opción y la probabilidad del análisis. Ejemplo: promedio de 3.5 goles con la línea
-  en 2.5 → "Más de 2.5". Qué tan lejos depende de cuánto varía cada mercado (la
+  en 2.5 → "Más de 2.5". Los enfrentamientos entre ambos (los mismos últimos 5, 10
+  o 15 de la pestaña Datos; en los de jugador, sus partidos contra el rival de hoy)
+  tienen que decir lo mismo: si hay al menos 3 con esa estadística, su promedio
+  también queda de ese lado de la línea y al menos la mitad la pasó hacia ese lado
+  (si los dos equipos promedian 3.4 goles pero sus enfrentamientos 2.2, "Más de
+  2.5" no es error). La tarjeta y el Historial muestran lo de los enfrentamientos.
+  Qué tan lejos depende de cuánto varía cada mercado (la
   diferencia se mide en desviaciones de esos partidos: un gol pesa lo que varios
   puntos en el básquet) y de la exigencia elegida:
   - baja: 0.25 desviaciones y 55 % de los partidos de ese lado;
@@ -220,6 +234,18 @@ historial de resultados. Funciona en el **celular y en la PC**:
   jugó, la apuesta queda nula). Si un mismo pick sale en dos análisis del mismo día
   y método, cuenta una sola vez; una apuesta cuyo dato no publica ninguna
   fuente queda nula a los 4 días.
+- **Random Bets** (en Historial): eliges cuántas y el botón *Random Bets* las
+  sortea entre todas las apuestas que mandó el análisis del día elegido arriba:
+  los picks del estadístico y de la red neuronal (de todos los niveles; lo
+  último de cada mercado si se volvió a analizar) y los errores de cuota. Solo
+  las de partidos que todavía no empiezan y una vez cada una (si dos métodos
+  mandaron la misma, cuenta una, con la mejor cuota y de dónde salió). Cada
+  mercado de cada partido tiene la misma probabilidad de salir: se barajan con el
+  generador criptográfico del navegador (`crypto.getRandomValues`, no
+  `Math.random`) y, si los análisis mandaron dos opciones del mismo mercado (el
+  otro lado u otra línea), sale una de ellas, al azar. Cada sorteo se guarda en el historial del día y se
+  liquida como los picks; el panel "Random Bets" da resueltas, aciertos, ganancia
+  y ROI (a 1 u cada una), en total y por deporte, y cada día muestra sus sorteos.
 
 Los niveles, la cuota mínima de las selecciones de las combinadas, las cuotas
 objetivo de las combinadas, **cuáles

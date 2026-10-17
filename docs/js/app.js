@@ -70,6 +70,7 @@ const app = {
     // quién y líneas elegidas con − y +; jugadores (básquet) y abridores (béisbol).
     datos: { id: null, n: 10, venue: 'all', stat: null, who: 'total', line: {}, search: '', onlyOdds: false, open: {}, player: null, playerStat: null, playerN: 10, playerVs: false, pitcherStat: 'k', pitcherN: 10 },
     errores: { n: 10, venue: 'all', level: 'media' },
+    randomN: LS.get('bdp:random-n', 5), // cuántas apuestas sortea Random Bets (Historial)
     settings: savedSettings(),
   },
 };
@@ -387,6 +388,42 @@ async function loadDay(date) {
   }
   if (app.state.tab === 'historial') render();
 }
+
+// Lee el día (una vez) aunque no esté abierto: Random Bets sortea entre sus apuestas.
+const dayLoading = new Set();
+app.ensureDay = (date) => {
+  if (app.state.dayCache.has(date) || dayLoading.has(date)) return;
+  dayLoading.add(date);
+  loadDay(date).finally(() => dayLoading.delete(date));
+};
+
+app.setRandomN = (n) => {
+  app.state.randomN = Math.min(99, Math.max(1, Math.round(Number(n)) || 1));
+  LS.set('bdp:random-n', app.state.randomN);
+};
+
+// Random Bets: sortea entre las apuestas por jugar del día elegido arriba y lo guarda en su historial.
+app.randomBets = async (n) => {
+  app.setRandomN(n);
+  const { date, randomN } = app.state;
+  busy('Random Bets', 'Sorteando y guardando…', 0.5);
+  try {
+    const r = await history.saveRandomDraw(date, randomN);
+    app.state.dayCache.set(date, r.day ?? null);
+    if (!r.draw) toast('No quedan apuestas por jugar de ese día');
+    else {
+      app.state.index = await history.loadIndex();
+      const k = r.draw.bets.length;
+      const short = k < randomN ? ` (solo había ${k} de mercados distintos)` : '';
+      toast(`Random Bets: ${k} ${k === 1 ? 'apuesta sorteada' : 'apuestas sorteadas'} de ${r.pool}${short}, guardadas en el historial`, 6000);
+    }
+  } catch (e) {
+    toast(`No se pudo sortear: ${e.message}`, 6000);
+  } finally {
+    idle();
+  }
+  render();
+};
 
 app.toggleDay = (date) => {
   const { openDays, dayCache } = app.state;

@@ -113,6 +113,20 @@ async function directFeed(name) {
   throw new FetchError(`Flashscore no responde: ${last?.message}`, { mode: 'direct', url: `${directBase}/${name}` });
 }
 
+// Estadísticas de cada jugador de un partido de fútbol (la API de la pestaña
+// "Estadísticas de jugadores"): las dos respuestas tal cual, { sse (equipos y
+// jugadores), sd (estadísticas) }; las lee records.footballPlayersFromPMS. Solo
+// directo (GitHub Actions).
+const PMS_API = 'https://global.ds.lsapp.eu/pq_graphql';
+export async function getFootballPlayerStats(fsId) {
+  const id = String(fsId).replace(/^fs:/, '');
+  const [sse, sd] = await Promise.all([
+    fetchDirect(`${PMS_API}?_hash=epmsse&eventId=${id}&projectId=203`, { as: 'json', timeout: 20000 }),
+    fetchDirect(`${PMS_API}?_hash=epmsd&eventId=${id}&providerId=7`, { as: 'json', timeout: 30000 }),
+  ]);
+  return { sse, sd };
+}
+
 // Varios feeds a la vez: { nombre: texto o null (sin datos) }.
 async function feeds(names) {
   if (!names.length) return { texts: {}, mode: inExtension ? 'tab' : 'direct' };
@@ -301,6 +315,7 @@ export function parseH2H(text) {
         focusHome: r.KS === 'home',
         result: r.WIS || null, // w / l / d para el equipo de la sección
         league: r.KF || '',
+        country: r.KH || '', // país (o "Mundial") de la liga: hay ligas con el mismo nombre en varios países
       });
     }
   }
@@ -314,7 +329,7 @@ function toLast(row, teamId) {
   const ga = home ? row.as : row.hs;
   let r = { w: 'W', l: 'L', d: 'D' }[row.result?.[0]];
   if (!r && gf != null && ga != null) r = gf > ga ? 'W' : gf < ga ? 'L' : 'D';
-  return { start: row.start, home, gf, ga, r: r || 'D', opp: home ? row.away : row.home, league: row.league, fsId: row.id || null };
+  return { start: row.start, home, gf, ga, r: r || 'D', opp: home ? row.away : row.home, league: row.league, country: row.country || '', fsId: row.id || null };
 }
 
 // ev: partido con home.id / away.id de Flashscore. Devuelve los datos que usa el modelo.
@@ -362,7 +377,7 @@ export function h2hData(sections, homeId, awayId) {
   // del más reciente al más antiguo (pestaña Datos de la página).
   const h2hList = (duel?.rows || [])
     .filter((row) => row.hs != null && row.as != null && !isExhibition(row.league))
-    .map((row) => ({ start: row.start, fsId: row.id, homeId: row.homeId, awayId: row.awayId, home: row.home, away: row.away, hs: row.hs, as: row.as, league: row.league }))
+    .map((row) => ({ start: row.start, fsId: row.id, homeId: row.homeId, awayId: row.awayId, home: row.home, away: row.away, hs: row.hs, as: row.as, league: row.league, country: row.country || '' }))
     .sort((a, b) => b.start - a.start);
   return { lastHome: last(homeId), lastAway: last(awayId), h2h, h2hGames: h2hGames.slice(0, 10), h2hList };
 }

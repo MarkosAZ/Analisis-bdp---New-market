@@ -214,9 +214,15 @@ const START_ROW = ['ip', 'h', 'er', 'bb', 'k', 'hr'];
 //  last: [{ start, home, opp, gf, ga, league, stats }] (stats: [a favor, en contra])
 //  h2h: [{ start, home (el local de hoy fue local), gf, ga (del local de hoy), league, stats ([local de hoy, visita de hoy]) }]
 //  players: [{ side: 'home' | 'away', name, games: [{ start, opp, home, min, pts, ... }] }]
+//    (fútbol: min, sh remates, sot tiros al arco, gl goles, xg)
 //  abbr: [sigla del local, sigla de la visita] (las de `opp` en los partidos de los jugadores)
 //  pitchers: { home: { name, starts: [{ start, opp, ip, h, er, bb, k, hr }] }, away }
+// Campos de cada partido de un jugador en el archivo de un partido, por deporte.
+const MATCH_PLAYER_FIELDS = { football: ['min', 'sh', 'sot', 'gl', 'xg'] };
+const playerFieldsOf = (sport) => MATCH_PLAYER_FIELDS[sport] || PLAYER_FIELDS;
+
 export function compactMatchData(d) {
+  const fields = playerFieldsOf(d.sport);
   const leagues = [];
   const li = (name) => {
     const i = leagues.indexOf(name || '');
@@ -226,7 +232,7 @@ export function compactMatchData(d) {
   const last = (list = []) => list.map((m) => [ts(m.start), m.home ? 1 : 0, m.opp || '', m.gf, m.ga, li(m.league), m.stats || 0]);
   const out = { v: 1, id: d.id, sp: d.sport, g: d.generated, n: [d.home?.name || '', d.away?.name || ''], h: last(d.home?.last), a: last(d.away?.last), hh: (d.h2h || []).map((m) => [ts(m.start), m.home ? 1 : 0, m.gf, m.ga, li(m.league), m.stats || 0]) };
   if (d.abbr) out.ab = d.abbr;
-  if (d.players?.length) out.pl = d.players.map((p) => [p.side === 'away' ? 'a' : 'h', p.name, p.games.map((g) => [ts(g.start), g.opp || '', g.home == null ? null : g.home ? 1 : 0, ...PLAYER_FIELDS.map((f) => g[f] ?? null)])]);
+  if (d.players?.length) out.pl = d.players.map((p) => [p.side === 'away' ? 'a' : 'h', p.name, p.games.map((g) => [ts(g.start), g.opp || '', g.home == null ? null : g.home ? 1 : 0, ...fields.map((f) => g[f] ?? null)])]);
   const pitcher = (p) => (p ? [p.name || '', (p.starts || []).map((g) => [ts(g.start), g.opp || '', ...START_ROW.map((f) => (f === 'ip' ? Math.round(g.ip * 1000) / 1000 : g[f] ?? null))])] : null);
   if (d.pitchers?.home || d.pitchers?.away) out.mp = { h: pitcher(d.pitchers.home), a: pitcher(d.pitchers.away) };
   out.L = leagues;
@@ -234,6 +240,7 @@ export function compactMatchData(d) {
 }
 
 export function expandMatchData(c) {
+  const fields = playerFieldsOf(c.sp);
   const league = (i) => c.L?.[i] || '';
   const last = (list = []) => list.map(([st, home, opp, gf, ga, l, stats]) => ({ start: st * 1000, home: Boolean(home), opp, gf, ga, league: league(l), stats: expandMatchStats(stats || null) }));
   const pitcher = (p) => (p ? { name: p[0], starts: p[1].map(([st, opp, ...v]) => ({ start: st * 1000, opp, ...Object.fromEntries(START_ROW.map((f, i) => [f, v[i]])) })) } : null);
@@ -247,7 +254,7 @@ export function expandMatchData(c) {
     players: (c.pl || []).map(([side, name, games]) => ({
       side: side === 'a' ? 'away' : 'home',
       name,
-      games: games.map(([st, opp, home, ...v]) => ({ start: st * 1000, opp, home: home == null ? null : Boolean(home), ...Object.fromEntries(PLAYER_FIELDS.map((f, i) => [f, v[i] ?? null])) })),
+      games: games.map(([st, opp, home, ...v]) => ({ start: st * 1000, opp, home: home == null ? null : Boolean(home), ...Object.fromEntries(fields.map((f, i) => [f, v[i] ?? null])) })),
     })),
     abbr: c.ab || null,
     pitchers: c.mp ? { home: pitcher(c.mp.h), away: pitcher(c.mp.a) } : null,
