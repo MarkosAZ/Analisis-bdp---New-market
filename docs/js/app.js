@@ -10,6 +10,7 @@ import { isActiveSport, sportOf } from './sports.js';
 import { addDays, h, limaToday, versionBefore } from './util.js';
 import { PartidosView } from './views/partidos.js';
 import { DatosView } from './views/datos.js';
+import { ErroresView } from './views/errores.js';
 import { analysisText, renderAnalisis, viewSport } from './views/analisis.js';
 import { renderHistorial } from './views/historial.js';
 
@@ -49,6 +50,7 @@ const app = {
     source: LS.get('bdp:fuente', null), // 'auto' (datos publicados) o 'sofascore' (extensión)
     events: new Map(), // "fuente|fecha|deporte" -> { status, items, error, withOdds, generated }
     onlyOdds: LS.get('bdp:solo-cuotas', true),
+    pinned: new Set(LS.get('bdp:fijadas', [])), // ligas fijadas arriba en Partidos (ver PartidosView.pinKey)
     selected: new Map(), // id -> evento (del día elegido)
     search: '',
     onlyPending: true,
@@ -67,6 +69,7 @@ const app = {
     // Pestaña Datos: partido abierto, cuántos partidos, local/visita, estadística, de
     // quién y líneas elegidas con − y +; jugadores (básquet) y abridores (béisbol).
     datos: { id: null, n: 10, venue: 'all', stat: null, who: 'total', line: {}, search: '', onlyOdds: false, open: {}, player: null, playerStat: null, playerN: 10, playerVs: false, pitcherStat: 'k', pitcherN: 10 },
+    errores: { n: 10, venue: 'all', level: 'media' },
     settings: savedSettings(),
   },
 };
@@ -148,6 +151,7 @@ function render() {
   renderHeader();
   if (app.state.tab === 'partidos') views.partidos.render();
   if (app.state.tab === 'datos') views.datos.render();
+  if (app.state.tab === 'errores') views.errores.render();
   if (app.state.tab === 'analisis') renderAnalisis($('#tab-analisis'), app);
   if (app.state.tab === 'historial') renderHistorial($('#tab-historial'), app);
 }
@@ -156,9 +160,27 @@ function showTab(tab) {
   app.state.tab = tab;
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('active', b.dataset.tab === tab);
   // Sin la sección (un index.html anterior todavía en la caché del navegador), se salta.
-  for (const t of ['partidos', 'datos', 'analisis', 'historial']) if ($(`#tab-${t}`)) $(`#tab-${t}`).hidden = t !== tab;
+  for (const t of ['partidos', 'datos', 'errores', 'analisis', 'historial']) if ($(`#tab-${t}`)) $(`#tab-${t}`).hidden = t !== tab;
   render();
 }
+app.showTab = showTab;
+
+// Abre un partido en la pestaña Datos (desde Errores de cuota) con su día y deporte.
+app.openDatos = (patch, { date, sport }) => {
+  Object.assign(app.state.datos, patch);
+  if (date && date !== app.state.date) {
+    app.state.date = date;
+    app.state.expanded.clear();
+    loadSelection();
+  }
+  if (sport && sport !== app.state.sport) {
+    app.state.sport = sport;
+    LS.set('bdp:deporte', sport);
+  }
+  showTab('datos');
+  window.scrollTo?.({ top: 0 });
+  app.loadSport(app.state.sport);
+};
 
 // ---- Partidos y selección ----
 
@@ -197,6 +219,12 @@ app.setSource = (source) => {
 app.setOnlyOdds = (on) => {
   app.state.onlyOdds = on;
   LS.set('bdp:solo-cuotas', on);
+};
+
+app.togglePin = (key) => {
+  const { pinned } = app.state;
+  pinned.has(key) ? pinned.delete(key) : pinned.add(key);
+  LS.set('bdp:fijadas', [...pinned]);
 };
 
 // Partidos automáticos (publicados cada 2 horas): hoy y mañana.
@@ -249,7 +277,8 @@ app.canSave = () => store.canWrite();
 
 // Guarda en el historial los análisis que aún no se guardaron.
 app.saveAnalyses = async (list = Object.values(app.state.analyses)) => {
-  const pending = list.filter((a) => a && !a.saved && a.candidates.length);
+  // También sin picks si tiene errores de cuota (el modelo pide más partidos que los errores).
+  const pending = list.filter((a) => a && !a.saved && (a.candidates.length || a.errores?.length));
   if (!pending.length || !store.canWrite()) return;
   try {
     await history.saveAnalysis(pending);
@@ -287,6 +316,9 @@ async function runAnalysis(methods) {
     app.state.analysisView = methods[0];
     idle();
     showTab('analisis');
+    // Errores de cuota (lee los datos de los partidos): van al historial con el análisis.
+    const errores = await views.errores.track().catch(() => []);
+    for (const r of Object.values(results)) r.errores = errores;
     if (store.canWrite()) {
       busy('Guardando en el historial…', '', 1);
       await app.saveAnalyses(Object.values(results));
@@ -509,6 +541,7 @@ function closeSettings(action) {
 async function init() {
   views.partidos = new PartidosView($('#tab-partidos'), app);
   views.datos = new DatosView($('#tab-datos'), app);
+  views.errores = new ErroresView($('#tab-errores'), app);
   for (const b of document.querySelectorAll('.tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
   $('#date').addEventListener('change', (e) => e.target.value && setDate(e.target.value));
   $('#prev-day').addEventListener('click', () => setDate(addDays(app.state.date, -1)));

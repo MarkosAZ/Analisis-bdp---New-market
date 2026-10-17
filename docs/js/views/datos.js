@@ -38,12 +38,12 @@ function segmented(options, value, onPick, label) {
 }
 
 // Línea con − y +: `source` dice de dónde salió (la casa o elegida).
-function lineControl(line, step, source, onChange) {
+function lineControl(line, step, source, onChange, min = 0.5) {
   return h(
     'div',
     { class: 'line-ctl' },
     h('span', { class: 'note' }, 'Línea'),
-    h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Bajar la línea', onclick: () => onChange(Math.max(0.5, line - step)) }, '−'),
+    h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Bajar la línea', onclick: () => onChange(Math.max(min, line - step)) }, '−'),
     h('b', { class: 'line-val' }, fmtNum(line)),
     h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Subir la línea', onclick: () => onChange(line + step) }, '+'),
     h('span', { class: 'note' }, source),
@@ -90,6 +90,7 @@ export class DatosView {
       const data = await provider.loadDay(date, sport);
       if (this.day.key !== key) return;
       this.day = { key, status: data ? 'ok' : 'nodata', data };
+      if (this.st.id && !data?.events?.some((e) => e.id === this.st.id)) this.st.id = null;
     } catch (e) {
       if (this.day.key === key) this.day = { key, status: 'error', error: e.message };
     }
@@ -117,10 +118,8 @@ export class DatosView {
   render() {
     const { state } = this.app;
     const key = `${state.date}|${state.sport}`;
-    if (this.day?.key !== key) {
-      this.loadDay();
-      if (this.st.id && !this.day?.data?.events?.some((e) => e.id === this.st.id)) this.st.id = null;
-    }
+    // Otro día o deporte: el partido abierto se cierra si no está en el nuevo (al cargarlo).
+    if (this.day?.key !== key) this.loadDay();
     const ev = this.day?.data?.events?.find((e) => e.id === this.st.id) || null;
     if (ev && this.match?.id !== ev.id) this.loadMatch(ev.id);
     this.root.replaceChildren(
@@ -301,14 +300,14 @@ export class DatosView {
     const sa = D.seriesOf(away, stat, who);
     const key = `${stat.id}|${who}`;
     const offered = who === 'total' ? D.offeredLine(offers, stat.market) : null;
-    return { stats, stat, who, home, away, sh, sa, key, venueHome, venueAway, ...this.lineFor(key, [...sh, ...sa].map((x) => x.value), offered) };
+    return { stats, stat, who, home, away, sh, sa, key, venueHome, venueAway, ...this.lineFor(key, [...sh, ...sa].map((x) => x.value), offered, { min: who === 'diff' ? -Infinity : 0.5 }) };
   }
 
   // Línea de la estadística elegida: la guardada (elegida con − y +), la de la casa o una cerca del promedio.
-  lineFor(key, values, offered) {
-    if (Number.isFinite(this.st.line[key])) return { line: this.st.line[key], source: Number.isFinite(offered) ? 'elegida (la de Apuesta Total es ' + fmtNum(offered) + ')' : 'elegida' };
+  lineFor(key, values, offered, { min = 0.5 } = {}) {
+    if (Number.isFinite(this.st.line[key]) && this.st.line[key] !== offered) return { line: this.st.line[key], source: Number.isFinite(offered) ? 'elegida (la de Apuesta Total es ' + fmtNum(offered) + ')' : 'elegida' };
     if (Number.isFinite(offered)) return { line: offered, source: 'de Apuesta Total' };
-    return { line: D.defaultLine(values), source: 'cerca del promedio' };
+    return { line: D.defaultLine(values, null, { min }), source: 'cerca del promedio' };
   }
 
   // Filtros de una fila sobre todos los gráficos de equipo y de enfrentamientos.
@@ -325,7 +324,7 @@ export class DatosView {
         segmented(Object.entries(D.WHO), who, (w) => this.set({ who: w }), 'De quién'),
       ),
       h('div', { class: 'stat-chips', role: 'group', 'aria-label': 'Estadística' }, stats.map((s) => h('button', { type: 'button', class: `chip-btn${s.id === stat.id ? ' active' : ''}`, 'aria-pressed': String(s.id === stat.id), onclick: () => this.set({ stat: s.id }) }, s.name))),
-      lineControl(line, stat.step, source, (v) => this.set({ line: { ...st.line, [key]: v } })),
+      lineControl(line, stat.step, source, (v) => this.set({ line: { ...st.line, [key]: v } }), who === 'diff' ? -Infinity : 0.5),
     );
   }
 
@@ -335,7 +334,7 @@ export class DatosView {
         'div',
         { class: 'panel chart-card' },
         h('h3', {}, name, h('span', { class: 'note' }, ` · últimos ${matches.length}${where}`)),
-        h('p', { class: 'note' }, `${stat.name} ${who === 'total' ? 'del partido' : who === 'for' ? `de ${name}` : `en contra de ${name}`}, partido a partido (el más reciente a la derecha).`),
+        h('p', { class: 'note' }, `${stat.name} ${who === 'total' ? 'del partido' : who === 'for' ? `de ${name}` : who === 'diff' ? `de ${name} menos los del rival` : `en contra de ${name}`}, partido a partido (el más reciente a la derecha).`),
         summaryRow(D.summarize(series.map((x) => x.value), line), line),
         barChart({
           name: `${stat.name}: ${name}`,

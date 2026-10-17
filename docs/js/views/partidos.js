@@ -10,6 +10,14 @@ import { basicNorm } from '../analysis/matching.js';
 
 const MAX_EXPANDED_ON_SEARCH = 60;
 
+// Liga fijada: deporte, país y nombre (no el id, que cambia entre Sofascore y Flashscore).
+export const pinKey = (e) => `${e.sport}|${basicNorm(e.category?.name || '')}|${basicNorm(e.tournament?.name || '')}`;
+const byName = (a, b) => (a || '').localeCompare(b || '', 'es', { sensitivity: 'base' });
+
+// Ícono de pin (contorno; relleno si está fijada).
+const PIN_SVG = (on) =>
+  `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="${on ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>`;
+
 export class PartidosView {
   constructor(root, app) {
     this.root = root;
@@ -153,13 +161,17 @@ export class PartidosView {
         basicNorm(`${e.home.name} ${e.away.name} ${e.tournament.name} ${e.category.name}`).includes(q),
       );
     }
+    // Primero las fijadas; después por país de la A a la Z y, en cada país, la liga más
+    // importante primero.
+    const { pinned } = state;
     const groups = [...groupBy(items, (e) => `${e.category.name}|${e.tournament.id}`).entries()]
-      .map(([key, events]) => ({ key, events: events.sort((a, b) => a.start - b.start), first: events[0] }))
+      .map(([key, events]) => ({ key, events: events.sort((a, b) => a.start - b.start), first: events[0], pin: pinKey(events[0]) }))
       .sort(
         (a, b) =>
+          Number(pinned.has(b.pin)) - Number(pinned.has(a.pin)) ||
+          byName(a.first.category.name, b.first.category.name) ||
           (b.first.tournament.priority || 0) - (a.first.tournament.priority || 0) ||
-          a.first.category.name.localeCompare(b.first.category.name) ||
-          a.first.tournament.name.localeCompare(b.first.tournament.name),
+          byName(a.first.tournament.name, b.first.tournament.name),
       );
     return { data, groups };
   }
@@ -279,8 +291,21 @@ export class PartidosView {
       h('span', { class: 'country' }, g.first.category.name),
       h('span', { class: 'name' }, g.first.tournament.name),
     );
-    const head = h('div', { class: 'league-head' }, check, title, h('span', { class: 'count' }, `${nSel ? `${nSel}/` : ''}${g.events.length}`));
-    const box = h('div', { class: 'league' }, head);
+    const isPinned = app.state.pinned.has(g.pin);
+    const pin = h('button', {
+      type: 'button',
+      class: `pin-btn${isPinned ? ' on' : ''}`,
+      'aria-pressed': String(isPinned),
+      'aria-label': `${isPinned ? 'Quitar' : 'Fijar'} ${g.first.tournament.name} ${isPinned ? 'de arriba' : 'arriba'}`,
+      title: isPinned ? 'Quitar de las fijadas' : 'Fijar arriba',
+      onclick: () => {
+        app.togglePin(g.pin);
+        this.renderList();
+      },
+    });
+    pin.innerHTML = PIN_SVG(isPinned);
+    const head = h('div', { class: 'league-head' }, check, title, h('span', { class: 'count' }, `${nSel ? `${nSel}/` : ''}${g.events.length}`), pin);
+    const box = h('div', { class: `league${isPinned ? ' pinned' : ''}` }, head);
     if (open) box.append(h('div', { class: 'matches' }, g.events.map((e) => this.match(e))));
     return box;
   }

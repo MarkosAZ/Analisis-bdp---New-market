@@ -97,6 +97,11 @@ test('barras: resumen frente a la línea (justo en la línea no cuenta) y línea
   assert.equal(D.defaultLine([9, 10, 8, 10]), 8.5);
   assert.equal(D.defaultLine([], null), 0.5);
   assert.equal(D.defaultLine([9, 10], 9.5), 9.5);
+  // Diferencia (a favor menos en contra, para el hándicap): puede ser negativa.
+  assert.equal(D.valueOf([3, 5], 'diff'), -2);
+  assert.deepEqual(D.seriesOf(LAST, GOALS, 'diff').map((x) => x.value), [1, -1, 1, 0, 1]);
+  assert.equal(D.defaultLine([-4, -6], null, { min: -Infinity }), -5.5);
+  assert.equal(D.defaultLine([-4, -6]), 0.5);
 });
 
 test('barras: la línea de la casa es la más pareja (la entera solo si no hay .5)', () => {

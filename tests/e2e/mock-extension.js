@@ -62,7 +62,8 @@
     }
   }
   // Partidos ya jugados o en juego (solo para mostrar).
-  const serieA = { t: { id: 23, name: 'Serie A', priority: 850 }, c: { name: 'Italy', alpha2: 'IT' } };
+  // La más importante, pero Italia va después de England (Partidos ordena por país).
+  const serieA = { t: { id: 23, name: 'Serie A', priority: 950 }, c: { name: 'Italy', alpha2: 'IT' } };
   const shown = [
     { id: 2001, sport: 'football', lg: serieA, home: T(41, 'Inter', 'Inter', 1.8, 0.9), away: T(42, 'Milan', 'AC Milan', 1.6, 1.0), start: at(9), state: 'finalizado', score: [2, 1] },
     { id: 2002, sport: 'football', lg: serieA, home: T(43, 'Juventus', 'Juventus', 1.5, 0.8), away: T(44, 'Roma', 'AS Roma', 1.4, 1.0), start: at(11), state: 'en_vivo', score: [1, 0] },

@@ -57,7 +57,13 @@ async function fixtures() {
     sport: 'football',
     generated: new Date(Date.now() - 35 * 60000).toISOString(),
     events,
-    offers: { 'fs:e1': book(1.35, 4.8, 8.5), 'fs:e2': book(1.5, 4.0, 6.5), 'fs:e4': book(1.45, 4.5, 6.8) },
+    // e1 también con córners y tarjetas lejos de sus datos (pestaña Errores de cuota):
+    // promedio de córners cerca de 9.7 frente a 6.5 y de tarjetas cerca de 4 frente a 7.5.
+    offers: {
+      'fs:e1': [...book(1.35, 4.8, 8.5), o('OU.corners', 'over', 6.5, 1.85), o('OU.corners', 'under', 6.5, 1.9), o('OU.cards', 'over', 7.5, 1.9), o('OU.cards', 'under', 7.5, 1.88)],
+      'fs:e2': book(1.5, 4.0, 6.5),
+      'fs:e4': book(1.45, 4.5, 6.8),
+    },
     details: Object.fromEntries(['e1', 'e2', 'e4'].map((id) => [`fs:${id}`, { lastHome: strong, lastAway: weak, h2h: { homeWins: 4, draws: 1, awayWins: 1 } }])),
     // Pestaña Datos: también los partidos sin cuotas (e3); e2 y e4 todavía sin su archivo.
     datos: ['fs:e1', 'fs:e3'],
@@ -125,7 +131,8 @@ async function fixtures() {
       ],
     },
     [`resultados/${DAY}.json`]: {
-      'fs:e1': compactResult({ state: 'finalizado', score: { home: 2, away: 0 } }),
+      // Con córners (11) y tarjetas (3): liquidan los errores de cuota de ese partido.
+      'fs:e1': compactResult({ state: 'finalizado', score: { home: 2, away: 0 } }, { record: { final: [2, 0], stats: { corners: { ft: [7, 4] }, cards: { ft: [1, 2] } } } }),
       'fs:e2': compactResult({ state: 'finalizado', score: { home: 0, away: 1 } }),
       'fs:e4': compactResult({ state: 'finalizado', score: { home: 3, away: 1 } }),
     },
@@ -195,7 +202,7 @@ async function withoutExtension(browser, errors) {
   check('sin extensión la fuente Sofascore está desactivada', await page.$eval('.segmented button:has-text("Sofascore")', (b) => b.disabled));
   check('muestra cuándo se actualizaron los datos', (await page.textContent('.source-bar')).includes('hace 35 min'), await page.textContent('.source-bar'));
   const leagues = await page.$$eval('.league .name', (els) => els.map((e) => e.textContent));
-  check('ligas automáticas ordenadas por importancia', leagues.join(',') === 'Premier League,Liga 1', leagues.join(', '));
+  check('ligas automáticas ordenadas por país', leagues.join(',') === 'Premier League,Liga 1', leagues.join(', '));
   await page.click('.league:has-text("Liga 1") .league-title');
   const shown = await page.$$eval('.league:has-text("Liga 1") .match', (els) => els.length);
   check('"Solo con cuotas" oculta los partidos sin cuotas', shown === 2 && (await page.$$('.odds-badge')).length === 2, `${shown} partidos`);
@@ -257,7 +264,7 @@ async function withoutExtension(browser, errors) {
   await page.click('.datos-filters .line-ctl button[aria-label="Subir la línea"]');
   const after = await lineText();
   const leanChip = await page.textContent('.chart-grid .chart-card .chip.lean');
-  check('Datos: córners con una línea que se sube con +', /cerca del promedio/.test(before) && /elegida/.test(after) && Number(after.match(/(\d+(\.\d)?)/)[1]) === Number(before.match(/(\d+(\.\d)?)/)[1]) + 1 && leanChip.includes('de 10'), `${before} → ${after} · ${leanChip}`);
+  check('Datos: córners con una línea que se sube con +', /de Apuesta Total/.test(before) && /elegida \(la de Apuesta Total es 6\.5\)/.test(after) && Number(after.match(/(\d+(\.\d)?)/)[1]) === Number(before.match(/(\d+(\.\d)?)/)[1]) + 1 && leanChip.includes('de 10'), `${before} → ${after} · ${leanChip}`);
   await page.click('.datos-filters .segmented button:has-text("Últimos 15")');
   await page.click('.datos-filters .segmented button:has-text("Local / Visita")');
   check('Datos: últimos 15 y solo de local o de visita', JSON.stringify(await barsOf()) === '[6,6]', JSON.stringify(await barsOf()));
@@ -267,6 +274,12 @@ async function withoutExtension(browser, errors) {
   check('Datos: cada barra muestra su partido y están los enfrentamientos', /local vs|visita en/.test(caption) && /Ganó Alianza Lima/.test(h2h), `${caption} · ${h2h.slice(0, 80)}`);
   await page.screenshot({ path: path.join(OUT, '9-celular-datos.png'), fullPage: true });
   check('Datos: sin desplazamiento horizontal en el celular', !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)));
+  // Diferencia (a favor menos en contra): barras hacia abajo desde el cero cuando perdió.
+  await page.click('.datos-filters .segmented button:has-text("Diferencia")');
+  const diffDown = await page.$$eval('.chart-grid .chart-card .bars .col.down', (cols) => cols.length);
+  const diffZero = await page.$$eval('.chart-grid .chart-card .bars .zero', (z) => z.length);
+  check('Datos: la diferencia muestra barras negativas desde el cero', diffDown > 0 && diffZero === 2 && !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)), `${diffDown} barras abajo · ${diffZero} ceros`);
+  await page.click('.datos-filters .segmented button:has-text("Del partido")');
   // Básquet: el jugador ofrecido con su línea de P+R+A y sus partidos contra el rival de hoy.
   await page.click('#tab-datos .sport:has-text("Básquet")');
   await page.click('.datos-match:has-text("Knicks")');
@@ -289,6 +302,28 @@ async function withoutExtension(browser, errors) {
   check('Datos: un jugador sin línea de la casa usa una cerca del promedio', /cerca del promedio/.test(noLine) && (await page.textContent('.players .stat-group .chip-btn.active')) === 'P+R+A', noLine);
   await page.click('#tab-datos .sport:has-text("Fútbol")');
 
+  // Errores de cuota: las líneas del análisis frente a los datos del partido.
+  check('Errores de cuota: la pestaña cuenta los errores', (await page.textContent('.tabs button[data-tab="errores"] .n')) === '2', await page.textContent('.tabs button[data-tab="errores"]'));
+  await page.click('.tabs button[data-tab="errores"]');
+  await page.waitForSelector('.error-card');
+  const errorCards = await page.$$eval('.error-card', (cards) => cards.map((c) => `${c.querySelector('h3').textContent} | ${c.querySelector('.err-label').textContent} | ${c.querySelector('.err-odds').textContent}`));
+  const errorNote = await page.textContent('.errores-head');
+  check(
+    'Errores de cuota: córners por encima y tarjetas por debajo de su línea (los goles, no)',
+    errorCards.length === 2 && errorCards.every((c) => c.startsWith('Alianza Lima vs Sporting Cristal')) && errorCards.some((c) => /Más de 6\.5 córners.*@1\.85 Apuesta Total/.test(c)) && errorCards.some((c) => /Menos de 7\.5 tarjetas.*@1\.88 Apuesta Total/.test(c)) && /en 1 de 3 partidos con datos/.test(errorNote),
+    `${errorCards.join(' / ')} · ${errorNote.slice(-120)}`,
+  );
+  await page.screenshot({ path: path.join(OUT, '10-celular-errores.png'), fullPage: true });
+  const savedErrors = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).errores || [];
+  check('Errores de cuota: se guardan en el historial con su cuota', savedErrors.length === 2 && savedErrors.every((e) => e.status === 'pending' && e.odds > 1 && e.settings.level === 'media'), JSON.stringify(savedErrors.map((e) => [e.label, e.odds, e.status])));
+  check('Errores de cuota: sin desplazamiento horizontal en el celular', !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)));
+  // "Ver en Datos": el partido en Datos con los córners y la línea de la casa.
+  await page.click('.error-card:has-text("córners") button:has-text("Ver en Datos")');
+  await page.waitForSelector('#tab-datos .chart-card .bars .col');
+  const datosLine = await page.textContent('#tab-datos .datos-filters .line-ctl');
+  check('Errores de cuota: "Ver en Datos" abre el partido con la estadística y la línea', (await page.textContent('#tab-datos .datos-head h2')) === 'Alianza Lima vs Sporting Cristal' && (await page.textContent('#tab-datos .stat-chips .chip-btn.active')) === 'Córners' && /6\.5.*de Apuesta Total/.test(datosLine), datosLine);
+  await page.click('#tab-datos .datos-head .back');
+
   // Liquidación con los resultados publicados
   await page.click('.tabs button[data-tab="historial"]');
   await page.waitForSelector('.day');
@@ -310,6 +345,15 @@ async function withoutExtension(browser, errors) {
   const trainRows = JSON.parse(repo.get(`docs/data/entrenamiento/${DAY.slice(0, 7)}.json`).text).rows;
   check('los archivos grandes se leen completos (sin perder filas)', bigFiles.length > 0 && trainRows.length > 0 && trainRows.some((r) => r.y != null), `${bigFiles.join(', ')} · ${trainRows.length} filas`);
   check('los resultados quedan en GitHub', JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).analyses.every((a) => a.picks.every((p) => p.status !== 'pending')));
+  // Errores de cuota: liquidados con los córners y las tarjetas del partido, aparte de los métodos.
+  const settledErrors = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).errores.map((e) => `${e.label}: ${e.status}`);
+  const errorsPanel = await page.textContent('#tab-historial .panel:has(h3:text("Errores de cuota"))');
+  const errorsLine = await page.textContent('.day-line:has(b:text("Errores de cuota"))');
+  check(
+    'Errores de cuota: se liquidan y tienen su seguimiento',
+    JSON.stringify(settledErrors.sort()) === '["Menos de 7.5 tarjetas: won","Más de 6.5 córners: won"]' && /Todos2100%/.test(errorsPanel.replace(/\s+/g, '')) && /2\/2/.test(errorsLine) && (await page.$$('.day-body .method-tag.errores')).length === 1,
+    `${settledErrors.join(', ')} · ${errorsPanel.replace(/\s+/g, ' ').slice(-90)} · ${errorsLine}`,
+  );
   const index = JSON.parse(repo.get('docs/data/historial/index.json').text).days[DAY];
   check('el resumen guarda los resultados de cada método', index.methods.estadistico.won + index.methods.estadistico.lost > 0 && index.methods.red_neuronal.won + index.methods.red_neuronal.lost > 0, JSON.stringify(index.methods).slice(0, 160));
   await page.click('#tab-historial .segmented button:has-text("Red neuronal")');
@@ -347,7 +391,17 @@ async function withoutExtension(browser, errors) {
     check('detecta la extensión', (await page.getAttribute('#ext-status .chip:has-text("Extensión")', 'title')).includes('9.9.9'));
     check('con la extensión empieza con Sofascore', (await page.textContent('.segmented button.active')) === 'Sofascore');
     const leagues = await page.$$eval('.league .name', (els) => els.map((e) => e.textContent));
-    check('muestra las ligas de fútbol ordenadas por importancia', leagues.join(',') === 'Premier League,Serie A,Liga 1', leagues.join(', '));
+    check('muestra las ligas de fútbol ordenadas por país (no por importancia)', leagues.join(',') === 'Premier League,Serie A,Liga 1', leagues.join(', '));
+    // Pin: Liga 1 fijada arriba, también al volver a abrir la página; al quitarla vuelve a su lugar.
+    await page.click('.league:has-text("Liga 1") .pin-btn');
+    const pinnedOrder = await page.$$eval('.league .name', (els) => els.map((e) => e.textContent).join(','));
+    await page.reload();
+    await page.waitForSelector('.league');
+    const afterReload = await page.$$eval('.league .name', (els) => els.map((e) => e.textContent).join(','));
+    const pressed = await page.getAttribute('.league:has-text("Liga 1") .pin-btn', 'aria-pressed');
+    await page.click('.league:has-text("Liga 1") .pin-btn');
+    const unpinned = await page.$$eval('.league .name', (els) => els.map((e) => e.textContent).join(','));
+    check('el pin fija una liga arriba y se recuerda', pinnedOrder === 'Liga 1,Premier League,Serie A' && afterReload === pinnedOrder && pressed === 'true' && unpinned === 'Premier League,Serie A,Liga 1', `${pinnedOrder} · ${afterReload} · ${unpinned}`);
     const times = await page.$$eval('.league:has-text("Liga 1") .match .time', (els) => els.map((e) => e.textContent));
     check('partidos de cada liga ordenados por hora', times.join() === [...times].sort().join(), times.join(' '));
     await page.click('.league:has-text("Premier League") .league-head input');
