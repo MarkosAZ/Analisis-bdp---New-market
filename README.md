@@ -47,6 +47,14 @@ historial de resultados. Funciona en el **celular y en la PC**:
     P+R, P+A, R+A); tiros de campo, triples, de 2 y libres, anotados e intentados;
     robos, tapones, robos+tapones, pérdidas y minutos. Con la línea de la casa si
     la ofrece (si no, una cerca del promedio).
+  - **Jugadores del fútbol**: de las estadísticas de jugadores de Flashscore de los
+    últimos 15 partidos de cada equipo y de sus enfrentamientos, los 8 que más
+    rematan de cada equipo (sin arqueros). Sus últimos 5, 10, 15 o 20 partidos o
+    los que jugó contra el rival de hoy, en tiros al arco y remates totales; y
+    goles, goles esperados (xG) y minutos. Las ligas menores no tienen esa tabla
+    (en cada corrida, una liga cuyos primeros 3 partidos no la tienen no se sigue
+    pidiendo); los partidos quedan en caché y se completan de a poco (hasta 1500
+    partidos nuevos o 4 minutos por actualización).
   - **Abridores de la MLB**: sus últimas 5, 10 o 20 aperturas en ponches, hits
     y carreras limpias permitidos, bases por bolas y entradas lanzadas.
   - Cada partido es un archivo `data/fuente/datos/<id>.json` (unos 4 KB) que la
