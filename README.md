@@ -36,11 +36,14 @@ historial de resultados. Funciona en el **celular y en la PC**:
     Flashscore), quién ganó cada uno y la misma estadística en cada uno; y un
     resumen de los dos equipos (ganados, goles, más de 2.5, ambos marcan, córners
     y tarjetas a favor y en contra).
-  - **Jugadores de la NBA y la WNBA** (ESPN): en cada partido por jugar, los 8
-    de cada equipo con más minutos en sus últimos 30 partidos y los que ofrece la
-    casa (aunque no ofrezca a nadie, p. ej. en la pretemporada): sus últimos 5, 10,
-    15 o 20 partidos o todos los que jugó contra el rival de hoy en las dos
-    últimas temporadas, en puntos, rebotes, asistencias y los combinados (P+R+A,
+  - **Jugadores del básquet**: en la NBA y la WNBA salen de ESPN (los 8 de cada
+    equipo con más minutos en sus últimos 30 partidos, también en la pretemporada,
+    con su registro de dos temporadas); en las demás ligas (Euroliga, ACB, LNB,
+    Lega A, NBL, CBA...), de la tabla de estadísticas de jugadores de Flashscore de
+    los últimos 15 partidos de cada equipo y de sus enfrentamientos (los 8 con más
+    minutos; las tablas quedan en caché y se completan de a poco, con un tope de
+    pedidos por actualización). Más los que ofrece la casa. Sus últimos 5, 10, 15 o
+    20 partidos o todos los que jugó contra el rival de hoy, en puntos, rebotes, asistencias y los combinados (P+R+A,
     P+R, P+A, R+A); tiros de campo, triples, de 2 y libres, anotados e intentados;
     robos, tapones, robos+tapones, pérdidas y minutos. Con la línea de la casa si
     la ofrece (si no, una cerca del promedio).
