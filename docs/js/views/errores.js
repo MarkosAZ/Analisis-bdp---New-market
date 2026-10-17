@@ -36,7 +36,7 @@ export class ErroresView {
     this.app = app;
     this.data = new Map(); // eventId -> datos del partido (o null)
     this.loadedRun = null;
-    this.loading = false;
+    this.preparing = null; // { run, promise } mientras lee los datos
   }
 
   get st() {
@@ -56,12 +56,17 @@ export class ErroresView {
   }
 
   // Lee los datos publicados de los partidos del análisis (una vez por análisis).
-  async prepare() {
+  prepare() {
     const a = this.analysis();
-    if (!a || this.loadedRun === a.run || this.loading) return;
-    this.loading = true;
+    if (!a || this.loadedRun === a.run) return Promise.resolve();
+    if (this.preparing?.run === a.run) return this.preparing.promise;
+    const promise = this.load(a);
+    this.preparing = { run: a.run, promise };
+    return promise;
+  }
+
+  async load(a) {
     const run = a.run;
-    if (this.app.state.tab === 'errores') this.render();
     const ids = Object.keys(a.lines || {});
     let next = 0;
     await Promise.all(
@@ -79,10 +84,18 @@ export class ErroresView {
         }
       }),
     );
-    this.loading = false;
+    this.preparing = null;
     this.loadedRun = run;
     this.updateBadge();
     if (this.app.state.tab === 'errores') this.render();
+  }
+
+  // Errores de este análisis para el seguimiento (Historial), con lo elegido en la
+  // pestaña (partidos, local/visita y exigencia).
+  async track() {
+    await this.prepare();
+    const a = this.analysis();
+    return a ? E.trackedErrors(this.errors(), { ...this.st, run: a.run, created: a.created }) : [];
   }
 
   errors() {
@@ -107,7 +120,7 @@ export class ErroresView {
           'div',
           { class: 'empty' },
           h('p', {}, 'Lanza el análisis estadístico, el de red neuronal o ambos, y aquí aparecen las cuotas que no cuadran con los datos de cada partido.'),
-          h('p', { class: 'note' }, 'Por ejemplo: si los dos equipos promedian 3.5 goles y la línea más pareja es Más/Menos de 2.5, "Más de 2.5" es un error de cuota.'),
+          h('p', { class: 'note' }, 'Por ejemplo: si los dos equipos promedian 3.5 goles y la línea más pareja es Más/Menos de 2.5, "Más de 2.5" es un error de cuota. Se guardan en el Historial y se liquidan como los picks.'),
           h('button', { type: 'button', class: 'btn small', onclick: () => this.app.showTab('partidos') }, 'Elegir partidos'),
         ),
       );
@@ -142,6 +155,7 @@ export class ErroresView {
         { class: 'note' },
         `${list.length} ${list.length === 1 ? 'error' : 'errores'} en ${withData} de ${ids.length} partidos con datos publicados.`,
         withData < ids.length ? ' Los demás no tienen datos en la pestaña Datos (solo hoy y mañana, de Flashscore).' : '',
+        ' El Historial sigue los errores que había al lanzar el análisis (con lo elegido entonces).',
       ),
     );
     const body = list.length

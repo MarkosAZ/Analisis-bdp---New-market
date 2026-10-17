@@ -217,6 +217,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .day-table h4 { margin: 4px 0 6px; }
 .method-tag { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 1px 8px; color: #fff; background: var(--accent); }
 .method-tag.red_neuronal { background: var(--nn); }
+.method-tag.errores { background: var(--text); color: var(--surface); }
 tr.total td { font-weight: 700; border-bottom: 0; }
 tr.aparte td { color: var(--muted); border-top: 2px solid var(--line); }
 .compare { margin-bottom: 14px; }

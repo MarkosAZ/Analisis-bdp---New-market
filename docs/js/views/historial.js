@@ -1,6 +1,7 @@
 // Pestaña "Historial": seguimiento por separado del análisis estadístico y del
-// de red neuronal (aciertos, ganancia y ROI por nivel y de las combinadas),
-// apuestas guardadas por día y estado de las redes especializadas.
+// de red neuronal (aciertos, ganancia y ROI por nivel y de las combinadas), de los
+// errores de cuota (aparte: son los mismos en los dos métodos), apuestas guardadas
+// por día y estado de las redes especializadas.
 import { MIN_SAMPLES } from '../analysis/neural.js';
 import { BOOKMAKERS, LEVELS, MAIN_LEVELS } from '../analysis/picks.js';
 import { emptyMethodStats, hitRate, roi, totals } from '../history.js';
@@ -101,6 +102,43 @@ function statsTableInner(rows) {
       ),
     ),
     h('tbody', {}, rows),
+  );
+}
+
+// Errores de cuota: todos y por deporte.
+function erroresPanel(s = ZERO) {
+  const rows = [statsRow('Todos', s, 'total'), ...ACTIVE_SPORTS.filter((id) => s.bySport?.[id]?.n).map((id) => statsRow(`${sportOf(id).icon} ${sportOf(id).name}`, s.bySport[id]))];
+  return h(
+    'div',
+    { class: 'panel' },
+    h('h3', {}, 'Errores de cuota'),
+    h('p', { class: 'note' }, 'La opción que favorecen los datos cuando la línea más pareja de la casa queda lejos de ellos (pestaña Errores de cuota), a 1 u cada una.'),
+    statsTable(rows),
+  );
+}
+
+// Errores de cuota guardados del día (de cualquier método).
+function erroresBody(day, sport = 'todos') {
+  const list = (day?.errores || []).filter((e) => sport === 'todos' || e.sport === sport);
+  if (!list.length) return null;
+  return h(
+    'div',
+    { class: 'analysis-block' },
+    h('h4', {}, h('span', { class: 'method-tag errores' }, 'Errores de cuota'), ` ${list.length} ${list.length === 1 ? 'apuesta' : 'apuestas'}`),
+    h(
+      'ul',
+      { class: 'leg-list' },
+      list
+        .slice()
+        .sort((a, b) => a.start - b.start)
+        .map((e) =>
+          legLine(e, [
+            h('span', { class: 'note' }, `@ ${e.odds.toFixed(2)} ${BOOKMAKERS[e.source] || e.source} · `),
+            h('span', { class: 'note' }, e.kind === 'margin' ? `diferencia ${e.avg > 0 ? '+' : ''}${e.avg} · ` : `prom. ${e.avg} · `),
+            h('span', { class: 'note' }, `${e.hits} de ${e.of} · `),
+          ]),
+        ),
+    ),
   );
 }
 
@@ -328,6 +366,7 @@ export function renderHistorial(root, app) {
       'div',
       { class: 'grid2' },
       METHODS.map(([id, title]) => methodPanel(title, t.methods[id])),
+      erroresPanel(t.errores),
       networkPanel(app),
     ),
   );
@@ -376,10 +415,23 @@ export function renderHistorial(root, app) {
             m.staked ? money(m.profit) : null,
           ),
         ),
+        s.errores?.n
+          ? h(
+              'span',
+              { class: 'day-line' },
+              h('b', {}, 'Errores de cuota'),
+              h('span', { class: 'chip', title: 'Acertados de los resueltos' }, `${s.errores.won}/${s.errores.won + s.errores.lost}`),
+              s.errores.pending ? h('span', { class: 'chip' }, `${s.errores.pending} pendientes`) : null,
+              s.errores.staked ? money(s.errores.profit) : null,
+            )
+          : null,
       ),
     );
     const box = h('div', { class: 'day' }, head);
-    if (open) box.append(h('div', { class: 'day-body' }, dayTables(s, filter), state.dayCache.has(date) ? dayBody(state.dayCache.get(date), filter, state.sportFilter || 'todos') : h('div', { class: 'note' }, 'Cargando…')));
+    if (open) {
+      const day = state.dayCache.get(date);
+      box.append(h('div', { class: 'day-body' }, dayTables(s, filter), state.dayCache.has(date) ? [erroresBody(day, state.sportFilter || 'todos'), dayBody(day, filter, state.sportFilter || 'todos')] : h('div', { class: 'note' }, 'Cargando…')));
+    }
     root.append(box);
   }
 }

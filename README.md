@@ -71,6 +71,13 @@ historial de resultados. Funciona en el **celular y en la PC**:
   ganador ni el 1.er tiempo del básquet. "Ver en Datos" abre el partido en Datos
   con esa estadística y esa línea. Solo partidos con datos publicados (hoy y
   mañana, de Flashscore).
+  **Seguimiento:** los errores que hay al lanzar el análisis (con los partidos,
+  local/visita y exigencia elegidos en la pestaña) se guardan en el historial del
+  día, aparte de los métodos (son los mismos en el estadístico y en el de red
+  neuronal), y se liquidan con los mismos resultados que los picks. En Historial,
+  el panel "Errores de cuota" da resueltas, aciertos, ganancia y ROI (a 1 u cada
+  uno), en total y por deporte, y cada día muestra los suyos. Si se vuelve a
+  analizar un partido, sus errores pendientes se reemplazan por los nuevos.
 - **Mercados analizados** (solo estos):
   - Fútbol: goles totales Más/Menos, ambos equipos anotan, Más/Menos córners,
     **hándicap de córners** (el de dos opciones; el de tres, con empate, no),

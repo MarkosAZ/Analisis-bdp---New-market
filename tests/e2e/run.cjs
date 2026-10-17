@@ -131,7 +131,8 @@ async function fixtures() {
       ],
     },
     [`resultados/${DAY}.json`]: {
-      'fs:e1': compactResult({ state: 'finalizado', score: { home: 2, away: 0 } }),
+      // Con córners (11) y tarjetas (3): liquidan los errores de cuota de ese partido.
+      'fs:e1': compactResult({ state: 'finalizado', score: { home: 2, away: 0 } }, { record: { final: [2, 0], stats: { corners: { ft: [7, 4] }, cards: { ft: [1, 2] } } } }),
       'fs:e2': compactResult({ state: 'finalizado', score: { home: 0, away: 1 } }),
       'fs:e4': compactResult({ state: 'finalizado', score: { home: 3, away: 1 } }),
     },
@@ -307,6 +308,8 @@ async function withoutExtension(browser, errors) {
     `${errorCards.join(' / ')} · ${errorNote.slice(-120)}`,
   );
   await page.screenshot({ path: path.join(OUT, '10-celular-errores.png'), fullPage: true });
+  const savedErrors = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).errores || [];
+  check('Errores de cuota: se guardan en el historial con su cuota', savedErrors.length === 2 && savedErrors.every((e) => e.status === 'pending' && e.odds > 1 && e.settings.level === 'media'), JSON.stringify(savedErrors.map((e) => [e.label, e.odds, e.status])));
   check('Errores de cuota: sin desplazamiento horizontal en el celular', !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)));
   // "Ver en Datos": el partido en Datos con los córners y la línea de la casa.
   await page.click('.error-card:has-text("córners") button:has-text("Ver en Datos")');
@@ -336,6 +339,15 @@ async function withoutExtension(browser, errors) {
   const trainRows = JSON.parse(repo.get(`docs/data/entrenamiento/${DAY.slice(0, 7)}.json`).text).rows;
   check('los archivos grandes se leen completos (sin perder filas)', bigFiles.length > 0 && trainRows.length > 0 && trainRows.some((r) => r.y != null), `${bigFiles.join(', ')} · ${trainRows.length} filas`);
   check('los resultados quedan en GitHub', JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).analyses.every((a) => a.picks.every((p) => p.status !== 'pending')));
+  // Errores de cuota: liquidados con los córners y las tarjetas del partido, aparte de los métodos.
+  const settledErrors = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).errores.map((e) => `${e.label}: ${e.status}`);
+  const errorsPanel = await page.textContent('#tab-historial .panel:has(h3:text("Errores de cuota"))');
+  const errorsLine = await page.textContent('.day-line:has(b:text("Errores de cuota"))');
+  check(
+    'Errores de cuota: se liquidan y tienen su seguimiento',
+    JSON.stringify(settledErrors.sort()) === '["Menos de 7.5 tarjetas: won","Más de 6.5 córners: won"]' && /Todos2100%/.test(errorsPanel.replace(/\s+/g, '')) && /2\/2/.test(errorsLine) && (await page.$$('.day-body .method-tag.errores')).length === 1,
+    `${settledErrors.join(', ')} · ${errorsPanel.replace(/\s+/g, ' ').slice(-90)} · ${errorsLine}`,
+  );
   const index = JSON.parse(repo.get('docs/data/historial/index.json').text).days[DAY];
   check('el resumen guarda los resultados de cada método', index.methods.estadistico.won + index.methods.estadistico.lost > 0 && index.methods.red_neuronal.won + index.methods.red_neuronal.lost > 0, JSON.stringify(index.methods).slice(0, 160));
   await page.click('#tab-historial .segmented button:has-text("Red neuronal")');

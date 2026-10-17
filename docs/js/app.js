@@ -313,9 +313,11 @@ async function runAnalysis(methods) {
     });
     Object.assign(app.state.analyses, results);
     app.state.analysisView = methods[0];
-    views.errores.prepare(); // lee los datos de los partidos y cuenta los errores de cuota
     idle();
     showTab('analisis');
+    // Errores de cuota (lee los datos de los partidos): van al historial con el análisis.
+    const errores = await views.errores.track().catch(() => []);
+    for (const r of Object.values(results)) r.errores = errores;
     if (store.canWrite()) {
       busy('Guardando en el historial…', '', 1);
       await app.saveAnalyses(Object.values(results));

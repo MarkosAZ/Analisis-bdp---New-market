@@ -116,3 +116,40 @@ export function findErrors(analysis, dataOf, { n = 10, venue = 'all', level = 'm
 
 // Qué tan grande es la diferencia, en palabras.
 export const strengthName = (z) => (Math.abs(z) >= 1 ? 'muy grande' : Math.abs(z) >= 0.6 ? 'grande' : 'moderada');
+
+// Errores para el seguimiento (Historial): una apuesta por error, con la cuota de la
+// casa y lo que dijeron los datos; se liquidan con los mismos resultados que los picks.
+export function trackedErrors(errors, { n, venue, level, run, created } = {}) {
+  const r1 = (x) => Math.round(x * 100) / 100;
+  return errors.map((e) => ({
+    key: `${e.market}|${e.sel}|${e.line}`,
+    eventId: e.eventId,
+    sport: e.ev.sport,
+    start: e.ev.start,
+    match: `${e.ev.home} vs ${e.ev.away}`,
+    url: e.ev.url || null,
+    ...(e.ev.fsId ? { fsId: e.ev.fsId } : {}),
+    market: e.market,
+    sel: e.sel,
+    line: e.line,
+    label: e.label,
+    status: 'pending',
+    odds: e.price,
+    source: e.source,
+    kind: e.kind,
+    avg: r1(e.avg),
+    hits: e.hits,
+    of: e.n,
+    z: r1(e.z),
+    settings: { n, venue, level },
+    run: run || null,
+    created: created || null,
+  }));
+}
+
+// Junta los errores guardados del día con los de un análisis nuevo: los pendientes de
+// los partidos que se volvieron a analizar se reemplazan (cuenta lo último).
+export function mergeTracked(old = [], fresh = [], eventIds = []) {
+  const again = new Set(eventIds.map(String));
+  return old.filter((e) => e.status !== 'pending' || !again.has(String(e.eventId))).concat(fresh);
+}

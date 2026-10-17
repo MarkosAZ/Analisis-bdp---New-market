@@ -70,3 +70,20 @@ test('errores de cuota: córners, local/visita y uno por mercado (el más fuerte
   assert.equal(E.strengthName(1.2), 'muy grande');
   assert.equal(E.strengthName(-0.7), 'grande');
 });
+
+test('errores de cuota en el seguimiento: se guardan como apuestas, se reemplazan al reanalizar y suman aparte', async () => {
+  const { daySummary, totals } = await import('../docs/js/history.js');
+  const errs = E.findErrors(analysis([o('OU', 'over', 2.5, 1.85), o('OU', 'under', 2.5, 1.9)]), () => data(HIGH, HIGH));
+  const [t] = E.trackedErrors(errs, { n: 10, venue: 'all', level: 'media', run: 'r1', created: 'c1' });
+  assert.deepEqual([t.key, t.eventId, t.market, t.sel, t.line, t.odds, t.status, t.avg, t.hits, t.of, t.settings.level], ['OU|over|2.5', 'fs:a', 'OU', 'over', 2.5, 1.85, 'pending', 3.5, 20, 20, 'media']);
+  // Reanalizar el partido reemplaza su error pendiente; los ya liquidados y los de otros partidos quedan.
+  const old = [{ ...t, label: 'viejo' }, { ...t, eventId: 'fs:b' }, { ...t, eventId: 'fs:c', status: 'won' }];
+  assert.deepEqual(E.mergeTracked(old, [t], ['fs:a', 'fs:c']).map((e) => [e.eventId, e.label === 'viejo']), [['fs:b', false], ['fs:c', false], ['fs:a', false]]);
+  // Resumen del día: aparte de los métodos y por deporte; cuenta en lo pendiente.
+  const day = { analyses: [], errores: [{ ...t, status: 'won' }, { ...t, eventId: 'fs:b', sport: 'basketball', status: 'lost' }, { ...t, eventId: 'fs:c', status: 'pending' }] };
+  const s = daySummary(day);
+  assert.deepEqual([s.errores.won, s.errores.lost, s.errores.pending, s.errores.bySport.football.won, s.errores.bySport.basketball.lost, s.n, s.pendingAll], [1, 1, 1, 1, 1, 0, 1]);
+  assert.equal(Math.round(s.errores.profit * 100) / 100, -0.15);
+  const all = totals({ days: { d1: s, d2: s } });
+  assert.deepEqual([all.errores.won, all.errores.bySport.basketball.lost, all.all.n], [2, 2, 0]);
+});
