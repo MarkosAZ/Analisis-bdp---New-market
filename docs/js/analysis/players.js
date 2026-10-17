@@ -322,3 +322,28 @@ export function teamPlayersFromBox(matches = [], { top = 8, names = [] } = {}) {
   const offered = new Set(names.map((n) => matchPlayer(n, ranked)).filter(Boolean));
   return ranked.filter((p, i) => i < top || offered.has(p));
 }
+
+// Fútbol: jugadores de un equipo con sus partidos (pestaña Datos), de las
+// estadísticas de cada jugador de sus últimos partidos (records.footballPlayersFromPMS).
+// matches: [{ start, home (si jugó de local), opp, data: { teams, players } }]. Su
+// equipo es el del lado en que jugó. Sin arqueros; los `top` que más rematan en esos
+// partidos (y, a la par, los de más minutos) y los pedidos (`names`): [{ name, games }];
+// cada partido { start, opp, home, min, sh, sot, gl, xg }.
+export function teamPlayersFromPMS(matches = [], { top = 8, names = [] } = {}) {
+  const byId = new Map();
+  for (const m of matches) {
+    const team = (m.data?.teams || []).find((t) => t.side === (m.home ? 'home' : 'away'));
+    if (!team) continue;
+    for (const p of m.data.players || []) {
+      if (p.teamId !== team.id || p.gk) continue;
+      const { id, name, teamId, gk, ...stats } = p;
+      if (!byId.has(id)) byId.set(id, { name, games: [] });
+      byId.get(id).games.push({ start: m.start, opp: m.opp, home: m.home, ...stats });
+    }
+  }
+  const players = [...byId.values()].map((p) => ({ ...p, games: p.games.sort((a, b) => b.start - a.start) }));
+  const total = (p, f) => p.games.reduce((s, g) => s + (g[f] || 0), 0);
+  const ranked = players.sort((a, b) => total(b, 'sh') - total(a, 'sh') || total(b, 'min') - total(a, 'min') || a.name.localeCompare(b.name));
+  const offered = new Set(names.map((n) => matchPlayer(n, ranked)).filter(Boolean));
+  return ranked.filter((p, i) => i < top || offered.has(p));
+}

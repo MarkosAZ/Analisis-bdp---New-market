@@ -484,8 +484,10 @@ export class DatosView {
     const lines = linesOf.get(player);
     // Las que tienen datos en sus partidos o línea en la casa.
     const available = (c) => lines[c] != null || D.playerSeries(player.games, c).length > 0;
-    const fallback = Object.keys(lines)[0] || 'pl_pra';
-    const code = st.playerStat && D.PLAYER_CHART_STATS.includes(st.playerStat) && available(st.playerStat) ? st.playerStat : fallback;
+    const groups = D.playerGroups(ev.sport);
+    const codes = groups.flatMap(([, list]) => list.map(([c]) => c));
+    const fallback = Object.keys(lines)[0] || D.defaultPlayerStat(ev.sport);
+    const code = st.playerStat && codes.includes(st.playerStat) && available(st.playerStat) ? st.playerStat : fallback;
     const teamName = player.side === 'home' ? ev.home.name : ev.away.name;
     const rivalAbbr = data.abbr ? data.abbr[player.side === 'home' ? 1 : 0] : null;
     const rivalName = player.side === 'home' ? ev.away.name : ev.home.name;
@@ -494,13 +496,14 @@ export class DatosView {
     const series = D.playerSeries(games, code);
     const key = `p|${player.name}|${code}`;
     const { line, source } = this.lineFor(key, series.map((x) => x.value), lines[code]);
-    const statName = code === 'min' ? 'Minutos' : capital(STAT_NAME[code] || code);
+    const nameOf = (c) => (c === 'min' ? 'Minutos' : D.footballPlayerStatName(c) || capital(STAT_NAME[c] || c));
+    const statName = nameOf(code);
     const pick = (patch) => this.set(patch);
     return [
       h(
         'div',
         { class: 'panel chart-card players' },
-        h('h3', {}, 'Jugadores', h('span', { class: 'note' }, ' · los de más minutos de cada equipo (ESPN en la NBA y la WNBA; Flashscore en las demás ligas); con • los que tienen línea en Apuesta Total')),
+        h('h3', {}, 'Jugadores', h('span', { class: 'note' }, ev.sport === 'football' ? ' · los que más rematan de cada equipo, sin arqueros (estadísticas de jugadores de Flashscore)' : ' · los de más minutos de cada equipo (ESPN en la NBA y la WNBA; Flashscore en las demás ligas); con • los que tienen línea en Apuesta Total')),
         ['home', 'away'].map((side) => {
           const list = players.filter((p) => p.side === side);
           const name = side === 'home' ? ev.home.name : ev.away.name;
@@ -520,7 +523,7 @@ export class DatosView {
             : null;
         }),
         h('h4', {}, `${player.name} · ${teamName}`),
-        D.PLAYER_CHART_GROUPS.map(([group, list]) => {
+        groups.map(([group, list]) => {
           const shown = list.filter(([c]) => available(c));
           return shown.length
             ? h(
@@ -533,7 +536,7 @@ export class DatosView {
                   shown.map(([c, label]) =>
                     h(
                       'button',
-                      { type: 'button', class: `chip-btn${c === code ? ' active' : ''}${lines[c] != null ? ' offered' : ''}`, 'aria-pressed': String(c === code), title: `${c === 'min' ? 'Minutos' : capital(STAT_NAME[c] || c)}${lines[c] != null ? ` · Apuesta Total: línea ${fmtNum(lines[c])}` : ''}`, onclick: () => pick({ playerStat: c }) },
+                      { type: 'button', class: `chip-btn${c === code ? ' active' : ''}${lines[c] != null ? ' offered' : ''}`, 'aria-pressed': String(c === code), title: `${nameOf(c)}${lines[c] != null ? ` · Apuesta Total: línea ${fmtNum(lines[c])}` : ''}`, onclick: () => pick({ playerStat: c }) },
                       label,
                       lines[c] != null ? h('small', {}, ` ${fmtNum(lines[c])}`) : null,
                     ),

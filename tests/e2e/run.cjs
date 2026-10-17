@@ -88,6 +88,12 @@ async function fixtures() {
     home: { name: 'Alianza Lima', last: lastOf(1) },
     away: { name: 'Sporting Cristal', last: lastOf(2) },
     h2h: Array.from({ length: 6 }, (_, i) => ({ start: at(-24 * (40 + 60 * i)), home: i % 2 === 0, gf: i % 3, ga: (i + 1) % 2, league: 'Liga 1', stats: compactMatchStats({ corners: { ft: [5 + i, 4] } }, i % 2 === 1) })),
+    // Remates de los jugadores (Flashscore): el que más remata del local y uno de la visita.
+    players: [
+      { side: 'home', name: 'Hernán Barcos', games: Array.from({ length: 6 }, (_, i) => ({ start: at(-24 * (3 + 4 * i)), opp: i === 2 ? 'Sporting Cristal' : 'Melgar', home: i % 2 === 0, min: 90, sh: 3 + (i % 3), sot: 1 + (i % 2), gl: i % 2, xg: 0.4 })) },
+      { side: 'away', name: 'Martín Cauteruccio', games: [{ start: at(-72), opp: 'Cusco FC', home: true, min: 80, sh: 2, sot: 1, gl: 0, xg: 0.2 }] },
+    ],
+    abbr: ['Alianza Lima', 'Sporting Cristal'],
   };
   const nba = { ...ev('b2', 'NBA', 'EE. UU.', 'US', 1000, 'New York Knicks', 'Cleveland Cavaliers', 21), sport: 'basketball' };
   // Como el registro de ESPN: tiros anotados e intentados, sin rebotes ofensivos ni defensivos.
@@ -272,6 +278,18 @@ async function withoutExtension(browser, errors) {
   const caption = await page.textContent('.chart-grid .chart-card .bars-caption');
   const h2h = await page.textContent('#tab-datos .chart-card:has(h3:text("Enfrentamientos"))');
   check('Datos: cada barra muestra su partido y están los enfrentamientos', /local vs|visita en/.test(caption) && /Ganó Alianza Lima/.test(h2h), `${caption} · ${h2h.slice(0, 80)}`);
+  // Jugadores de fútbol: tiros al arco por defecto y remates; contra el rival de hoy.
+  const footGroups = await page.$$eval('.players .stat-group', (els) => els.map((e) => `${e.querySelector('.note').textContent}: ${[...e.querySelectorAll('.chip-btn')].map((b) => b.textContent).join(', ')}`));
+  const sotVals = await page.$$eval('.players .bars .col', (cols) => cols.map((c) => c.querySelector('.val').textContent));
+  await page.click('.players .stat-group .chip-btn:text-is("Remates totales")');
+  const shVals = await page.$$eval('.players .bars .col', (cols) => cols.map((c) => c.querySelector('.val').textContent));
+  await page.click('.players .segmented button:has-text("vs Sporting Cristal")');
+  const vsVals = await page.$$eval('.players .bars .col', (cols) => cols.map((c) => c.querySelector('.val').textContent));
+  check(
+    'Datos: jugadores de fútbol con tiros al arco y remates',
+    JSON.stringify(footGroups) === '["Remates: Tiros al arco, Remates totales","Otras: Goles, xG, Minutos"]' && JSON.stringify(sotVals) === '["2","1","2","1","2","1"]' && JSON.stringify(shVals) === '["5","4","3","5","4","3"]' && JSON.stringify(vsVals) === '["5"]',
+    `${JSON.stringify(footGroups)} · ${JSON.stringify(sotVals)} · ${JSON.stringify(shVals)} · ${JSON.stringify(vsVals)}`,
+  );
   await page.screenshot({ path: path.join(OUT, '9-celular-datos.png'), fullPage: true });
   check('Datos: sin desplazamiento horizontal en el celular', !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)));
   // Diferencia (a favor menos en contra): barras hacia abajo desde el cero cuando perdió.

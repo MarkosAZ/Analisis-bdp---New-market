@@ -121,7 +121,7 @@ export function h2hRecord(list) {
   return { n: ms.length, home: ms.filter((m) => m.gf > m.ga).length, draw: ms.filter((m) => m.gf === m.ga).length, away: ms.filter((m) => m.gf < m.ga).length };
 }
 
-// ---- Jugadores (básquet) ----
+// ---- Jugadores (básquet y fútbol) ----
 
 // Estadísticas de jugador que se pueden ver, por grupo y en el orden de los botones,
 // con su nombre corto; 'min' (minutos) es solo de esta pestaña (la casa no lo ofrece).
@@ -135,6 +135,17 @@ export const PLAYER_CHART_GROUPS = [
 ].map(([group, list]) => [group, list.filter(([code]) => code === 'min' || PLAYER_STATS[code])]);
 export const PLAYER_CHART_STATS = PLAYER_CHART_GROUPS.flatMap(([, list]) => list.map(([code]) => code));
 
+// Fútbol: remates de cada jugador (Flashscore); código → campo de su partido y nombre.
+const FOOTBALL_PLAYER = { fpl_sot: ['sot', 'Tiros al arco'], fpl_sh: ['sh', 'Remates totales'], fpl_gl: ['gl', 'Goles'], fpl_xg: ['xg', 'Goles esperados (xG)'] };
+export const FOOTBALL_PLAYER_GROUPS = [
+  ['Remates', [['fpl_sot', 'Tiros al arco'], ['fpl_sh', 'Remates totales']]],
+  ['Otras', [['fpl_gl', 'Goles'], ['fpl_xg', 'xG'], ['min', 'Minutos']]],
+];
+export const playerGroups = (sport) => (sport === 'football' ? FOOTBALL_PLAYER_GROUPS : PLAYER_CHART_GROUPS);
+export const defaultPlayerStat = (sport) => (sport === 'football' ? 'fpl_sot' : 'pl_pra');
+// Nombre de una estadística de jugador del fútbol (las del básquet: catalog.STAT_NAME).
+export const footballPlayerStatName = (code) => FOOTBALL_PLAYER[code]?.[1] || null;
+
 // Partidos del jugador: los últimos `n` o, con `vs`, todos contra ese rival (sigla).
 export function playerGames(player, { n = 10, vs = null } = {}) {
   const games = player?.games || [];
@@ -143,7 +154,11 @@ export function playerGames(player, { n = 10, vs = null } = {}) {
 
 export function playerSeries(games, code) {
   return games
-    .map((game) => ({ value: code === 'min' ? (Number.isFinite(game.min) && !game.dnp ? game.min : null) : statValue(game, code), game }))
+    .map((game) => {
+      const field = code === 'min' ? 'min' : FOOTBALL_PLAYER[code]?.[0];
+      const value = field ? (Number.isFinite(game[field]) && !game.dnp ? game[field] : null) : statValue(game, code);
+      return { value, game };
+    })
     .filter((x) => Number.isFinite(x.value))
     .reverse();
 }

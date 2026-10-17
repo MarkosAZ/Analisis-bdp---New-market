@@ -113,6 +113,20 @@ async function directFeed(name) {
   throw new FetchError(`Flashscore no responde: ${last?.message}`, { mode: 'direct', url: `${directBase}/${name}` });
 }
 
+// Estadísticas de cada jugador de un partido de fútbol (la API de la pestaña
+// "Estadísticas de jugadores"): las dos respuestas tal cual, { sse (equipos y
+// jugadores), sd (estadísticas) }; las lee records.footballPlayersFromPMS. Solo
+// directo (GitHub Actions).
+const PMS_API = 'https://global.ds.lsapp.eu/pq_graphql';
+export async function getFootballPlayerStats(fsId) {
+  const id = String(fsId).replace(/^fs:/, '');
+  const [sse, sd] = await Promise.all([
+    fetchDirect(`${PMS_API}?_hash=epmsse&eventId=${id}&projectId=203`, { as: 'json', timeout: 20000 }),
+    fetchDirect(`${PMS_API}?_hash=epmsd&eventId=${id}&providerId=7`, { as: 'json', timeout: 30000 }),
+  ]);
+  return { sse, sd };
+}
+
 // Varios feeds a la vez: { nombre: texto o null (sin datos) }.
 async function feeds(names) {
   if (!names.length) return { texts: {}, mode: inExtension ? 'tab' : 'direct' };

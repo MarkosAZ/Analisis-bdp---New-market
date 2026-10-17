@@ -166,6 +166,35 @@ export function parseFsPlayers(text) {
   });
 }
 
+// Fútbol: la pestaña "Estadísticas de jugadores" de Flashscore sale de su API (consultas
+// epmsse: equipos y jugadores; epmsd: las estadísticas de cada jugador). De todo lo que
+// trae se guarda solo esto: { teams: [{ id, name, side }], players: [{ id, name,
+// teamId, gk, min, sh (remates), sot (tiros al arco), gl (goles), xg }] } con los que
+// jugaron; null si el partido no tiene esa tabla.
+const PMS_FIELDS = { MATCH_MINUTES_PLAYED: 'min', SHOTS_TOTAL: 'sh', SHOTS_ON_TARGET: 'sot', GOALS: 'gl', EXPECTED_GOALS: 'xg' };
+export function footballPlayersFromPMS(sse, sd) {
+  const a = sse?.data?.findEventPMSById;
+  const entries = sd?.data?.findEventPMSById?.stats?.entries;
+  if (!a?.players?.length || !entries?.length) return null;
+  const stats = new Map();
+  for (const e of entries) {
+    const f = PMS_FIELDS[e.typeId];
+    const v = Number(e.value);
+    if (!f || !Number.isFinite(v)) continue;
+    if (!stats.has(e.playerId)) stats.set(e.playerId, {});
+    stats.get(e.playerId)[f] = v;
+  }
+  const players = [];
+  for (const p of a.players) {
+    const id = p.participant?.id;
+    const s = stats.get(id);
+    if (!id || !s?.min) continue;
+    players.push({ id, name: fsPlayerName(p.participant.shortDisplayName || p.participant.name, `/jugador/${p.participant.url}/${id}/`), teamId: p.teamId, gk: Boolean(p.position?.isGoalkeeper), ...s });
+  }
+  if (!players.length) return null;
+  return { teams: (a.teams || []).map((t) => ({ id: t.id, name: t.name, side: t.side === 'AWAY' ? 'away' : 'home' })), players };
+}
+
 // df_st_1_<id> → { corners: { ft: [6, 3], h1: [...] }, ... }
 export function parseFsStats(text, sport) {
   const stats = {};
