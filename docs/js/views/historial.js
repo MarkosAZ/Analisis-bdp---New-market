@@ -1,10 +1,11 @@
 // Pestaña "Historial": seguimiento por separado del análisis estadístico y del
 // de red neuronal (aciertos, ganancia y ROI por nivel y de las combinadas), de los
-// errores de cuota (aparte: son los mismos en los dos métodos), apuestas guardadas
-// por día y estado de las redes especializadas.
+// errores de cuota (aparte: son los mismos en los dos métodos), de Random Bets (sorteos
+// entre todas las apuestas del día), apuestas guardadas por día y estado de las redes
+// especializadas.
 import { MIN_SAMPLES } from '../analysis/neural.js';
 import { BOOKMAKERS, LEVELS, MAIN_LEVELS } from '../analysis/picks.js';
-import { emptyMethodStats, hitRate, roi, totals } from '../history.js';
+import { emptyMethodStats, hitRate, RANDOM_ORIGINS, randomPool, roi, totals } from '../history.js';
 import { ACTIVE_SPORTS, sportOf } from '../sports.js';
 import { fmtDateTime, fmtDay, fmtTime, groupBy, h, pct } from '../util.js';
 import { bySportAndLeague } from './grupos.js';
@@ -146,6 +147,89 @@ function erroresBody(day, sport = 'todos') {
   );
 }
 
+// Random Bets: resultados de todos los sorteos, en total y por deporte.
+function randomPanel(s = ZERO) {
+  const rows = [statsRow('Todas', s, 'total'), ...ACTIVE_SPORTS.filter((id) => s.bySport?.[id]?.n).map((id) => statsRow(`${sportOf(id).icon} ${sportOf(id).name}`, s.bySport[id]))];
+  return h('div', { class: 'panel' }, h('h3', {}, 'Random Bets'), h('p', { class: 'note' }, 'Las apuestas de todos los sorteos, a 1 u cada una.'), statsTable(rows));
+}
+
+// Apuesta sorteada: su cuota y de dónde salió (uno o varios métodos, o un error de cuota).
+const randomLine = (b) =>
+  legLine(b, [], [h('span', { class: 'note' }, `@ ${b.odds.toFixed(2)} ${BOOKMAKERS[b.source] || b.source}`), ...b.from.map((f) => h('span', { class: `origin-tag o-${f}` }, RANDOM_ORIGINS[f] || f))]);
+const byStart = (list) => list.slice().sort((a, b) => a.start - b.start);
+
+// El sorteo: cuántas (las elige el usuario) entre las apuestas por jugar del día
+// elegido arriba, y el último sorteo de ese día.
+function randomDrawPanel(app) {
+  const { state } = app;
+  const date = state.date;
+  const loaded = state.dayCache.has(date);
+  if (!loaded) app.ensureDay(date);
+  const day = state.dayCache.get(date);
+  const pool = loaded ? randomPool(day) : [];
+  const dayName = fmtDay(date).toLowerCase();
+  const input = h('input', { type: 'number', class: 'random-n', min: 1, max: 99, step: 1, value: String(state.randomN), inputmode: 'numeric', onchange: (e) => app.setRandomN(e.target.value) });
+  const count = (id) => pool.filter((b) => b.from.includes(id)).length;
+  const origins = [
+    [count('estadistico'), (n) => `${n} del estadístico`],
+    [count('red_neuronal'), (n) => `${n} de la red neuronal`],
+    [count('errores'), (n) => `${n} ${n === 1 ? 'error' : 'errores'} de cuota`],
+  ]
+    .filter(([n]) => n)
+    .map(([n, text]) => text(n))
+    .join(' · ');
+  const status = !loaded
+    ? 'Leyendo las apuestas del día…'
+    : pool.length
+      ? `${pool.length} ${pool.length === 1 ? 'apuesta' : 'apuestas'} por jugar del ${dayName} (${origins}).`
+      : day?.analyses?.length || day?.errores?.length
+        ? `Ya no quedan apuestas por jugar del ${dayName}: sus partidos empezaron o ya se liquidaron.`
+        : `No hay análisis guardados del ${dayName}: lanza el análisis o elige otra fecha arriba.`;
+  const last = day?.random?.at(-1);
+  return h(
+    'div',
+    { class: 'panel random-panel' },
+    h(
+      'div',
+      { class: 'random-head' },
+      h('h3', {}, 'Random Bets'),
+      h('label', { class: 'random-count' }, 'Cuántas', input),
+      h('button', { class: 'btn primary', disabled: !app.canSave() || !pool.length, onclick: () => app.randomBets(input.value) }, h('span', { 'aria-hidden': 'true' }, '🎲 '), 'Random Bets'),
+    ),
+    h(
+      'p',
+      { class: 'note' },
+      'Sortea las que elijas entre todas las apuestas que mandó el análisis del día elegido arriba: estadístico, red neuronal y errores de cuota, todas con la misma probabilidad (con el generador criptográfico del navegador). Solo las de partidos que todavía no empiezan, sin repetir ni dos del mismo mercado de un partido. Cada sorteo se guarda en el historial del día y se liquida como las demás.',
+    ),
+    h('p', { class: 'note random-pool' }, status),
+    last
+      ? h(
+          'div',
+          { class: 'random-last' },
+          h('h4', {}, `Último sorteo: ${fmtDateTime(Date.parse(last.created))} · ${last.bets.length} de ${last.pool} ${last.pool === 1 ? 'apuesta' : 'apuestas'}`),
+          h('ul', { class: 'leg-list' }, byStart(last.bets).map(randomLine)),
+        )
+      : null,
+  );
+}
+
+// Sorteos de Random Bets del día, del más reciente al más viejo.
+function randomBody(day, sport = 'todos') {
+  const draws = (day?.random || []).filter((r) => r.bets.some((b) => sport === 'todos' || b.sport === sport));
+  if (!draws.length) return null;
+  return draws
+    .slice()
+    .reverse()
+    .map((r) =>
+      h(
+        'div',
+        { class: 'analysis-block' },
+        h('h4', {}, h('span', { class: 'method-tag random' }, 'Random Bets'), ` ${fmtDateTime(Date.parse(r.created))} · ${r.bets.length} de ${r.pool} ${r.pool === 1 ? 'apuesta' : 'apuestas'}`),
+        h('ul', { class: 'leg-list' }, byStart(r.bets.filter((b) => sport === 'todos' || b.sport === sport)).map(randomLine)),
+      ),
+    );
+}
+
 // Resultados de un método: por nivel, combinadas y total de picks.
 function methodPanel(title, m = emptyMethodStats()) {
   return h(
@@ -240,7 +324,7 @@ function networkPanel(app) {
   );
 }
 
-function legLine(l, extra = []) {
+function legLine(l, extra = [], after = []) {
   const sport = sportOf(l.sport);
   const score = l.score ? ` · ${l.score.homeNT ?? l.score.home}-${l.score.awayNT ?? l.score.away}` : '';
   return h(
@@ -251,6 +335,7 @@ function legLine(l, extra = []) {
     h('span', {}, `${sport.icon} ${l.match} (${fmtTime(l.start)}): `),
     h('b', {}, l.label),
     h('span', { class: 'note' }, score),
+    ...after,
     l.noData ? h('span', { class: 'note' }, ' · sin datos para liquidarla') : null,
   );
 }
@@ -362,6 +447,7 @@ export function renderHistorial(root, app) {
     h('button', { class: 'btn small ghost', onclick: () => app.reloadHistory() }, '↻'),
   );
   root.append(actions);
+  root.append(randomDrawPanel(app));
 
   const index = state.index || { days: {} };
   const t = totals(index);
@@ -371,6 +457,7 @@ export function renderHistorial(root, app) {
       { class: 'grid2' },
       METHODS.map(([id, title]) => methodPanel(title, t.methods[id])),
       erroresPanel(t.errores),
+      randomPanel(t.random),
       networkPanel(app),
     ),
   );
@@ -429,12 +516,22 @@ export function renderHistorial(root, app) {
               s.errores.staked ? money(s.errores.profit) : null,
             )
           : null,
+        s.random?.n
+          ? h(
+              'span',
+              { class: 'day-line' },
+              h('b', {}, 'Random Bets'),
+              h('span', { class: 'chip', title: 'Acertadas de las resueltas' }, `${s.random.won}/${s.random.won + s.random.lost}`, hitPct(s.random)),
+              s.random.pending ? h('span', { class: 'chip' }, `${s.random.pending} pendientes`) : null,
+              s.random.staked ? money(s.random.profit) : null,
+            )
+          : null,
       ),
     );
     const box = h('div', { class: 'day' }, head);
     if (open) {
       const day = state.dayCache.get(date);
-      box.append(h('div', { class: 'day-body' }, dayTables(s, filter), state.dayCache.has(date) ? [erroresBody(day, state.sportFilter || 'todos'), dayBody(day, filter, state.sportFilter || 'todos')] : h('div', { class: 'note' }, 'Cargando…')));
+      box.append(h('div', { class: 'day-body' }, dayTables(s, filter), state.dayCache.has(date) ? [randomBody(day, state.sportFilter || 'todos'), erroresBody(day, state.sportFilter || 'todos'), dayBody(day, filter, state.sportFilter || 'todos')] : h('div', { class: 'note' }, 'Cargando…')));
     }
     root.append(box);
   }

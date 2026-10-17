@@ -352,6 +352,30 @@ async function withoutExtension(browser, errors) {
   await page.click('.tabs button[data-tab="historial"]');
   await page.waitForSelector('.day');
   check('el historial muestra que guarda en GitHub', (await page.textContent('#tab-historial .banner')).includes('Guardando en GitHub'));
+  // Random Bets: sortea 3 entre todas las apuestas por jugar del día (los dos métodos y los errores de cuota).
+  await page.waitForFunction(() => /por jugar/.test(document.querySelector('.random-panel .random-pool')?.textContent || ''), null, { timeout: 15000 });
+  const poolText = await page.textContent('.random-panel .random-pool');
+  await page.fill('.random-panel .random-n', '3');
+  await page.click('.random-panel button:has-text("Random Bets")');
+  await page.waitForFunction(() => /Random Bets:|No se pudo|No quedan/.test(document.querySelector('#toast').textContent), null, { timeout: 15000 });
+  const randomToast = await page.textContent('#toast');
+  await page.waitForSelector('.random-last li');
+  const draws = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).random || [];
+  const drawn = draws[0]?.bets || [];
+  const lastItems = await page.$$eval('.random-last li', (els) => els.map((e) => e.textContent));
+  check(
+    'Random Bets: sortea las pedidas entre los picks de los dos métodos y los errores de cuota y las guarda',
+    /\(\d+ del estadístico · \d+ de la red neuronal · 2 errores de cuota\)/.test(poolText) &&
+      /Random Bets: 3 apuestas sorteadas de \d+, guardadas en el historial/.test(randomToast) &&
+      draws.length === 1 &&
+      drawn.length === 3 &&
+      drawn.every((b) => b.status === 'pending' && b.odds > 1 && b.from.length > 0) &&
+      new Set(drawn.map((b) => `${b.eventId}|${b.market}`)).size === 3 &&
+      lastItems.length === 3,
+    `${poolText} · ${randomToast} · ${JSON.stringify(drawn.map((b) => [b.label, b.from]))}`,
+  );
+  check('Random Bets: sin desplazamiento horizontal en el celular', !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)));
+  await page.locator('.random-panel').screenshot({ path: path.join(OUT, '11-celular-random-bets.png') });
   await page.evaluate(() => {
     const real = Date.now.bind(Date);
     Date.now = () => real() + 36 * 3600000;
@@ -377,6 +401,14 @@ async function withoutExtension(browser, errors) {
     'Errores de cuota: se liquidan y tienen su seguimiento',
     JSON.stringify(settledErrors.sort()) === '["Menos de 7.5 tarjetas: won","Más de 6.5 córners: won"]' && /Todos2100%/.test(errorsPanel.replace(/\s+/g, '')) && /2\/2 · 100%/.test(errorsLine) && (await page.$$('.day-body .method-tag.errores')).length === 1,
     `${settledErrors.join(', ')} · ${errorsPanel.replace(/\s+/g, ' ').slice(-90)} · ${errorsLine}`,
+  );
+  const settledRandom = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).random[0].bets;
+  const randomPanelText = (await page.textContent('#tab-historial .grid2 .panel:has(h3:text("Random Bets"))')).replace(/\s+/g, '');
+  const randomLine = await page.textContent('.day-line:has(b:text("Random Bets"))');
+  check(
+    'Random Bets: se liquidan y tienen su seguimiento',
+    settledRandom.every((b) => b.status !== 'pending') && /Todas3/.test(randomPanelText) && /\d\/\d/.test(randomLine) && (await page.$$('.day-body .method-tag.random')).length === 1 && (await page.$$('.day-body .analysis-block:has(.method-tag.random) li')).length === 3,
+    `${settledRandom.map((b) => `${b.label}: ${b.status}`).join(', ')} · ${randomPanelText.slice(0, 120)} · ${randomLine}`,
   );
   const errorLegs = await page.textContent('.day-body .analysis-block:has(.method-tag.errores)');
   check('Errores de cuota: el día muestra los enfrentamientos de cada uno', /prom\. 9\.7 · 18 de 20 · enfrent\. 11\.5 \(6 de 6\)/.test(errorLegs.replace(/\s+/g, ' ')), errorLegs.replace(/\s+/g, ' ').slice(0, 300));

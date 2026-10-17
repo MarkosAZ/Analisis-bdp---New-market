@@ -234,6 +234,17 @@ historial de resultados. Funciona en el **celular y en la PC**:
   jugó, la apuesta queda nula). Si un mismo pick sale en dos análisis del mismo día
   y método, cuenta una sola vez; una apuesta cuyo dato no publica ninguna
   fuente queda nula a los 4 días.
+- **Random Bets** (en Historial): eliges cuántas y el botón *Random Bets* las
+  sortea entre todas las apuestas que mandó el análisis del día elegido arriba:
+  los picks del estadístico y de la red neuronal (de todos los niveles; lo
+  último de cada mercado si se volvió a analizar) y los errores de cuota. Solo
+  las de partidos que todavía no empiezan y una vez cada una (si dos métodos
+  mandaron la misma, cuenta una, con la mejor cuota y de dónde salió). Todas
+  tienen la misma probabilidad: se barajan con el generador criptográfico del
+  navegador (`crypto.getRandomValues`, no `Math.random`) y no salen dos del mismo
+  mercado de un partido. Cada sorteo se guarda en el historial del día y se
+  liquida como los picks; el panel "Random Bets" da resueltas, aciertos, ganancia
+  y ROI (a 1 u cada una), en total y por deporte, y cada día muestra sus sorteos.
 
 Los niveles, la cuota mínima de las selecciones de las combinadas, las cuotas
 objetivo de las combinadas, **cuáles
