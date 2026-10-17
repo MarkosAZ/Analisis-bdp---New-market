@@ -151,9 +151,16 @@ function feedsCached(fsId, kinds, b) {
 
 // Remates de cada jugador de un partido de fútbol terminado (API de Flashscore), con
 // caché permanente de solo lo que usa la página: { teams, players } o null. Un partido
-// sin esa tabla se recuerda como tal si ya pasaron 2 días (antes puede llegar tarde).
+// sin esa tabla (la API responde 404: las ligas menores no la tienen) se recuerda como
+// tal si ya pasaron 2 días (antes puede llegar tarde). En cada corrida, una liga cuyos
+// primeros 3 partidos no la tienen (y ninguno sí) no se sigue pidiendo.
 const footballBoxes = new Map();
-function footballPlayersOf(fsId, start) {
+const footballLeagues = new Map(); // liga -> { none, ok } en esta corrida
+const leagueWithout = (league) => {
+  const s = footballLeagues.get(league);
+  return Boolean(s && s.ok === 0 && s.none >= 3);
+};
+function footballPlayersOf(fsId, start, league = '') {
   const id = String(fsId).replace(/^fs:/, '');
   if (!footballBoxes.has(id)) {
     const p = withLock(`futbol:${id}`, async () => {
@@ -164,16 +171,20 @@ function footballPlayersOf(fsId, start) {
       } catch {
         // sin caché
       }
-      if (!hasBudget(FOOT_BUDGET)) return undefined;
+      if (!hasBudget(FOOT_BUDGET) || leagueWithout(league)) return undefined;
       FOOT_BUDGET.start ||= Date.now();
       FOOT_BUDGET.used++;
       let data;
       try {
         const { sse, sd } = await getFootballPlayerStats(id);
         data = footballPlayersFromPMS(sse, sd);
-      } catch {
-        return undefined; // se reintenta en la próxima corrida
+      } catch (e) {
+        if (e?.status !== 404) return undefined; // otro error: se reintenta en la próxima corrida
+        data = null;
       }
+      const stats = footballLeagues.get(league) || { none: 0, ok: 0 };
+      stats[data ? 'ok' : 'none']++;
+      footballLeagues.set(league, stats);
       if (data) await writeJson(file, data);
       else if (Date.now() - start > 2 * 86400000) await writeJson(file, { none: true });
       return data;
@@ -610,16 +621,16 @@ async function main() {
         const side = async (last, isHome, rival) => {
           const matches = [];
           const seen = new Set();
-          const add = async (fsId, start, home, opp) => {
+          const add = async (fsId, start, home, opp, league) => {
             if (!fsId || seen.has(fsId)) return;
             seen.add(fsId);
-            const data = await footballPlayersOf(fsId, start);
+            const data = await footballPlayersOf(fsId, start, league);
             if (data) matches.push({ start, home, opp: sameTeam(opp, rival) ? rival : opp, data });
           };
-          for (const m of (last || []).slice(0, DATA_MATCHES)) await add(m.fsId, m.start, m.home, m.opp);
+          for (const m of (last || []).slice(0, DATA_MATCHES)) await add(m.fsId, m.start, m.home, m.opp, m.league);
           for (const m of (d.h2hList || []).slice(0, DATA_H2H)) {
             const home = m.homeId && ev.home.id ? m.homeId === ev.home.id : sameTeam(m.home, ev.home.name);
-            await add(m.fsId, m.start, isHome ? home : !home, rival);
+            await add(m.fsId, m.start, isHome ? home : !home, rival, m.league);
           }
           return teamPlayersFromPMS(matches.sort((a, b) => b.start - a.start), { top: DATA_TOP_PLAYERS });
         };
