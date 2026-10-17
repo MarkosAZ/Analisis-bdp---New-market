@@ -7,7 +7,7 @@ import * as E from '../docs/js/errores.js';
 // Últimos partidos de un equipo (del más reciente al más viejo) con [goles a favor, en contra].
 const team = (scores, corners = null) =>
   scores.map(([gf, ga], i) => ({ start: Date.UTC(2026, 9, 30 - i), home: i % 2 === 0, opp: `Rival ${i}`, gf, ga, league: 'Liga', stats: corners ? { corners: corners[i] } : null }));
-const data = (home, away, players = []) => ({ home: { name: 'Local', last: home }, away: { name: 'Visita', last: away }, h2h: [], players });
+const data = (home, away, players = [], h2h = [], abbr = null) => ({ home: { name: 'Local', last: home }, away: { name: 'Visita', last: away }, h2h, players, abbr });
 const o = (market, sel, line, price, source = 'apuestatotal') => ({ market, sel, line, source, price, label: `${market} ${sel} ${line}` });
 const analysis = (lines, sport = 'football') => ({ run: 'r1', events: { 'fs:a': { id: 'fs:a', sport, home: 'Local', away: 'Visita', start: 0 } }, lines: { 'fs:a': lines }, candidates: [] });
 
@@ -69,6 +69,47 @@ test('errores de cuota: córners, local/visita y uno por mercado (el más fuerte
   assert.equal(split[0].n, 10);
   assert.equal(E.strengthName(1.2), 'muy grande');
   assert.equal(E.strengthName(-0.7), 'grande');
+});
+
+test('errores de cuota: los enfrentamientos tienen que decir lo mismo (Everton vs Chelsea)', () => {
+  // Sus últimos 10: Everton con 2.2 goles por partido y Chelsea con 4.6 (promedio 3.4,
+  // 12 de 20 con más de 2.5); pero en sus últimos 10 enfrentamientos, 2.2 y solo 3 de 10.
+  const everton = team([[2, 2], [1, 0], [1, 0], [0, 0], [2, 2], [1, 1], [4, 0], [2, 0], [1, 1], [1, 1]]);
+  const chelsea = team([[5, 1], [0, 3], [2, 2], [6, 3], [1, 2], [4, 3], [2, 0], [3, 2], [3, 1], [2, 1]]);
+  const h2h = team([[0, 3], [0, 2], [0, 1], [0, 0], [0, 6], [2, 0], [2, 2], [0, 1], [1, 0], [1, 1]]);
+  const lines = [o('OU', 'over', 2.5, 1.67), o('OU', 'under', 2.5, 2.2)];
+  const form = E.findErrors(analysis(lines), () => data(everton, chelsea));
+  assert.deepEqual([form.length, form[0].sel, form[0].avg, form[0].hits, form[0].h2h], [1, 'over', 3.4, 12, null], 'sin enfrentamientos: solo los últimos partidos');
+  assert.deepEqual(E.findErrors(analysis(lines), () => data(everton, chelsea, [], h2h)), [], 'los enfrentamientos dicen lo contrario');
+  // Con menos de 3 enfrentamientos no cuentan; si dicen lo mismo, van con el error.
+  assert.equal(E.findErrors(analysis(lines), () => data(everton, chelsea, [], h2h.slice(0, 2))).length, 1);
+  const agree = team([[2, 2], [3, 1], [1, 2], [2, 1], [0, 1]]);
+  const [e] = E.findErrors(analysis(lines), () => data(everton, chelsea, [], agree));
+  assert.deepEqual([e.sel, e.h2h], ['over', { n: 5, avg: 3, hits: 4 }]);
+  assert.deepEqual(E.trackedErrors([e])[0].h2h, { avg: 3, hits: 4, of: 5 });
+  // Promedio de los enfrentamientos del lado del error pero menos de la mitad de ese lado: tampoco.
+  const skewed = team([[0, 6], [1, 0], [1, 1], [0, 1], [2, 0]]);
+  assert.deepEqual(E.findErrors(analysis(lines), () => data(everton, chelsea, [], skewed)), []);
+  // Solo los últimos `n` enfrentamientos (como en la pestaña Datos).
+  const [last5] = E.findErrors(analysis(lines), () => data(everton, chelsea, [], [...agree, ...h2h]), { n: 5, level: 'baja' });
+  assert.deepEqual(last5.h2h, { n: 5, avg: 3, hits: 4 });
+
+  // Hándicap: la diferencia del local de hoy en cada enfrentamiento.
+  const strong = team(Array.from({ length: 10 }, () => [4, 1]));
+  const weak = team(Array.from({ length: 10 }, () => [1, 4]));
+  const hcp = [o('HCP', 'home', -2.5, 1.9), o('HCP', 'away', -2.5, 1.9)];
+  const won = E.findErrors(analysis(hcp, 'basketball'), () => data(strong, weak, [], team([[3, 1], [2, 1], [1, 2]])));
+  assert.deepEqual(won, [], 'el local ganó los enfrentamientos por poco');
+  const [m] = E.findErrors(analysis(hcp, 'basketball'), () => data(strong, weak, [], team([[5, 1], [4, 0], [3, 2]])));
+  assert.deepEqual([m.sel, m.h2h], ['home', { n: 3, avg: 3, hits: 2 }]);
+
+  // Jugador: sus partidos contra el rival de hoy (la sigla de data.abbr).
+  const games = Array.from({ length: 10 }, (_, i) => ({ start: Date.UTC(2026, 3, 30 - i), opp: i < 3 ? 'BOS' : 'NYK', home: true, pts: i < 3 ? 12 : 20, reb: 8, ast: 6 }));
+  const pl = [o('OU.pl_pra#LeBron James', 'over', 28.5, 1.87), o('OU.pl_pra#LeBron James', 'under', 28.5, 1.93)];
+  const player = [{ side: 'home', name: 'LeBron James', games }];
+  assert.deepEqual(E.findErrors(analysis(pl, 'basketball'), () => data([], [], player, [], ['LAL', 'BOS'])), [], 'contra BOS promedia 26');
+  const [p] = E.findErrors(analysis(pl, 'basketball'), () => data([], [], player, [], ['LAL', 'MIA']));
+  assert.deepEqual([p.sel, p.h2h, p.side], ['over', null, 'home']);
 });
 
 test('errores de cuota en el seguimiento: se guardan como apuestas, se reemplazan al reanalizar y suman aparte', async () => {

@@ -331,6 +331,12 @@ async function withoutExtension(browser, errors) {
     errorCards.length === 2 && errorCards.every((c) => c.startsWith('Alianza Lima vs Sporting Cristal')) && errorCards.some((c) => /Más de 6\.5 córners.*@1\.85 Apuesta Total/.test(c)) && errorCards.some((c) => /Menos de 7\.5 tarjetas.*@1\.88 Apuesta Total/.test(c)) && /en 1 de 3 partidos con datos/.test(errorNote),
     `${errorCards.join(' / ')} · ${errorNote.slice(-120)}`,
   );
+  const evidence = await page.$$eval('.error-card .err-evidence', (lists) => lists.map((l) => l.textContent).join(' / '));
+  check(
+    'Errores de cuota: con lo que dicen los enfrentamientos',
+    /En los enfrentamientos: promedio 11\.5 · pasó la línea en 6 de 6/.test(evidence) && /Menos de 3 enfrentamientos con tarjetas en los datos/.test(evidence),
+    evidence,
+  );
   await page.screenshot({ path: path.join(OUT, '10-celular-errores.png'), fullPage: true });
   const savedErrors = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).errores || [];
   check('Errores de cuota: se guardan en el historial con su cuota', savedErrors.length === 2 && savedErrors.every((e) => e.status === 'pending' && e.odds > 1 && e.settings.level === 'media'), JSON.stringify(savedErrors.map((e) => [e.label, e.odds, e.status])));
@@ -372,6 +378,8 @@ async function withoutExtension(browser, errors) {
     JSON.stringify(settledErrors.sort()) === '["Menos de 7.5 tarjetas: won","Más de 6.5 córners: won"]' && /Todos2100%/.test(errorsPanel.replace(/\s+/g, '')) && /2\/2 · 100%/.test(errorsLine) && (await page.$$('.day-body .method-tag.errores')).length === 1,
     `${settledErrors.join(', ')} · ${errorsPanel.replace(/\s+/g, ' ').slice(-90)} · ${errorsLine}`,
   );
+  const errorLegs = await page.textContent('.day-body .analysis-block:has(.method-tag.errores)');
+  check('Errores de cuota: el día muestra los enfrentamientos de cada uno', /prom\. 9\.7 · 18 de 20 · enfrent\. 11\.5 \(6 de 6\)/.test(errorLegs.replace(/\s+/g, ' ')), errorLegs.replace(/\s+/g, ' ').slice(0, 300));
   const index = JSON.parse(repo.get('docs/data/historial/index.json').text).days[DAY];
   check('el resumen guarda los resultados de cada método', index.methods.estadistico.won + index.methods.estadistico.lost > 0 && index.methods.red_neuronal.won + index.methods.red_neuronal.lost > 0, JSON.stringify(index.methods).slice(0, 160));
   await page.click('#tab-historial .segmented button:has-text("Red neuronal")');

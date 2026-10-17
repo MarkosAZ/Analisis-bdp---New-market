@@ -139,6 +139,7 @@ function erroresBody(day, sport = 'todos') {
             h('span', { class: 'note' }, `@ ${e.odds.toFixed(2)} ${BOOKMAKERS[e.source] || e.source} · `),
             h('span', { class: 'note' }, e.kind === 'margin' ? `diferencia ${e.avg > 0 ? '+' : ''}${e.avg} · ` : `prom. ${e.avg} · `),
             h('span', { class: 'note' }, `${e.hits} de ${e.of} · `),
+            e.h2h ? h('span', { class: 'note' }, `enfrent. ${e.kind === 'margin' && e.h2h.avg > 0 ? '+' : ''}${e.h2h.avg} (${e.h2h.hits} de ${e.h2h.of}) · `) : null,
           ]),
         ),
     ),

@@ -71,7 +71,13 @@ historial de resultados. Funciona en el **celular y en la PC**:
   jugador, queda lejos de la línea y lo confirma cuántas veces la pasaron, la opción
   que favorecen los datos aparece como error de cuota, con su cuota, la de la otra
   opción y la probabilidad del análisis. Ejemplo: promedio de 3.5 goles con la línea
-  en 2.5 → "Más de 2.5". Qué tan lejos depende de cuánto varía cada mercado (la
+  en 2.5 → "Más de 2.5". Los enfrentamientos entre ambos (los mismos últimos 5, 10
+  o 15 de la pestaña Datos; en los de jugador, sus partidos contra el rival de hoy)
+  tienen que decir lo mismo: si hay al menos 3 con esa estadística, su promedio
+  también queda de ese lado de la línea y al menos la mitad la pasó hacia ese lado
+  (si los dos equipos promedian 3.4 goles pero sus enfrentamientos 2.2, "Más de
+  2.5" no es error). La tarjeta y el Historial muestran lo de los enfrentamientos.
+  Qué tan lejos depende de cuánto varía cada mercado (la
   diferencia se mide en desviaciones de esos partidos: un gol pesa lo que varios
   puntos en el básquet) y de la exigencia elegida:
   - baja: 0.25 desviaciones y 55 % de los partidos de ese lado;
