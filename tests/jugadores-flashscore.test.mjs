@@ -34,6 +34,14 @@ test('jugadores de un equipo: su sección en cada partido, los de más minutos y
   const players = teamPlayersFromBox(matches, { top: 2, names: ['Kevin Punter'] });
   assert.deepEqual(players.map((p) => p.name), ['Joel Parra', 'Tyrese Martin', 'Kevin Punter']);
   assert.deepEqual(players[1].games.map((g) => [g.start, g.opp, g.home, g.pts]), [[2000, 'Olympiacos', true, 17], [1000, 'Real Madrid', false, 17]]);
+  // Una serie contra el mismo rival (los dos equipos se repiten): nunca el rival, también
+  // con su nombre largo.
+  const series = [
+    { start: 3000, home: false, opp: 'Barcelona', teams },
+    { start: 2000, home: true, opp: 'FC Barcelona', teams },
+  ];
+  assert.ok(teamPlayersFromBox(series, { top: 20 }).every((p) => p.games.length === 2) && teamPlayersFromBox(series, { top: 20 }).some((p) => p.name === 'Aleksandar Vezenkov'));
+  assert.ok(!teamPlayersFromBox(series, { top: 20 }).some((p) => p.name === 'Tyrese Martin'));
   // Un solo partido: la sección que no es el rival.
   assert.equal(teamPlayersFromBox([{ start: 1, home: false, opp: 'Barcelona', teams }], { top: 1 })[0].name, 'Codi Miller-McIntyre');
 });

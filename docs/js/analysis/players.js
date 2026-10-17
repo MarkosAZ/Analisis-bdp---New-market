@@ -290,19 +290,22 @@ export function playerValue(rec, name, code) {
 // Jugadores de un equipo con sus partidos (pestaña Datos), de sus últimos partidos con
 // la tabla de cada uno (records.parseFsPlayers). matches: [{ start, home, opp, teams }]
 // del más reciente al más viejo. Su equipo es la sección que se repite en todos (el
-// rival cambia; si hay uno solo, la que no es el rival). Los `top` con más minutos en
+// rival cambia; nunca la del rival de ese partido, aunque se repita en una serie). Los `top` con más minutos en
 // sus últimos 30 y los pedidos (`names`, los que ofrece la casa): [{ name, games }],
 // de más a menos minutos; cada partido { start, opp, home, min, pts, reb, ... }.
 export function teamPlayersFromBox(matches = [], { top = 8, names = [] } = {}) {
   const count = new Map();
   for (const m of matches) for (const t of m.teams || []) count.set(normName(t.team), (count.get(normName(t.team)) || 0) + 1);
   const ours = (m) => {
-    const list = m.teams || [];
-    if (matches.length > 1) {
-      const best = [...list].sort((a, b) => (count.get(normName(b.team)) || 0) - (count.get(normName(a.team)) || 0))[0];
-      if (best && (count.get(normName(best.team)) || 0) > 1) return best;
-    }
-    return list.find((t) => normName(t.team) !== normName(m.opp)) || null;
+    // Nunca el rival de ese partido ("Olympiacos" también es "Olympiacos Piraeus"); de
+    // las demás, la que más se repite.
+    const rival = normName(m.opp);
+    const isRival = (t) => {
+      const x = normName(t.team);
+      return Boolean(rival && x && (x === rival || x.includes(rival) || rival.includes(x)));
+    };
+    const list = (m.teams || []).filter((t) => !isRival(t));
+    return list.sort((a, b) => (count.get(normName(b.team)) || 0) - (count.get(normName(a.team)) || 0))[0] || null;
   };
   const byId = new Map();
   for (const m of matches) {

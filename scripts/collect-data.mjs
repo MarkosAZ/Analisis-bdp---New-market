@@ -129,9 +129,21 @@ const DATA_BUDGET = budget(DATA_BUDGET_MS); // más partidos y enfrentamientos (
 const BOX_BUDGET = budget(DATA_BOX_MS); // jugadores de las ligas de básquet sin ESPN (pestaña Datos)
 const hasBudget = (b) => b.used < b.max && (!b.start || Date.now() - b.start < b.ms);
 
-// Feeds de detalle de un partido terminado, con caché permanente.
-async function feedsCached(fsId, kinds, b) {
+// Feeds de detalle de un partido terminado, con caché permanente. De a uno por
+// partido: dos etapas (o dos trabajos) que lo piden a la vez no repiten el pedido ni
+// pisan lo que guardó la otra (el segundo ya lo encuentra en la caché).
+const feedLocks = new Map();
+function feedsCached(fsId, kinds, b) {
   const id = String(fsId).replace(/^fs:/, '');
+  const run = () => readFeeds(id, kinds, b);
+  const next = (feedLocks.get(id) || Promise.resolve()).then(run, run);
+  const done = next.catch(() => {});
+  feedLocks.set(id, done);
+  done.then(() => feedLocks.get(id) === done && feedLocks.delete(id));
+  return next;
+}
+
+async function readFeeds(id, kinds, b) {
   const file = path.join(DETAIL_CACHE, `${id}.json`);
   let cached = {};
   try {
@@ -156,24 +168,28 @@ async function feedsCached(fsId, kinds, b) {
 const parsedStats = new Map();
 // Estadísticas de cada jugador de un partido de básquet terminado (df_psn de
 // Flashscore, con caché): [{ team, players }] o null.
+// Se recuerda el pedido en curso (otro trabajo que lo necesita lo espera); si
+// faltó presupuesto, se olvida y otro puede pedirlo.
 const parsedBoxes = new Map();
-async function matchPlayers(fsId) {
-  if (parsedBoxes.has(fsId)) return parsedBoxes.get(fsId);
-  let f;
-  try {
-    f = await feedsCached(fsId, ['psn'], BOX_BUDGET);
-  } catch {
-    return null;
+function matchPlayers(fsId) {
+  if (!parsedBoxes.has(fsId)) {
+    const p = feedsCached(fsId, ['psn'], BOX_BUDGET).then(
+      (f) => {
+        if (typeof f.psn !== 'string') {
+          parsedBoxes.delete(fsId);
+          return null;
+        }
+        try {
+          return parseFsPlayers(f.psn);
+        } catch {
+          return null; // tabla ilegible
+        }
+      },
+      () => (parsedBoxes.delete(fsId), null),
+    );
+    parsedBoxes.set(fsId, p);
   }
-  if (typeof f.psn !== 'string') return null;
-  let teams = null;
-  try {
-    teams = parseFsPlayers(f.psn);
-  } catch {
-    // tabla ilegible
-  }
-  parsedBoxes.set(fsId, teams);
-  return teams;
+  return parsedBoxes.get(fsId);
 }
 
 async function matchStats(fsId, sport, b) {
