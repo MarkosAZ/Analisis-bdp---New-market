@@ -236,6 +236,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .random-n { width: 4.5em; border: 1px solid var(--line); border-radius: 9px; padding: 6px 8px; background: var(--surface); color: var(--text); }
 .random-last { border-top: 1px solid var(--line); padding-top: 10px; }
 .random-last h4 { margin: 0 0 8px; font-size: 14px; }
+.market-panel { margin-bottom: 12px; }
+.market-group .market-stats { margin: -4px 0 8px; }
 tr.total td { font-weight: 700; border-bottom: 0; }
 tr.aparte td { color: var(--muted); border-top: 2px solid var(--line); }
 .compare { margin-bottom: 14px; }

@@ -234,6 +234,12 @@ historial de resultados. Funciona en el **celular y en la PC**:
   jugó, la apuesta queda nula). Si un mismo pick sale en dos análisis del mismo día
   y método, cuenta una sola vez; una apuesta cuyo dato no publica ninguna
   fuente queda nula a los 4 días.
+  El **detalle de cada día** se ve de cinco maneras: *Ambos*, *Estadístico*,
+  *Red neuronal*, **Por tipo de mercado** (las apuestas del día de los dos
+  métodos y los errores de cuota, una vez cada una, agrupadas por mercado —goles,
+  ambos anotan, córners, tarjetas, cada estadística de jugador...— con los
+  aciertos y la ganancia de cada tipo; arriba, los resultados de cada tipo en todos
+  los días) y **Random Bets** (solo los días con sorteos, con cada sorteo).
 - **Random Bets** (en Historial): eliges cuántas y el botón *Random Bets* las
   sortea entre todas las apuestas que mandó el análisis del día elegido arriba:
   los picks del estadístico y de la red neuronal (de todos los niveles; lo
@@ -245,7 +251,8 @@ historial de resultados. Funciona en el **celular y en la PC**:
   `Math.random`) y, si los análisis mandaron dos opciones del mismo mercado (el
   otro lado u otra línea), sale una de ellas, al azar. Cada sorteo se guarda en el historial del día y se
   liquida como los picks; el panel "Random Bets" da resueltas, aciertos, ganancia
-  y ROI (a 1 u cada una), en total y por deporte, y cada día muestra sus sorteos.
+  y ROI (a 1 u cada una), en total y por deporte, y la pestaña *Random Bets* del
+  detalle de cada día muestra los sorteos.
 
 Los niveles, la cuota mínima de las selecciones de las combinadas, las cuotas
 objetivo de las combinadas, **cuáles

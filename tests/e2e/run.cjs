@@ -22,9 +22,13 @@ function check(name, ok, detail = '') {
 
 // ---- Datos automáticos (data/fuente) y API de GitHub simulados ----
 
+// La página corre con el reloj a las 08:00 (Lima) de hoy, antes de los partidos de
+// prueba (11:00 a 18:00): así la prueba da lo mismo a cualquier hora del día.
+const DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(new Date());
+const NOW = Date.parse(`${DAY}T13:00:00Z`);
+
 async function fixtures() {
   const { compactDay, compactResult, compactMatchData, compactMatchStats } = await import(pathToFileURL(path.join(ROOT, 'docs/js/data-format.js')).href);
-  const DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(new Date());
   const next = new Date(`${DAY}T12:00:00Z`);
   next.setUTCDate(next.getUTCDate() + 1);
   const TOMORROW = next.toISOString().slice(0, 10);
@@ -55,7 +59,7 @@ async function fixtures() {
   const football = compactDay({
     date: DAY,
     sport: 'football',
-    generated: new Date(Date.now() - 35 * 60000).toISOString(),
+    generated: new Date(NOW - 35 * 60000).toISOString(),
     events,
     // e1 también con córners y tarjetas lejos de sus datos (pestaña Errores de cuota):
     // promedio de córners cerca de 9.7 frente a 6.5 y de tarjetas cerca de 4 frente a 7.5.
@@ -192,6 +196,7 @@ const LOW_THRESHOLDS = () => {
 async function withoutExtension(browser, errors) {
   const { DAY, files } = await fixtures();
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'es-PE', timezoneId: 'America/Lima', isMobile: true, hasTouch: true });
+  await context.clock.install({ time: NOW });
   await context.addInitScript(LOW_THRESHOLDS);
   await context.route('**/data/fuente/**', (route) => {
     const rel = new globalThis.URL(route.request().url()).pathname.split('/data/fuente/')[1];
@@ -402,16 +407,48 @@ async function withoutExtension(browser, errors) {
     JSON.stringify(settledErrors.sort()) === '["Menos de 7.5 tarjetas: won","Más de 6.5 córners: won"]' && /Todos2100%/.test(errorsPanel.replace(/\s+/g, '')) && /2\/2 · 100%/.test(errorsLine) && (await page.$$('.day-body .method-tag.errores')).length === 1,
     `${settledErrors.join(', ')} · ${errorsPanel.replace(/\s+/g, ' ').slice(-90)} · ${errorsLine}`,
   );
+  const errorLegs = await page.textContent('.day-body .analysis-block:has(.method-tag.errores)');
+  check('Errores de cuota: el día muestra los enfrentamientos de cada uno', /prom\. 9\.7 · 18 de 20 · enfrent\. 11\.5 \(6 de 6\)/.test(errorLegs.replace(/\s+/g, ' ')), errorLegs.replace(/\s+/g, ' ').slice(0, 300));
+  // Random Bets: en su pestaña del detalle de cada día (en "Ambos" ya no salen).
+  const randomInAmbos = (await page.$$('.day-line:has(b:text("Random Bets"))')).length + (await page.$$('.day-body .method-tag.random')).length;
+  await page.click('#tab-historial .day-views button:has-text("Random Bets")');
   const settledRandom = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text).random[0].bets;
   const randomPanelText = (await page.textContent('#tab-historial .grid2 .panel:has(h3:text("Random Bets"))')).replace(/\s+/g, '');
   const randomLine = await page.textContent('.day-line:has(b:text("Random Bets"))');
   check(
-    'Random Bets: se liquidan y tienen su seguimiento',
-    settledRandom.every((b) => b.status !== 'pending') && /Todas3/.test(randomPanelText) && /\d\/\d/.test(randomLine) && (await page.$$('.day-body .method-tag.random')).length === 1 && (await page.$$('.day-body .analysis-block:has(.method-tag.random) li')).length === 3,
-    `${settledRandom.map((b) => `${b.label}: ${b.status}`).join(', ')} · ${randomPanelText.slice(0, 120)} · ${randomLine}`,
+    'Random Bets: se liquidan y tienen su pestaña en el detalle de cada día',
+    randomInAmbos === 0 &&
+      settledRandom.every((b) => b.status !== 'pending') &&
+      /Todas3/.test(randomPanelText) &&
+      /1 sorteo/.test(randomLine) &&
+      /\d\/\d/.test(randomLine) &&
+      (await page.$$('.day-line:has(b:text("Errores de cuota"))')).length === 0 &&
+      (await page.$$('.day-body .method-tag.random')).length === 1 &&
+      (await page.$$('.day-body .analysis-block:has(.method-tag.random) li')).length === 3 &&
+      (await page.$$('.day-body .method-tag.estadistico, .day-body .method-tag.errores')).length === 0,
+    `${settledRandom.map((b) => `${b.label}: ${b.status}`).join(', ')} · ${randomPanelText.slice(0, 120)} · ${randomLine} · en Ambos: ${randomInAmbos}`,
   );
-  const errorLegs = await page.textContent('.day-body .analysis-block:has(.method-tag.errores)');
-  check('Errores de cuota: el día muestra los enfrentamientos de cada uno', /prom\. 9\.7 · 18 de 20 · enfrent\. 11\.5 \(6 de 6\)/.test(errorLegs.replace(/\s+/g, ' ')), errorLegs.replace(/\s+/g, ' ').slice(0, 300));
+  // Por tipo de mercado: las apuestas del día (los dos métodos y los errores de cuota, una vez cada una) agrupadas.
+  await page.click('#tab-historial .day-views button:has-text("Por tipo de mercado")');
+  const hist = await import(pathToFileURL(path.join(ROOT, 'docs/js/history.js')).href);
+  const savedDay = JSON.parse(repo.get(`docs/data/historial/${DAY}.json`).text);
+  const expectedGroups = hist.byMarketType(hist.marketBets(savedDay)).map((g) => `${g.name}|${g.bets.length}`);
+  const shownGroups = await page.$$eval('.day-body .market-group', (els) => els.map((e) => `${e.querySelector('h4').firstChild.textContent.replace(/^\S+\s/, '')}|${e.querySelectorAll('li').length}`));
+  const origins = await page.$$eval('.day-body .market-group .origin-tag', (els) => [...new Set(els.map((e) => e.textContent))].sort());
+  const marketPanel = (await page.textContent('#tab-historial .market-panel')).replace(/\s+/g, ' ');
+  check(
+    'Por tipo de mercado: las apuestas del día agrupadas, una vez cada una, con sus resultados',
+    expectedGroups.length > 1 &&
+      JSON.stringify(shownGroups) === JSON.stringify(expectedGroups) &&
+      JSON.stringify(origins) === '["Error de cuota","Estadístico","Red neuronal"]' &&
+      (await page.$$('.day-body .market-group .market-stats .chip')).length >= expectedGroups.length &&
+      expectedGroups.every((g) => marketPanel.includes(g.split('|')[0])) &&
+      (await page.$$('.day-body .method-tag')).length === 0,
+    `${shownGroups.join(', ')} · esperado ${expectedGroups.join(', ')} · ${origins.join(', ')}`,
+  );
+  await page.locator('#tab-historial .market-panel').screenshot({ path: path.join(OUT, '12-celular-por-mercado.png') });
+  await page.locator('#tab-historial .day').first().screenshot({ path: path.join(OUT, '12b-celular-por-mercado-dia.png') });
+  await page.locator('#tab-historial .toolbar:has(.day-views)').screenshot({ path: path.join(OUT, '12c-celular-detalle-de-cada-dia.png') });
   const index = JSON.parse(repo.get('docs/data/historial/index.json').text).days[DAY];
   check('el resumen guarda los resultados de cada método', index.methods.estadistico.won + index.methods.estadistico.lost > 0 && index.methods.red_neuronal.won + index.methods.red_neuronal.lost > 0, JSON.stringify(index.methods).slice(0, 160));
   await page.click('#tab-historial .segmented button:has-text("Red neuronal")');
@@ -441,6 +478,7 @@ async function withoutExtension(browser, errors) {
   const errors = [];
   try {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'es-PE', timezoneId: 'America/Lima' });
+    await context.clock.install({ time: NOW });
     await context.addInitScript(LOW_THRESHOLDS);
     await context.addInitScript(MOCK);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: URL });

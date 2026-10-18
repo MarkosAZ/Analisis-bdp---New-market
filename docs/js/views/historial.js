@@ -1,11 +1,11 @@
 // Pestaña "Historial": seguimiento por separado del análisis estadístico y del
 // de red neuronal (aciertos, ganancia y ROI por nivel y de las combinadas), de los
 // errores de cuota (aparte: son los mismos en los dos métodos), de Random Bets (sorteos
-// entre todas las apuestas del día), apuestas guardadas por día y estado de las redes
-// especializadas.
+// entre todas las apuestas del día), apuestas guardadas por día (por método, por tipo
+// de mercado o los sorteos) y estado de las redes especializadas.
 import { MIN_SAMPLES } from '../analysis/neural.js';
 import { BOOKMAKERS, LEVELS, MAIN_LEVELS } from '../analysis/picks.js';
-import { emptyMethodStats, hitRate, RANDOM_ORIGINS, randomPool, roi, totals } from '../history.js';
+import { byMarketType, emptyMethodStats, hitRate, marketBets, RANDOM_ORIGINS, randomPool, roi, sortedMarketTypes, statsOf, totals } from '../history.js';
 import { ACTIVE_SPORTS, sportOf } from '../sports.js';
 import { fmtDateTime, fmtDay, fmtTime, groupBy, h, pct } from '../util.js';
 import { bySportAndLeague } from './grupos.js';
@@ -17,6 +17,8 @@ const METHODS = [
   ['red_neuronal', 'Análisis con red neuronal', 'Red neuronal'],
 ];
 const SHORT = Object.fromEntries(METHODS.map(([id, , short]) => [id, short]));
+// Qué muestra cada día: los dos métodos, uno, las apuestas por tipo de mercado o los sorteos de Random Bets.
+const DAY_VIEWS = [['ambos', 'Ambos'], ...METHODS.map(([id, , short]) => [id, short]), ['mercado', 'Por tipo de mercado'], ['random', 'Random Bets']];
 const ZERO = { won: 0, lost: 0, pending: 0, staked: 0, profit: 0 };
 
 const LEVEL_SHORT = { alta: 'Alta', moderada_alta: 'Mod-alta', moderada: 'Moderada', baja: 'Baja' };
@@ -153,9 +155,10 @@ function randomPanel(s = ZERO) {
   return h('div', { class: 'panel' }, h('h3', {}, 'Random Bets'), h('p', { class: 'note' }, 'Las apuestas de todos los sorteos, a 1 u cada una.'), statsTable(rows));
 }
 
-// Apuesta sorteada: su cuota y de dónde salió (uno o varios métodos, o un error de cuota).
-const randomLine = (b) =>
-  legLine(b, [], [h('span', { class: 'note' }, `@ ${b.odds.toFixed(2)} ${BOOKMAKERS[b.source] || b.source}`), ...b.from.map((f) => h('span', { class: `origin-tag o-${f}` }, RANDOM_ORIGINS[f] || f))]);
+// De dónde salió una apuesta (uno o varios métodos, o un error de cuota) y su cuota.
+const originTags = (from = []) => from.map((f) => h('span', { class: `origin-tag o-${f}` }, RANDOM_ORIGINS[f] || f));
+const oddsNote = (b) => h('span', { class: 'note' }, Number.isFinite(b.odds) ? `@ ${b.odds.toFixed(2)} ${BOOKMAKERS[b.source] || b.source || ''}` : '');
+const randomLine = (b) => legLine(b, [], [oddsNote(b), ...originTags(b.from)]);
 const byStart = (list) => list.slice().sort((a, b) => a.start - b.start);
 
 // El sorteo: cuántas (las elige el usuario) entre las apuestas por jugar del día
@@ -228,6 +231,48 @@ function randomBody(day, sport = 'todos') {
         h('ul', { class: 'leg-list' }, byStart(r.bets.filter((b) => sport === 'todos' || b.sport === sport)).map(randomLine)),
       ),
     );
+}
+
+// Por tipo de mercado: resultados de todos los días (cada apuesta una vez, de
+// cualquier método o error de cuota, de todos los niveles).
+function marketPanel(byMarket, sport = 'todos') {
+  const types = sortedMarketTypes(byMarket).filter((t) => sport === 'todos' || t.sport === sport);
+  return h(
+    'div',
+    { class: 'panel market-panel' },
+    h('h3', {}, 'Por tipo de mercado'),
+    h('p', { class: 'note' }, 'Todas las apuestas de cada día: las del estadístico, las de la red neuronal y los errores de cuota, de todos los niveles (también Baja), una vez cada una y a 1 u. Las de Random Bets van en su pestaña.'),
+    types.length ? statsTable(types.map((t) => statsRow(`${sportOf(t.sport).icon} ${t.name}`, t.stats))) : h('p', { class: 'note' }, 'Todavía no hay apuestas guardadas.'),
+  );
+}
+
+// Aciertos, pendientes y ganancia de un grupo de apuestas (cabecera de cada tipo de mercado).
+function statChips(st) {
+  return [
+    st.won + st.lost ? h('span', { class: st.won >= st.lost ? 'chip ok' : 'chip err', title: 'Acertadas de las resueltas' }, `${st.won}/${st.won + st.lost}`, hitPct(st)) : null,
+    st.pending ? h('span', { class: 'chip' }, `${st.pending} ${st.pending === 1 ? 'pendiente' : 'pendientes'}`) : null,
+    st.staked ? money(st.profit) : null,
+  ];
+}
+
+// Apuesta dentro de su tipo de mercado: partido, selección, cuota, nivel y de dónde salió.
+const marketLine = (b) =>
+  legLine(b, [], [oddsNote(b), b.level ? h('span', { class: 'lvl', style: `color:var(--${LEVEL_COLOR[b.level] || 'mod'})` }, LEVEL_NAME[b.level]) : null, ...originTags(b.from)]);
+
+// Apuestas del día ordenadas por tipo de mercado (en el orden de la lista), cada tipo con sus resultados.
+function marketDayBody(day, sport = 'todos') {
+  if (!day) return h('div', { class: 'note' }, 'No se encontró el detalle de este día.');
+  const groups = byMarketType(marketBets(day).filter((b) => sport === 'todos' || b.sport === sport));
+  if (!groups.length) return h('div', { class: 'note' }, sport === 'todos' ? 'Sin apuestas este día.' : `Sin apuestas de ${sportOf(sport).name.toLowerCase()} este día.`);
+  return groups.map((g) =>
+    h(
+      'div',
+      { class: 'analysis-block market-group' },
+      h('h4', {}, `${sportOf(g.sport).icon} ${g.name}`, h('span', { class: 'note' }, ` · ${g.bets.length} ${g.bets.length === 1 ? 'apuesta' : 'apuestas'}`)),
+      h('div', { class: 'day-line market-stats' }, statChips(statsOf(g.bets))),
+      h('ul', { class: 'leg-list' }, byStart(g.bets).map(marketLine)),
+    ),
+  );
 }
 
 // Resultados de un método: por nivel, combinadas y total de picks.
@@ -468,6 +513,7 @@ export function renderHistorial(root, app) {
     return;
   }
   const filter = state.histMethod || 'ambos';
+  const sport = state.sportFilter || 'todos';
   root.append(
     h(
       'div',
@@ -475,18 +521,21 @@ export function renderHistorial(root, app) {
       h('span', { class: 'note' }, 'Detalle de cada día:'),
       h(
         'div',
-        { class: 'segmented', role: 'group', 'aria-label': 'Análisis a mostrar en cada día' },
-        [['ambos', 'Ambos'], ...METHODS.map(([id, , short]) => [id, short])].map(([id, name]) =>
-          h('button', { class: id === filter ? 'active' : '', onclick: () => app.setHistMethod(id) }, name),
-        ),
+        { class: 'segmented levels day-views', role: 'group', 'aria-label': 'Qué mostrar en cada día' },
+        DAY_VIEWS.map(([id, name]) => h('button', { class: id === filter ? 'active' : '', 'aria-pressed': String(id === filter), onclick: () => app.setHistMethod(id) }, name)),
       ),
     ),
     sportSwitch(app),
   );
-  for (const date of dates) {
+  if (filter === 'mercado') root.append(marketPanel(t.byMarket, sport));
+  // Random Bets: solo los días con sorteos.
+  const shown = filter === 'random' ? dates.filter((d) => index.days[d].random?.n) : dates;
+  if (!shown.length) root.append(h('div', { class: 'empty' }, 'Todavía no hay sorteos de Random Bets: hazlos con el botón Random Bets de arriba.'));
+  for (const date of shown) {
     const s = index.days[date];
     const open = state.openDays.has(date);
-    const lines = s.methods ? METHODS.filter(([id]) => s.methods[id] && (filter === 'ambos' || filter === id)).map(([id]) => [SHORT[id], s.methods[id]]) : [['', s]];
+    const byMethod = filter === 'ambos' || filter === 'mercado' ? () => true : (id) => filter === id;
+    const lines = filter === 'random' ? [] : s.methods ? METHODS.filter(([id]) => s.methods[id] && byMethod(id)).map(([id]) => [SHORT[id], s.methods[id]]) : [['', s]];
     const head = h(
       'button',
       { class: 'day-head', onclick: () => app.toggleDay(date) },
@@ -506,7 +555,7 @@ export function renderHistorial(root, app) {
             m.staked ? money(m.profit) : null,
           ),
         ),
-        s.errores?.n
+        s.errores?.n && filter !== 'random'
           ? h(
               'span',
               { class: 'day-line' },
@@ -516,11 +565,12 @@ export function renderHistorial(root, app) {
               s.errores.staked ? money(s.errores.profit) : null,
             )
           : null,
-        s.random?.n
+        s.random?.n && filter === 'random'
           ? h(
               'span',
               { class: 'day-line' },
               h('b', {}, 'Random Bets'),
+              s.random.draws ? h('span', { class: 'chip' }, `${s.random.draws} ${s.random.draws === 1 ? 'sorteo' : 'sorteos'}`) : null,
               h('span', { class: 'chip', title: 'Acertadas de las resueltas' }, `${s.random.won}/${s.random.won + s.random.lost}`, hitPct(s.random)),
               s.random.pending ? h('span', { class: 'chip' }, `${s.random.pending} pendientes`) : null,
               s.random.staked ? money(s.random.profit) : null,
@@ -531,7 +581,14 @@ export function renderHistorial(root, app) {
     const box = h('div', { class: 'day' }, head);
     if (open) {
       const day = state.dayCache.get(date);
-      box.append(h('div', { class: 'day-body' }, dayTables(s, filter), state.dayCache.has(date) ? [randomBody(day, state.sportFilter || 'todos'), erroresBody(day, state.sportFilter || 'todos'), dayBody(day, filter, state.sportFilter || 'todos')] : h('div', { class: 'note' }, 'Cargando…')));
+      const loading = h('div', { class: 'note' }, 'Cargando…');
+      const body =
+        filter === 'random'
+          ? [state.dayCache.has(date) ? randomBody(day, sport) || h('div', { class: 'note' }, sport === 'todos' ? 'Sin Random Bets este día.' : `Sin Random Bets de ${sportOf(sport).name.toLowerCase()} este día.`) : loading]
+          : filter === 'mercado'
+            ? [state.dayCache.has(date) ? marketDayBody(day, sport) : loading]
+            : [dayTables(s, filter), state.dayCache.has(date) ? [erroresBody(day, sport), dayBody(day, filter, sport)] : loading];
+      box.append(h('div', { class: 'day-body' }, body));
     }
     root.append(box);
   }

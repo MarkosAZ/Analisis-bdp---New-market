@@ -15,12 +15,12 @@ import * as store from './storage.js';
 import { addDays, groupBy, limaDateOf, limaToday } from './util.js';
 import { FEATURE_VERSION } from './analysis/features.js';
 import { recordFromResult, settle } from './analysis/markets.js';
-import { parseMarketId } from './analysis/catalog.js';
+import { parseMarketId, scopeLabel, STAT_NAME, TYPES } from './analysis/catalog.js';
 import { profitOf } from './analysis/outcomes.js';
 import { mergeRecords, recordFromSofascore } from './analysis/records.js';
 import { flashscoreRecords } from './flashscore-link.js';
 import { NetworkSet, networkOf } from './analysis/networks.js';
-import { isPlayerMarket, LEVELS } from './analysis/picks.js';
+import { isPlayerMarket, LEVELS, MARKETS, marketInfo } from './analysis/picks.js';
 import { mergeTracked } from './errores.js';
 import { basketballLeague, PLAYER_STATS } from './analysis/players.js';
 
@@ -30,7 +30,7 @@ export const dayPath = (date) => `data/historial/${date}.json`;
 export const rowsPath = (month) => `data/entrenamiento/${month}.json`;
 
 const METHOD_NAME = { estadistico: 'estadístico', red_neuronal: 'red neuronal' };
-const SUMMARY_VERSION = 3; // 3: nivel Baja fuera de los totales (los anteriores se recalculan)
+const SUMMARY_VERSION = 4; // 3: nivel Baja fuera de los totales; 4: por tipo de mercado (los anteriores se recalculan)
 const GRACE_MS = 2.5 * 3600000; // se consulta el resultado 2,5 h después del inicio
 const CANCEL_FINAL_MS = 48 * 3600000; // aplazado/cancelado: nula tras 48 h
 const NO_DATA_MS = 96 * 3600000; // terminado sin los datos de esa apuesta (p. ej. córners): nula tras 4 días
@@ -258,6 +258,76 @@ export function latestByMethod(day) {
   return out;
 }
 
+// ---- Por tipo de mercado ----
+
+const SPORT_ORDER = ['football', 'basketball', 'baseball'];
+
+// Tipo de mercado de una apuesta: { key, sport, name, order }. Los de la lista
+// (picks.MARKETS) con su nombre; los Más/Menos de jugador, uno por estadística; los
+// de versiones anteriores de la página, con el nombre del catálogo.
+export function marketTypeOf(sport, market) {
+  const spec = parseMarketId(market) || {};
+  const sportOrder = SPORT_ORDER.includes(sport) ? SPORT_ORDER.indexOf(sport) : SPORT_ORDER.length;
+  if (isPlayerMarket(market)) {
+    const stat = spec.stat || 'pl';
+    return { key: `${sport}|OU.${stat}`, sport, name: `Jugador: ${STAT_NAME[stat] || stat}`, order: [sportOrder, MARKETS.indexOf(marketInfo(sport, market))] };
+  }
+  const info = marketInfo(sport, market);
+  if (info) return { key: `${sport}|${market}`, sport, name: info.name, order: [sportOrder, MARKETS.indexOf(info)] };
+  const what = spec.stat && spec.stat !== 'score' ? ` de ${STAT_NAME[spec.stat] || spec.stat}` : '';
+  const scope = scopeLabel(spec.scope, sport);
+  return { key: `${sport}|${market}`, sport, name: `${TYPES[spec.t] || market}${what}${scope ? ` (${scope})` : ''}`, order: [sportOrder, MARKETS.length] };
+}
+
+// Del tipo guardado en el resumen ("football|OU") a su nombre y orden.
+export const marketTypeOfKey = (key) => marketTypeOf(...String(key).split(/\|(.*)/s, 2));
+
+const compareTypes = (a, b) => a.order[0] - b.order[0] || a.order[1] - b.order[1] || a.name.localeCompare(b.name, 'es');
+
+// Apuestas del día para verlas por tipo de mercado: los picks de los dos métodos (lo
+// último de cada mercado, de todos los niveles) y los errores de cuota, una vez cada
+// una, con de dónde salió (from) y su nivel. Sin las de Random Bets: son copias de estas.
+export function marketBets(day) {
+  const bets = new Map();
+  const add = (b, from, level = null) => {
+    const key = `${b.eventId}|${b.market}|${b.sel}|${b.line}`;
+    const old = bets.get(key);
+    if (old) {
+      if (!old.from.includes(from)) old.from.push(from);
+      old.level ||= level;
+      return;
+    }
+    bets.set(key, { ...b, from: [from], level });
+  };
+  for (const [method, { picks }] of latestByMethod(day || {})) for (const p of picks.values()) add(p, method, p.level);
+  for (const e of day?.errores || []) add(e, 'errores');
+  return [...bets.values()];
+}
+
+// Apuestas agrupadas por tipo de mercado, en el orden de la lista: [{ key, sport, name, bets }].
+export function byMarketType(bets) {
+  const groups = new Map();
+  for (const b of bets) {
+    const t = marketTypeOf(b.sport, b.market);
+    if (!groups.has(t.key)) groups.set(t.key, { ...t, bets: [] });
+    groups.get(t.key).bets.push(b);
+  }
+  return [...groups.values()].sort(compareTypes);
+}
+
+// Resultados de una lista de apuestas a 1 u cada una: { n, won, lost, void, pending, profit, staked }.
+export function statsOf(bets = []) {
+  const s = emptyStats();
+  for (const b of bets) addResult(s, b.status, b.odds);
+  return s;
+}
+
+// Tipos de mercado de un resumen ({ "football|OU": stats }) en el orden de la lista.
+export const sortedMarketTypes = (byMarket = {}) =>
+  Object.entries(byMarket)
+    .map(([key, stats]) => ({ ...marketTypeOfKey(key), key, stats }))
+    .sort(compareTypes);
+
 const methodStats = () => ({ ...emptyStats(), byLevel: {}, combos: emptyStats() });
 const randomBetsOf = (day) => (day.random || []).flatMap((r) => r.bets); // apuestas de los sorteos de Random Bets
 
@@ -297,6 +367,12 @@ export function daySummary(day) {
       addResult((out.random.bySport[b.sport] ||= emptyStats()), b.status, b.odds);
     }
   }
+  // Por tipo de mercado: cada apuesta del día una vez (de cualquier método o error de cuota).
+  const bets = marketBets(day);
+  if (bets.length) {
+    out.byMarket = {};
+    for (const b of bets) addResult((out.byMarket[marketTypeOf(b.sport, b.market).key] ||= emptyStats()), b.status, b.odds);
+  }
   out.pendingAll = out.pending + out.combos.pending + (out.byLevel.baja?.pending || 0) + (out.errores?.pending || 0) + (out.random?.pending || 0);
   return out;
 }
@@ -334,7 +410,7 @@ async function refreshIndex(days) {
 
 // Totales de todos los días: por método (con sus niveles y combinadas) y en conjunto.
 export function totals(index) {
-  const out = { all: emptyStats(), byLevel: {}, byMethod: {}, combos: emptyStats(), methods: {}, errores: { ...emptyStats(), bySport: {} }, random: { ...emptyStats(), bySport: {} } };
+  const out = { all: emptyStats(), byLevel: {}, byMethod: {}, combos: emptyStats(), methods: {}, errores: { ...emptyStats(), bySport: {} }, random: { ...emptyStats(), bySport: {} }, byMarket: {} };
   const add = (a, b) => {
     for (const k of Object.keys(emptyStats())) a[k] += b[k] || 0;
   };
@@ -345,6 +421,7 @@ export function totals(index) {
     for (const [k, v] of Object.entries(s.errores?.bySport || {})) add((out.errores.bySport[k] ||= emptyStats()), v);
     add(out.random, s.random || {});
     for (const [k, v] of Object.entries(s.random?.bySport || {})) add((out.random.bySport[k] ||= emptyStats()), v);
+    for (const [k, v] of Object.entries(s.byMarket || {})) add((out.byMarket[k] ||= emptyStats()), v);
     for (const [k, v] of Object.entries(s.byLevel || {})) add((out.byLevel[k] ||= emptyStats()), v);
     for (const [k, v] of Object.entries(s.byMethod || {})) add((out.byMethod[k] ||= emptyStats()), v);
     for (const [method, m] of Object.entries(s.methods || {})) {
