@@ -173,6 +173,9 @@ function githubMock(context) {
     const file = decodeURIComponent(m[1]);
     if (req.method() === 'PUT') {
       const body = JSON.parse(req.postData());
+      // Como GitHub: solo con el sha de la versión actual (si no, otro guardó en el medio).
+      const current = files.get(file);
+      if (current ? body.sha !== current.sha : body.sha) return json(current && body.sha ? 409 : 422, { message: 'sha does not match' });
       files.set(file, { text: Buffer.from(body.content, 'base64').toString('utf8'), sha: `s${++sha}` });
       return json(200, { content: { sha: files.get(file).sha } });
     }
@@ -462,9 +465,18 @@ async function withoutExtension(browser, errors) {
   };
   check('cada día cuenta los aciertos por nivel, con su porcentaje', levelChips.length > 0 && levelChips.every(chipOk) && levelChips.some((t) => /%/.test(t)), levelChips.join(' | '));
   const dayTable = await page.textContent('.day-body .day-table');
-  check('el día abierto muestra la tabla por nivel', /Red neuronal: aciertos del día por nivel/.test(dayTable) && /Total picks/.test(dayTable), dayTable.replace(/\s+/g, ' ').slice(0, 160));
+  check('el día abierto muestra la tabla por nivel', /Red neuronal: aciertos del día por nivel/.test(dayTable) && /Total sin Baja/.test(dayTable) && /Total con Baja/.test(dayTable), dayTable.replace(/\s+/g, ' ').slice(0, 160));
+  // Resultados de la versión actual del análisis (por defecto) o de todo el historial.
+  const versionBar = await page.textContent('#tab-historial .version-bar');
+  await page.click('#tab-historial .version-bar button:has-text("Todo el historial")');
+  const allActive = await page.textContent('#tab-historial .version-bar button.active');
+  await page.click('#tab-historial .version-bar button:has-text("Versión actual")');
+  check('el Historial cuenta desde la versión actual o todo el historial', /Versión actual \(desde el/.test(versionBar) && allActive === 'Todo el historial', `${versionBar.replace(/\s+/g, ' ')} · ${allActive}`);
   await page.screenshot({ path: path.join(OUT, '8-celular-historial.png'), fullPage: false });
   await page.click('.tabs button[data-tab="partidos"]');
+  // El reloj de la página va 36 horas adelante (para liquidar): los datos publicados quedan viejos.
+  const stale = await page.textContent('.source-bar');
+  check('avisa cuando los datos automáticos son viejos', /⚠ Los datos son de hace 36 h: las cuotas pueden haber cambiado/.test(stale), stale);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   check('sin desplazamiento horizontal (automático, celular)', !overflow);
   await context.close();

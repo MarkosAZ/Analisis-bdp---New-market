@@ -1,4 +1,4 @@
-// Datos automáticos: los publica GitHub Actions cada 2 horas en data/fuente/
+// Datos automáticos: los publica GitHub Actions cada hora en data/fuente/
 // (partidos y resultados de Flashscore, cuotas de Apuesta Total, xG de
 // Understat). Funcionan en cualquier dispositivo, sin la extensión.
 import { expandDay, expandMatchData, expandResult } from './data-format.js';

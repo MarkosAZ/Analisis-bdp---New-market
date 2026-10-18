@@ -38,6 +38,9 @@ líneas extra del primer tiempo. Además pide permiso para `site.web.api.espn.co
 (el registro de partidos de cada jugador de la NBA) y el diagnóstico de Betano
 también prueba el básquet: si Betano no empareja los partidos de la NBA, copia el
 informe del diagnóstico (sección Betano → "Ver datos técnicos" → basketball).
+La 0.5.4 guarda en GitHub sin pisar lo que otro dispositivo guardó en el medio (si
+el archivo cambió desde que se leyó, la página lo vuelve a leer y aplica su cambio
+encima) y solo acepta rutas dentro de `docs/data/` (sin `.` ni `..`).
 
 ## Guardar en GitHub (opcional)
 

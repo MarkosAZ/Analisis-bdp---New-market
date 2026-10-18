@@ -61,14 +61,19 @@ test('Por tipo de mercado: las apuestas del día una vez cada una, agrupadas en 
 
 test('Por tipo de mercado: en el resumen del día y en los totales de todos los días', () => {
   const s = daySummary(day);
-  assert.deepEqual(Object.keys(s.byMarket).sort(), ['basketball|OU.pl_pts', 'basketball|OU.pl_reb', 'football|HCP3', 'football|OU', 'football|OU.corners']);
-  assert.deepEqual([s.byMarket['football|OU'].won, s.byMarket['football|OU'].pending, s.byMarket['football|HCP3'].lost], [1, 1, 1]);
+  // El hándicap con empate ya no se analiza: se ve en su día pero no cuenta.
+  assert.deepEqual(Object.keys(s.byMarket).sort(), ['basketball|OU.pl_pts', 'basketball|OU.pl_reb', 'football|OU', 'football|OU.corners']);
+  assert.deepEqual([s.byMarket['football|OU'].won, s.byMarket['football|OU'].pending], [1, 1]);
+  assert.equal(s.methods.red_neuronal.lost, 0, 'ni en los totales del método');
   // Sumar por tipo no cambia lo de cada método ni lo pendiente.
   assert.equal(s.pendingAll, daySummary({ ...day, analyses: day.analyses }).pendingAll);
   const t = totals({ days: { a: s, b: s, c: daySummary({ date: 'x', analyses: [] }) } });
   assert.deepEqual([t.byMarket['football|OU'].won, t.byMarket['basketball|OU.pl_pts'].won], [2, 2]);
   assert.deepEqual(
     sortedMarketTypes(t.byMarket).map((x) => x.name),
-    ['Goles totales Más/Menos', 'Más/Menos córners', 'Hándicap con empate', 'Jugador: puntos', 'Jugador: rebotes'],
+    ['Goles totales Más/Menos', 'Más/Menos córners', 'Jugador: puntos', 'Jugador: rebotes'],
   );
+  // Desde una fecha: solo los días desde esa fecha.
+  assert.deepEqual(Object.keys(totals({ days: { '2026-10-16': s, '2026-10-17': s } }, { from: '2026-10-17' }).byMarket).length, 4);
+  assert.equal(totals({ days: { '2026-10-16': s, '2026-10-17': s } }, { from: '2026-10-17' }).byMarket['football|OU'].won, 1);
 });

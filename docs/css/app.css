@@ -187,6 +187,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px 16px 64px; }
 .note { color: var(--muted); font-size: 13px; }
 .note.ok { color: var(--ok); }
 .note.err { color: var(--err); }
+.note.warn { color: var(--warn); font-weight: 600; }
 
 /* Historial */
 .grid2 { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); margin-bottom: 16px; }
@@ -237,6 +238,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .random-last { border-top: 1px solid var(--line); padding-top: 10px; }
 .random-last h4 { margin: 0 0 8px; font-size: 14px; }
 .market-panel { margin-bottom: 12px; }
+.version-bar .note:last-child { flex: 1 1 260px; }
+.chip.version-old { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--muted); }
 .market-group .market-stats { margin: -4px 0 8px; }
 tr.total td { font-weight: 700; border-bottom: 0; }
 tr.aparte td { color: var(--muted); border-top: 2px solid var(--line); }

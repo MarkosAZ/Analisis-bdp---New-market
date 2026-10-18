@@ -5,7 +5,7 @@
 // de mercado o los sorteos) y estado de las redes especializadas.
 import { MIN_SAMPLES } from '../analysis/neural.js';
 import { BOOKMAKERS, LEVELS, MAIN_LEVELS } from '../analysis/picks.js';
-import { byMarketType, emptyMethodStats, hitRate, marketBets, RANDOM_ORIGINS, randomPool, roi, sortedMarketTypes, statsOf, totals } from '../history.js';
+import { byMarketType, CURRENT_VERSION, emptyMethodStats, hitRate, isCurrentMarket, marketBets, RANDOM_ORIGINS, randomPool, roi, sortedMarketTypes, statsOf, totals, versionOf } from '../history.js';
 import { ACTIVE_SPORTS, sportOf } from '../sports.js';
 import { fmtDateTime, fmtDay, fmtTime, groupBy, h, pct } from '../util.js';
 import { bySportAndLeague } from './grupos.js';
@@ -24,12 +24,17 @@ const ZERO = { won: 0, lost: 0, pending: 0, staked: 0, profit: 0 };
 const LEVEL_SHORT = { alta: 'Alta', moderada_alta: 'Mod-alta', moderada: 'Moderada', baja: 'Baja' };
 const LEVEL_COLOR = { alta: 'alta', moderada_alta: 'modalta', moderada: 'mod', baja: 'baja' };
 
-// Filas por nivel: los tres principales, combinadas, total (sin Baja) y Baja aparte.
+// Suma de dos resúmenes (lo de los tres niveles principales más lo de Baja).
+const plus = (a = ZERO, b = ZERO) => Object.fromEntries(['n', 'won', 'lost', 'void', 'pending', 'profit', 'staked'].map((k) => [k, (a[k] || 0) + (b[k] || 0)]));
+
+// Filas por nivel: los tres principales y su total, Baja (que hoy son casi todos los
+// picks), el total con Baja y las combinadas.
 const levelRows = (m) => [
   ...MAIN_LEVELS.map((l) => statsRow(l.name, m.byLevel?.[l.id] || ZERO)),
+  statsRow('Total sin Baja', m, 'total'),
+  statsRow('Baja', m.byLevel?.baja || ZERO, 'aparte'),
+  statsRow('Total con Baja', plus(m, m.byLevel?.baja), 'total'),
   statsRow('Combinadas', m.combos || ZERO),
-  statsRow('Total picks', m, 'total'),
-  statsRow('Baja (aparte)', m.byLevel?.baja || ZERO, 'aparte'),
 ];
 
 // Porcentaje de acierto (acertadas de las resueltas), o nada si no hay resueltas.
@@ -268,7 +273,7 @@ function marketDayBody(day, sport = 'todos') {
     h(
       'div',
       { class: 'analysis-block market-group' },
-      h('h4', {}, `${sportOf(g.sport).icon} ${g.name}`, h('span', { class: 'note' }, ` · ${g.bets.length} ${g.bets.length === 1 ? 'apuesta' : 'apuestas'}`)),
+      h('h4', {}, `${sportOf(g.sport).icon} ${g.name}`, h('span', { class: 'note' }, ` · ${g.bets.length} ${g.bets.length === 1 ? 'apuesta' : 'apuestas'}${g.current ? '' : ' · ya no se analiza: no cuenta en los resultados'}`)),
       h('div', { class: 'day-line market-stats' }, statChips(statsOf(g.bets))),
       h('ul', { class: 'leg-list' }, byStart(g.bets).map(marketLine)),
     ),
@@ -395,6 +400,7 @@ function pickLine(p) {
     h('b', {}, p.label),
     h('span', { class: 'note' }, ` @ ${p.odds.toFixed(2)} ${BOOKMAKERS[p.source]} · ${pct(p.p)}`),
     p.noData ? h('span', { class: 'note' }, ' · sin datos para liquidarla') : null,
+    isCurrentMarket(p) ? null : h('span', { class: 'note' }, ' · mercado que ya no se analiza: no cuenta en los resultados'),
   );
 }
 
@@ -495,8 +501,24 @@ export function renderHistorial(root, app) {
   root.append(randomDrawPanel(app));
 
   const index = state.index || { days: {} };
-  const t = totals(index);
+  // Por defecto, los resultados de la versión actual del análisis (las anteriores usaban otras líneas u otro modelo).
+  const all = Boolean(state.histAll);
+  const t = totals(index, { from: all ? null : CURRENT_VERSION.from });
   root.append(
+    h(
+      'div',
+      { class: 'toolbar version-bar' },
+      h('span', { class: 'note' }, 'Resultados:'),
+      h(
+        'div',
+        { class: 'segmented levels', role: 'group', 'aria-label': 'Desde cuándo contar los resultados' },
+        [
+          [false, `Versión actual (desde el ${fmtDay(CURRENT_VERSION.from).toLowerCase()})`],
+          [true, 'Todo el historial'],
+        ].map(([value, name]) => h('button', { class: value === all ? 'active' : '', 'aria-pressed': String(value === all), onclick: () => app.setHistAll(value) }, name)),
+      ),
+      h('span', { class: 'note' }, all ? 'Incluye versiones anteriores del análisis, con otras líneas u otro modelo.' : `${CURRENT_VERSION.name}. Las versiones anteriores siguen en cada día.`),
+    ),
     h(
       'div',
       { class: 'grid2' },
@@ -539,7 +561,7 @@ export function renderHistorial(root, app) {
     const head = h(
       'button',
       { class: 'day-head', onclick: () => app.toggleDay(date) },
-      h('span', { class: 'date' }, fmtDay(date)),
+      h('span', { class: 'date' }, fmtDay(date), versionOf(date).id === CURRENT_VERSION.id ? null : h('span', { class: 'chip version-old', title: versionOf(date).name }, 'versión anterior')),
       h(
         'span',
         { class: 'day-lines' },

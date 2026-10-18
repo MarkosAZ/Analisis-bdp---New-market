@@ -30,7 +30,19 @@ export const dayPath = (date) => `data/historial/${date}.json`;
 export const rowsPath = (month) => `data/entrenamiento/${month}.json`;
 
 const METHOD_NAME = { estadistico: 'estadístico', red_neuronal: 'red neuronal' };
-const SUMMARY_VERSION = 4; // 3: nivel Baja fuera de los totales; 4: por tipo de mercado (los anteriores se recalculan)
+const SUMMARY_VERSION = 5; // 3: nivel Baja fuera de los totales; 4: por tipo de mercado; 5: sin los mercados que ya no se analizan (los anteriores se recalculan)
+
+// Versiones del análisis: los resultados de una no dicen nada de otra (otras líneas,
+// otro modelo), así que el Historial cuenta por defecto desde la actual. `from`: primer
+// día completo con esa versión. Al cambiar el modelo, se agrega una al final.
+export const VERSIONS = [
+  { id: 1, from: '2026-10-02', name: 'Primera versión: todas las líneas de cada mercado' },
+  { id: 2, from: '2026-10-13', name: 'Línea más pareja de cada mercado, sin calibrar' },
+  { id: 3, from: '2026-10-17', name: 'Calibrada con las líneas reales de la casa' },
+];
+export const CURRENT_VERSION = VERSIONS[VERSIONS.length - 1];
+// Versión de un día (por su fecha).
+export const versionOf = (date) => [...VERSIONS].reverse().find((v) => String(date) >= v.from) || VERSIONS[0];
 const GRACE_MS = 2.5 * 3600000; // se consulta el resultado 2,5 h después del inicio
 const CANCEL_FINAL_MS = 48 * 3600000; // aplazado/cancelado: nula tras 48 h
 const NO_DATA_MS = 96 * 3600000; // terminado sin los datos de esa apuesta (p. ej. córners): nula tras 4 días
@@ -63,6 +75,7 @@ export function compactAnalysis(result) {
     run: result.run || result.created,
     date: result.date,
     settings: result.settings,
+    version: CURRENT_VERSION.id,
     network: result.network,
     sources: result.sources,
     events: result.events,
@@ -141,10 +154,12 @@ export function trainingRows(result) {
 
 // Archivo de filas de un mes. Si existe pero no trae la lista de filas (lectura
 // incompleta), se corta: guardar encima borraría los resultados ya aprendidos.
-async function readRows(month) {
-  const file = await store.read(rowsPath(month));
+const checkRows = (file, month) => {
   if (file && !Array.isArray(file.rows)) throw new Error(`No se pudo leer bien ${rowsPath(month)}; no se guardó nada para no perder datos`);
   return file;
+};
+async function readRows(month) {
+  return checkRows(await store.read(rowsPath(month)), month);
 }
 
 // Filas de jugador pendientes que el último análisis del partido ya no eligió en
@@ -181,17 +196,30 @@ export async function saveAnalysis(input) {
   const { date } = results[0];
   const stored = results.map(compactAnalysis);
   const ids = new Set(stored.map((a) => a.id));
-  const day = (await store.read(dayPath(date))) || { date, analyses: [] };
-  day.analyses = day.analyses.filter((a) => !ids.has(a.id)).concat(stored);
   const withErrors = results.find((r) => Array.isArray(r.errores));
-  if (withErrors) day.errores = mergeTracked(day.errores, withErrors.errores, Object.keys(withErrors.events || {}));
   const names = results.map((r) => METHOD_NAME[r.method]).join(' y ');
-  await store.write(dayPath(date), day, `Historial: análisis ${names} del ${date}`);
+  // Sobre lo último guardado (otro dispositivo pudo guardar otro análisis del mismo día).
+  const day = await store.update(
+    dayPath(date),
+    (old) => {
+      const next = old || { date, analyses: [] };
+      next.analyses = next.analyses.filter((a) => !ids.has(a.id)).concat(stored);
+      if (withErrors) next.errores = mergeTracked(next.errores, withErrors.errores, Object.keys(withErrors.events || {}));
+      return next;
+    },
+    `Historial: análisis ${names} del ${date}`,
+  );
 
   for (const [month, rows] of groupBy(results.flatMap(trainingRows), (r) => r.date.slice(0, 7))) {
-    const file = (await readRows(month)) || { rows: [] };
-    file.rows = mergeRows(dropReplaced(currentRows(file.rows), rows), rows);
-    await store.write(rowsPath(month), file, `Entrenamiento: selecciones del ${date}`);
+    await store.update(
+      rowsPath(month),
+      (old) => {
+        const file = checkRows(old, month) || { rows: [] };
+        file.rows = mergeRows(dropReplaced(currentRows(file.rows), rows), rows);
+        return file;
+      },
+      `Entrenamiento: selecciones del ${date}`,
+    );
   }
   await refreshIndex([day]);
   return day;
@@ -270,19 +298,25 @@ export function marketTypeOf(sport, market) {
   const sportOrder = SPORT_ORDER.includes(sport) ? SPORT_ORDER.indexOf(sport) : SPORT_ORDER.length;
   if (isPlayerMarket(market)) {
     const stat = spec.stat || 'pl';
-    return { key: `${sport}|OU.${stat}`, sport, name: `Jugador: ${STAT_NAME[stat] || stat}`, order: [sportOrder, MARKETS.indexOf(marketInfo(sport, market))] };
+    const info = marketInfo(sport, market);
+    return { key: `${sport}|OU.${stat}`, sport, name: `Jugador: ${STAT_NAME[stat] || stat}`, current: Boolean(info), order: [sportOrder, info ? MARKETS.indexOf(info) : MARKETS.length] };
   }
   const info = marketInfo(sport, market);
-  if (info) return { key: `${sport}|${market}`, sport, name: info.name, order: [sportOrder, MARKETS.indexOf(info)] };
+  if (info) return { key: `${sport}|${market}`, sport, name: info.name, current: true, order: [sportOrder, MARKETS.indexOf(info)] };
   const what = spec.stat && spec.stat !== 'score' ? ` de ${STAT_NAME[spec.stat] || spec.stat}` : '';
   const scope = scopeLabel(spec.scope, sport);
-  return { key: `${sport}|${market}`, sport, name: `${TYPES[spec.t] || market}${what}${scope ? ` (${scope})` : ''}`, order: [sportOrder, MARKETS.length] };
+  return { key: `${sport}|${market}`, sport, name: `${TYPES[spec.t] || market}${what}${scope ? ` (${scope})` : ''}`, current: false, order: [sportOrder, MARKETS.length] };
 }
 
 // Del tipo guardado en el resumen ("football|OU") a su nombre y orden.
 export const marketTypeOfKey = (key) => marketTypeOf(...String(key).split(/\|(.*)/s, 2));
 
 const compareTypes = (a, b) => a.order[0] - b.order[0] || a.order[1] - b.order[1] || a.name.localeCompare(b.name, 'es');
+
+// ¿La apuesta es de un mercado que se sigue analizando? Las de mercados que ya no se
+// analizan (versiones anteriores: resultado, hándicap con empate...) se ven en su día
+// pero no cuentan en los resultados.
+export const isCurrentMarket = (b) => Boolean(marketInfo(b.sport, b.market));
 
 // Apuestas del día para verlas por tipo de mercado: los picks de los dos métodos (lo
 // último de cada mercado, de todos los niveles) y los errores de cuota, una vez cada
@@ -338,6 +372,7 @@ export function daySummary(day) {
   for (const [method, { picks, combos }] of latestByMethod(day)) {
     const m = (out.methods[method] = methodStats());
     for (const p of picks.values()) {
+      if (!isCurrentMarket(p)) continue;
       addResult((m.byLevel[p.level] ||= emptyStats()), p.status, p.odds);
       addResult((out.byLevel[p.level] ||= emptyStats()), p.status, p.odds);
       if (p.level === 'baja') continue;
@@ -345,6 +380,7 @@ export function daySummary(day) {
       addResult(out, p.status, p.odds);
     }
     for (const k of combos.values()) {
+      if (!k.legs.every(isCurrentMarket)) continue;
       addResult(m.combos, k.status, k.odds);
       addResult(out.combos, k.status, k.odds);
     }
@@ -368,7 +404,7 @@ export function daySummary(day) {
     }
   }
   // Por tipo de mercado: cada apuesta del día una vez (de cualquier método o error de cuota).
-  const bets = marketBets(day);
+  const bets = marketBets(day).filter(isCurrentMarket);
   if (bets.length) {
     out.byMarket = {};
     for (const b of bets) addResult((out.byMarket[marketTypeOf(b.sport, b.market).key] ||= emptyStats()), b.status, b.odds);
@@ -394,27 +430,47 @@ export async function loadIndex({ upgrade = false } = {}) {
   const index = (await store.read(INDEX)) || { days: {}, updated: null };
   if (upgrade && (await upgradeIndex(index)) && store.canWrite()) {
     index.updated = new Date().toISOString();
-    await store.write(INDEX, index, 'Historial: resumen por método').catch(() => {});
+    await store
+      .update(
+        INDEX,
+        async (old) => {
+          const fresh = old || { days: {}, updated: null };
+          await upgradeIndex(fresh);
+          fresh.updated = index.updated;
+          return fresh;
+        },
+        'Historial: resumen por método',
+      )
+      .catch(() => {});
   }
   return index;
 }
 
+// Resumen de los días guardados (sobre el último índice: otro dispositivo pudo
+// guardar otros días en el medio).
 async function refreshIndex(days) {
-  const index = await loadIndex();
-  await upgradeIndex(index);
-  for (const day of days) index.days[day.date] = daySummary(day);
-  index.updated = new Date().toISOString();
-  await store.write(INDEX, index, 'Historial: actualizar resumen');
-  return index;
+  return store.update(
+    INDEX,
+    async (old) => {
+      const index = old || { days: {}, updated: null };
+      await upgradeIndex(index);
+      for (const day of days) index.days[day.date] = daySummary(day);
+      index.updated = new Date().toISOString();
+      return index;
+    },
+    'Historial: actualizar resumen',
+  );
 }
 
-// Totales de todos los días: por método (con sus niveles y combinadas) y en conjunto.
-export function totals(index) {
+// Totales de los días desde `from` (fecha; sin `from`, todos): por método (con sus
+// niveles y combinadas), en conjunto, errores de cuota, Random Bets y tipo de mercado.
+export function totals(index, { from = null } = {}) {
   const out = { all: emptyStats(), byLevel: {}, byMethod: {}, combos: emptyStats(), methods: {}, errores: { ...emptyStats(), bySport: {} }, random: { ...emptyStats(), bySport: {} }, byMarket: {} };
   const add = (a, b) => {
     for (const k of Object.keys(emptyStats())) a[k] += b[k] || 0;
   };
-  for (const s of Object.values(index.days || {})) {
+  for (const [date, s] of Object.entries(index.days || {})) {
+    if (from && date < from) continue;
     add(out.all, s);
     add(out.combos, s.combos || {});
     add(out.errores, s.errores || {});
@@ -483,6 +539,28 @@ function resolveLeg(leg, results, now) {
   if (r.noData) leg.noData = true;
   leg.score = res.score;
   return true;
+}
+
+// Liquida las apuestas pendientes de un día (picks, patas de combinadas, errores de
+// cuota y sorteos) con los resultados: { resolved, changed }.
+function settleDay(day, results, now) {
+  let resolved = 0;
+  let changed = false;
+  for (const a of day.analyses || []) {
+    for (const p of a.picks) if (resolveLeg(p, results, now)) (resolved++, (changed = true));
+    for (const k of a.combos || []) {
+      for (const l of k.legs) if (resolveLeg(l, results, now)) changed = true;
+      const st = comboStatus(k);
+      if (st !== k.status) {
+        k.status = st;
+        k.odds = st === 'pending' ? k.odds : comboOdds(k);
+        changed = true;
+      }
+    }
+  }
+  for (const e of day.errores || []) if (resolveLeg(e, results, now)) (resolved++, (changed = true));
+  for (const b of randomBetsOf(day)) if (resolveLeg(b, results, now)) (resolved++, (changed = true));
+  return { resolved, changed };
 }
 
 // Combinada: perdida si falla una; las medias apuestas multiplican su parte
@@ -592,7 +670,7 @@ export async function updateResults({ onProgress = () => {} } = {}) {
   // registro. Sin marcador conocido el partido no se da por terminado: así solo
   // se liquidan las de jugador y las demás esperan su resultado.
   const attachPlayers = (id, players, boxScore = null) => (results[id] = withPlayers(results[id], players, sports.get(id), boxScore));
-  // Partidos automáticos (Flashscore): resultados publicados cada 2 horas.
+  // Partidos automáticos (Flashscore): resultados publicados cada hora.
   const auto = list.filter(provider.isAuto);
   const starts = new Map();
   for (const day of dayFiles) for (const leg of legsOfDay(day)) starts.set(leg.eventId, leg.start);
@@ -666,45 +744,49 @@ export async function updateResults({ onProgress = () => {} } = {}) {
   }
 
   onProgress('Liquidando apuestas', 0.75);
+  // Se liquida sobre lo último guardado de cada archivo (mientras se buscaban los
+  // resultados otro dispositivo pudo guardar un análisis o un sorteo en ese día).
   let resolved = 0;
   const changedDays = [];
-  for (const day of dayFiles) {
-    let changed = false;
-    for (const a of day.analyses) {
-      for (const p of a.picks) if (resolveLeg(p, results, now)) (resolved++, (changed = true));
-      for (const k of a.combos || []) {
-        for (const l of k.legs) if (resolveLeg(l, results, now)) changed = true;
-        const st = comboStatus(k);
-        if (st !== k.status) {
-          k.status = st;
-          k.odds = st === 'pending' ? k.odds : comboOdds(k);
-          changed = true;
-        }
-      }
-    }
-    for (const e of day.errores || []) if (resolveLeg(e, results, now)) (resolved++, (changed = true));
-    for (const b of randomBetsOf(day)) if (resolveLeg(b, results, now)) (resolved++, (changed = true));
-    if (changed) {
-      await store.write(dayPath(day.date), day, `Historial: resultados del ${day.date}`);
-      changedDays.push(day);
-    }
+  for (const { date } of dayFiles) {
+    let settled = { resolved: 0, changed: false };
+    const saved = await store.update(
+      dayPath(date),
+      (day) => {
+        settled = day ? settleDay(day, results, now) : { resolved: 0, changed: false };
+        return settled.changed ? day : undefined;
+      },
+      `Historial: resultados del ${date}`,
+    );
+    resolved += settled.resolved;
+    if (settled.changed) changedDays.push(saved);
   }
   let newRows = 0;
-  for (const { month, file, pruned } of rowFiles) {
-    let changed = pruned;
-    for (const r of file.rows) {
-      if (r.y != null) continue;
-      const res = results[r.eventId];
-      if (!res) continue;
-      const st = legStatus(r, res, now);
-      if (!st) continue;
-      const status = st.status;
-      // Media ganada/perdida: 0.75 / 0.25 (la red aprende la probabilidad de ganar).
-      r.y = yOf(status);
-      changed = true;
-      newRows++;
-    }
-    if (changed) await store.write(rowsPath(month), file, `Entrenamiento: resultados de ${month}`);
+  for (const { month, pruned } of rowFiles) {
+    let n = 0;
+    await store.update(
+      rowsPath(month),
+      (old) => {
+        const file = checkRows(old, month);
+        if (!file) return undefined;
+        const all = file.rows.length;
+        file.rows = currentRows(file.rows);
+        n = 0;
+        for (const r of file.rows) {
+          if (r.y != null) continue;
+          const res = results[r.eventId];
+          if (!res) continue;
+          const st = legStatus(r, res, now);
+          if (!st) continue;
+          // Media ganada/perdida: 0.75 / 0.25 (la red aprende la probabilidad de ganar).
+          r.y = yOf(st.status);
+          n++;
+        }
+        return n || pruned || file.rows.length !== all ? file : undefined;
+      },
+      `Entrenamiento: resultados de ${month}`,
+    );
+    newRows += n;
   }
   if (changedDays.length) await refreshIndex(changedDays);
   // Las redes las reentrena GitHub Actions (scripts/historico/entrenar.mjs) con
@@ -785,14 +867,23 @@ export function drawRandom(pool, n, rand = randomInt) {
 // Sortea y guarda en el historial del día: { day, draw, pool } (draw null si no hay
 // apuestas por jugar). Cada sorteo queda aparte, con cuántas se pidieron y entre cuántas.
 export async function saveRandomDraw(date, n, { now = Date.now(), rand = randomInt } = {}) {
-  const day = await store.read(dayPath(date));
-  const pool = randomPool(day, now);
-  if (!pool.length) return { day, draw: null, pool: 0 };
-  const draw = { id: `rb-${now.toString(36)}-${rand(1e6).toString(36)}`, created: new Date(now).toISOString(), asked: n, pool: pool.length, bets: drawRandom(pool, n, rand) };
-  day.random = [...(day.random || []), draw];
-  await store.write(dayPath(date), day, `Historial: Random Bets del ${date}`);
-  await refreshIndex([day]);
-  return { day, draw, pool: pool.length };
+  let draw = null;
+  let size = 0;
+  // Se sortea sobre lo último guardado del día (si cambió mientras tanto, se vuelve a sortear).
+  const day = await store.update(
+    dayPath(date),
+    (old) => {
+      const pool = randomPool(old, now);
+      size = pool.length;
+      draw = pool.length ? { id: `rb-${now.toString(36)}-${rand(1e6).toString(36)}`, created: new Date(now).toISOString(), asked: n, pool: pool.length, bets: drawRandom(pool, n, rand) } : null;
+      if (!draw) return undefined;
+      old.random = [...(old.random || []), draw];
+      return old;
+    },
+    `Historial: Random Bets del ${date}`,
+  );
+  if (draw) await refreshIndex([day]);
+  return { day, draw, pool: size };
 }
 
 // ---- Redes especializadas ----
@@ -813,30 +904,39 @@ export async function uploadLocalToGithub({ onProgress = () => {} } = {}) {
   for (const [i, path] of paths.entries()) {
     onProgress(`Subiendo ${path}`, i / Math.max(1, paths.length));
     const local = await store.readLocal(path);
-    const remote = await store.read(path);
     if (path.startsWith('data/historial/')) {
-      const merged = remote || { date: local.date, analyses: [] };
-      const ids = new Set(merged.analyses.map((a) => a.id));
-      merged.analyses.push(...local.analyses.filter((a) => !ids.has(a.id)));
-      // Errores de cuota (aparte de los análisis): los que no estén ya en GitHub.
-      const errorKey = (e) => `${e.run}|${e.eventId}|${e.key}`;
-      const have = new Set((merged.errores || []).map(errorKey));
-      const extra = (local.errores || []).filter((e) => !have.has(errorKey(e)));
-      if (extra.length) merged.errores = [...(merged.errores || []), ...extra];
-      // Sorteos de Random Bets: los que no estén ya en GitHub.
-      const draws = new Set((merged.random || []).map((r) => r.id));
-      const moreDraws = (local.random || []).filter((r) => !draws.has(r.id));
-      if (moreDraws.length) merged.random = [...(merged.random || []), ...moreDraws];
-      await store.write(path, merged, `Historial: subir datos locales del ${local.date}`);
+      const merged = await store.update(path, (remote) => mergeLocalDay(remote, local), `Historial: subir datos locales del ${local.date}`);
       days.push(merged);
     } else {
-      if (remote && !Array.isArray(remote.rows)) throw new Error(`No se pudo leer bien ${path} en GitHub; no se subió para no perder datos`);
-      const merged = { rows: mergeRows(remote?.rows || [], local.rows || []) };
-      await store.write(path, merged, 'Entrenamiento: subir datos locales');
+      await store.update(
+        path,
+        (remote) => {
+          if (remote && !Array.isArray(remote.rows)) throw new Error(`No se pudo leer bien ${path} en GitHub; no se subió para no perder datos`);
+          return { rows: mergeRows(remote?.rows || [], local.rows || []) };
+        },
+        'Entrenamiento: subir datos locales',
+      );
     }
   }
   if (days.length) await refreshIndex(days);
   return { files: paths.length };
+}
+
+// Un día guardado en el navegador sobre el de GitHub: lo que falte de cada parte.
+function mergeLocalDay(remote, local) {
+  const merged = remote || { date: local.date, analyses: [] };
+  const ids = new Set(merged.analyses.map((a) => a.id));
+  merged.analyses.push(...local.analyses.filter((a) => !ids.has(a.id)));
+  // Errores de cuota (aparte de los análisis): los que no estén ya en GitHub.
+  const errorKey = (e) => `${e.run}|${e.eventId}|${e.key}`;
+  const have = new Set((merged.errores || []).map(errorKey));
+  const extra = (local.errores || []).filter((e) => !have.has(errorKey(e)));
+  if (extra.length) merged.errores = [...(merged.errores || []), ...extra];
+  // Sorteos de Random Bets: los que no estén ya en GitHub.
+  const draws = new Set((merged.random || []).map((r) => r.id));
+  const moreDraws = (local.random || []).filter((r) => !draws.has(r.id));
+  if (moreDraws.length) merged.random = [...(merged.random || []), ...moreDraws];
+  return merged;
 }
 
 export { METHOD_NAME };

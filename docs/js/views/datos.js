@@ -202,9 +202,9 @@ export class DatosView {
   // partido elegido y, al buscar, todas (cada liga se abre o se cierra al tocarla).
   groups(items) {
     const data = this.day?.data;
-    // Partidos por jugar que todavía no tienen su archivo (se completan cada 2 horas).
+    // Partidos por jugar que todavía no tienen su archivo (se completan en cada actualización).
     const waiting = data && !this.st.search ? data.events.filter((e) => e.state === 'pendiente' && !data.datos.has(e.id) && (!this.st.onlyOdds || data.offers.has(e.id))).length : 0;
-    const note = waiting ? h('p', { class: 'note datos-waiting' }, `${waiting} ${waiting === 1 ? 'partido por jugar todavía no tiene' : 'partidos por jugar todavía no tienen'} datos: se completan en las próximas actualizaciones (cada 2 horas).`) : null;
+    const note = waiting ? h('p', { class: 'note datos-waiting' }, `${waiting} ${waiting === 1 ? 'partido por jugar todavía no tiene' : 'partidos por jugar todavía no tienen'} datos: se completan en las próximas actualizaciones (cada hora).`) : null;
     if (!items?.length) return h('div', { class: 'datos-groups' }, h('div', { class: 'empty' }, this.st.search ? 'Nada coincide con la búsqueda.' : 'Ningún partido de este día tiene datos publicados todavía.'), note);
     const groups = [...groupBy(items, (e) => `${e.category.name}|${e.tournament.id}`).entries()].sort(
       ([, a], [, b]) => (b[0].tournament.priority || 0) - (a[0].tournament.priority || 0) || a[0].category.name.localeCompare(b[0].category.name) || a[0].tournament.name.localeCompare(b[0].tournament.name),
@@ -272,7 +272,7 @@ export class DatosView {
     );
     if (!m || m.status === 'loading') return [head, h('div', { class: 'empty' }, 'Cargando datos del partido…')];
     if (m.status === 'error') return [head, h('div', { class: 'banner warn' }, h('b', {}, 'No se pudieron leer los datos. '), m.error, ' ', h('button', { class: 'btn small', onclick: () => ((this.match = null), this.render()) }, 'Reintentar'))];
-    if (m.status === 'nodata') return [head, h('div', { class: 'banner' }, 'Este partido todavía no tiene datos publicados. GitHub Actions los actualiza cada 2 horas.')];
+    if (m.status === 'nodata') return [head, h('div', { class: 'banner' }, 'Este partido todavía no tiene datos publicados. GitHub Actions los actualiza cada hora.')];
     const data = m.data;
     const offers = this.day?.data?.offers?.get(ev.id) || [];
     const form = (list) => D.record(list.slice(0, 5)).form.split('').map((r) => h('span', { class: `form-chip ${r}` }, r));

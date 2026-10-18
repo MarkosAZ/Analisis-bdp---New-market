@@ -1,7 +1,7 @@
 // Pestaña "Partidos": fútbol, básquet y béisbol, con sus ligas y partidos del día y casillas para
 // marcar ligas completas o partidos sueltos. Dos fuentes:
 //  - Automático: partidos de Flashscore y cuotas de Apuesta Total publicados
-//    cada 2 horas (celular y PC, sin extensión). Hoy y mañana.
+//    cada hora (celular y PC, sin extensión). Hoy y mañana.
 //  - Sofascore: con la extensión, cualquier día.
 import * as provider from '../provider.js';
 import { activeSports } from '../sports.js';
@@ -9,6 +9,8 @@ import { addDays, flag, fmtDay, fmtTime, groupBy, h, limaToday } from '../util.j
 import { basicNorm } from '../analysis/matching.js';
 
 const MAX_EXPANDED_ON_SEARCH = 60;
+// Datos automáticos más viejos que esto: aviso (las cuotas pueden haber cambiado).
+const STALE_HOURS = 3;
 
 // Liga fijada: deporte, país y nombre (no el id, que cambia entre Sofascore y Flashscore).
 export const pinKey = (e) => `${e.sport}|${basicNorm(e.category?.name || '')}|${basicNorm(e.tournament?.name || '')}`;
@@ -110,16 +112,20 @@ export class PartidosView {
             app.extOk ? ' · al analizar, la extensión suma Betano y cuotas en vivo' : '',
           ].join('')
         : 'Partidos de Sofascore leídos por la extensión';
+    // Datos viejos (GitHub atrasó o se saltó actualizaciones) y avisos de la última recolección.
+    const hours = generated ? (Date.now() - Date.parse(generated)) / 3600000 : 0;
+    const warnings = state.source === 'auto' ? [...(hours >= STALE_HOURS ? [`Los datos son de hace ${Math.floor(hours)} h: las cuotas pueden haber cambiado.`] : []), ...(provider.cachedIndex()?.warnings || [])] : [];
     return h(
       'div',
       { class: 'source-bar' },
       h(
         'div',
         { class: 'segmented', role: 'group', 'aria-label': 'Fuente de los partidos' },
-        btn('auto', 'Automático', 'Datos publicados cada 2 horas: funciona en el celular y en la PC'),
+        btn('auto', 'Automático', 'Datos publicados cada hora: funciona en el celular y en la PC'),
         btn('sofascore', 'Sofascore', app.extOk ? 'Partidos de Sofascore con la extensión' : 'Necesita la extensión (solo PC)', !app.extOk),
       ),
       h('span', { class: 'note' }, info),
+      ...warnings.map((w) => h('span', { class: 'note warn', role: 'status' }, `⚠ ${w}`)),
     );
   }
 
@@ -247,7 +253,7 @@ export class PartidosView {
         'div',
         { class: 'banner warn' },
         h('b', {}, 'Los datos automáticos todavía no están publicados. '),
-        'GitHub Actions los actualiza cada 2 horas; vuelve a intentar en unos minutos.',
+        'GitHub Actions los actualiza cada hora (a veces se atrasa); vuelve a intentar en unos minutos.',
       );
     }
     const dates = Object.keys(index.days || {}).sort();

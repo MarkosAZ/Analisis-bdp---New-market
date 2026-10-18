@@ -5,6 +5,9 @@ const API = 'https://api.github.com';
 const KEY = 'bdp:github';
 const DEFAULTS = { repo: 'MarkosAZ/Analisis-bdp---New-market', branch: 'main', token: '' };
 const WRITABLE = /^docs\/data\/[\w\-./]+\.json$/;
+// Solo archivos JSON dentro de docs/data/, sin partes vacías, "." ni ".." (la URL de
+// la API los resolvería y la ruta saldría de esa carpeta).
+const allowedPath = (path) => WRITABLE.test(path) && !String(path).split('/').some((s) => s === '' || s === '.' || s === '..');
 
 export function getConfig() {
   try {
@@ -89,10 +92,11 @@ async function readMeta(cfg, path, fresh = false) {
   return r.json();
 }
 
-// Devuelve { text, sha } o null si el archivo no existe.
-export async function getFile({ path }) {
+// Devuelve { text, sha } o null si el archivo no existe. `fresh`: sin respuestas guardadas.
+export async function getFile({ path, fresh = false }) {
+  if (!allowedPath(path)) throw new Error(`Ruta no permitida: ${path}`);
   const cfg = getConfig();
-  const meta = await readMeta(cfg, path);
+  const meta = await readMeta(cfg, path, fresh);
   if (!meta) return null;
   if (meta.content && meta.encoding === 'base64') return { text: fromBase64(meta.content), sha: meta.sha };
   // Archivos de más de 1 MB: la API no incluye el contenido; se lee el "blob"
@@ -104,12 +108,28 @@ export async function getFile({ path }) {
   return { text: fromBase64(data.content), sha: meta.sha };
 }
 
-// Crea o reemplaza un archivo con un commit.
-export async function putFile({ path, text, message }) {
-  if (!WRITABLE.test(path)) throw new Error(`Ruta no permitida: ${path}`);
+// Crea o reemplaza un archivo con un commit. Con `sha` (el del archivo leído, o null
+// si no existía) solo se guarda si el archivo sigue siendo ese: si otro dispositivo lo
+// cambió, falla con `conflict` y quien llama lo vuelve a leer y aplica su cambio
+// (storage.update). Sin `sha`, reemplaza lo que haya.
+export async function putFile({ path, text, message, sha }) {
+  if (!allowedPath(path)) throw new Error(`Ruta no permitida: ${path}`);
   const cfg = getConfig();
   if (!cfg.token) throw new Error('Falta el token de GitHub (⚙ Ajustes)');
   const content = toBase64(text);
+  if (sha !== undefined) {
+    const r = await gh(`/repos/${cfg.repo}/contents/${encodePath(path)}`, {
+      method: 'PUT',
+      body: { message: message || `Actualizar ${path}`, content, branch: cfg.branch, ...(sha ? { sha } : {}) },
+    });
+    if (r.ok) return { ok: true };
+    const detail = await r.json().then((x) => x?.message || '').catch(() => '');
+    const last = `HTTP ${r.status}${detail ? `: ${detail}` : ''}`;
+    if (r.status !== 409 && r.status !== 422) throw new Error(`GitHub respondió ${last} al guardar ${path}`);
+    const e = new Error(`Conflicto al guardar ${path}: cambió desde que se leyó (${last})`);
+    e.conflict = true;
+    throw e;
+  }
   let last = '';
   for (let attempt = 0; attempt < 5; attempt++) {
     // Entre intentos se espera (1, 2, 4, 8 s) para que GitHub refleje el último commit.

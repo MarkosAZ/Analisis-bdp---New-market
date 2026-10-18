@@ -3,7 +3,7 @@
 //     cuotas de referencia, vía la extensión) o de los datos automáticos que
 //     publica GitHub Actions (partidos "fs:" de Flashscore: últimos partidos y H2H).
 //  2) Cuotas de Apuesta Total y Betano (emparejando cada partido). Sin la
-//     extensión se usan las cuotas de Apuesta Total publicadas cada 2 horas.
+//     extensión se usan las cuotas de Apuesta Total publicadas cada hora.
 //  3) xG de Understat (fútbol, 5 grandes ligas).
 //  4) Solo los mercados de picks.MARKETS y, en cada casa, su línea .5 más
 //     pareja (la de menos diferencia entre sus dos cuotas).
@@ -401,7 +401,7 @@ async function understatXg(events, sources, progress) {
 }
 
 // Noticias de Flashscore, ESPN y FotMob (con la extensión, al momento; sin
-// ella, las publicadas cada 2 horas). Solo las usa la red neuronal.
+// ella, las publicadas cada hora). Solo las usa la red neuronal.
 async function loadArticles(withExt, sources, progress) {
   progress('Noticias: Flashscore, ESPN y FotMob', 0.84);
   const articles = [];
@@ -611,11 +611,22 @@ export function baseCandidates(ev, d, offers, { xg, simulations = SIMULATIONS } 
 // Aplica el método: con red neuronal, la red especializada de cada mercado
 // (networks.NetworkSet) corrige la probabilidad base si ya está entrenada.
 export function applyMethod(candidates, method, network) {
-  return candidates.map((c) => {
+  const out = candidates.map((c) => {
     const net = method === 'red_neuronal' && network ? network.forCandidate(c) : null;
     const p = clamp(net ? net.predict(c.x, c.pBase) : c.pBase, 0.001, 0.999);
     return { ...c, p, ev: p * c.best.price - 1, ...(net?.trained ? { net: networkOf(c.sport, c.market) } : {}) };
   });
+  // Los dos lados de una línea suman lo mismo que antes de corregir (100 %, o menos
+  // si se puede devolver en una línea entera): la red aprendió con el lado más
+  // probable según la estadística, así que corrige ese y el otro es lo que falta.
+  for (const pair of groupBy(out, (c) => `${c.eventId}|${c.market}|${c.line}`).values()) {
+    if (pair.length !== 2 || !pair.some((c) => c.net)) continue;
+    const [main, other] = pair[0].pBase >= pair[1].pBase ? pair : [pair[1], pair[0]];
+    const push = Math.max(0, 1 - main.pBase - other.pBase);
+    other.p = clamp(1 - push - main.p, 0.001, 0.999);
+    other.ev = other.p * other.best.price - 1;
+  }
+  return out;
 }
 
 // Candidatos de un partido con el método ya aplicado.

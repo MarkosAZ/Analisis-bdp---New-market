@@ -112,6 +112,45 @@ export async function write(path, value, message) {
   throw new Error('Este navegador no permite guardar datos');
 }
 
+const isConflict = (e) => Boolean(e?.conflict) || /^Conflicto/.test(String(e?.message || ''));
+
+// Lee, cambia y guarda un archivo sin pisar lo que otro dispositivo (o pestaña) guardó
+// en el medio: `change(actual)` recibe lo guardado (o null) y devuelve el nuevo valor
+// (undefined: nada que guardar). En GitHub solo se guarda si el archivo sigue siendo
+// el leído; si cambió, se vuelve a leer y se aplica el cambio otra vez (por eso
+// `change` no debe depender de lo que haya visto en un intento anterior). Devuelve lo
+// que quedó guardado (o lo leído, si no hubo cambio).
+export async function update(path, change, message) {
+  if (mode === 'local') {
+    const current = (await idb('get', path)) ?? null;
+    const next = await change(current);
+    if (next === undefined) return current;
+    await idb('put', next, path);
+    return next;
+  }
+  if (!isGithub()) throw new Error('Este navegador no permite guardar datos');
+  const full = `docs/${path}`;
+  const getFile = (fresh) => (mode === 'github-web' ? gh.getFile({ path: full, fresh }) : ext.call('github', 'getFile', { path: full, fresh }, { timeout: 60000 }));
+  const putFile = (text, sha) => (mode === 'github-web' ? gh.putFile({ path: full, text, message, sha }) : ext.call('github', 'putFile', { path: full, text, message, sha }, { timeout: 60000 }));
+  let last = null;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    // Entre intentos se espera (1, 2, 4, 8, 8 s): justo después de un commit GitHub puede devolver la versión anterior.
+    if (attempt) await new Promise((r) => setTimeout(r, 1000 * 2 ** Math.min(attempt - 1, 3)));
+    const file = await getFile(attempt > 0);
+    const current = file ? JSON.parse(file.text) : null;
+    const next = await change(current);
+    if (next === undefined) return current;
+    try {
+      await putFile(JSON.stringify(next), file?.sha ?? null);
+      return next;
+    } catch (e) {
+      if (!isConflict(e)) throw e;
+      last = e;
+    }
+  }
+  throw new Error(`No se pudo guardar ${path}: otro dispositivo lo cambió varias veces seguidas (${last?.message || ''})`);
+}
+
 // Rutas guardadas en este navegador (para subirlas a GitHub).
 export async function localPaths() {
   try {

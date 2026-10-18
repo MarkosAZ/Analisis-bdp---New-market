@@ -4,8 +4,9 @@ import { daySummary, needsRecord, totals, withPlayers } from '../docs/js/history
 import { recordFromSofascore } from '../docs/js/analysis/records.js';
 import { settle } from '../docs/js/analysis/markets.js';
 
-const pick = (eventId, key, level, status, odds = 1.5) => ({ eventId, key, level, status, odds });
-const combo = (status, odds, legs) => ({ source: 'apuestatotal', status, odds, legs: legs.map(([eventId, key]) => ({ eventId, key })) });
+// Mercados de la lista (picks.MARKETS): los que ya no se analizan no cuentan en los resúmenes.
+const pick = (eventId, key, level, status, odds = 1.5, sport = 'football') => ({ eventId, key, sport, market: key.split('|')[0], level, status, odds });
+const combo = (status, odds, legs) => ({ source: 'apuestatotal', status, odds, legs: legs.map(([eventId, key]) => ({ eventId, key, sport: 'football', market: key.split('|')[0] })) });
 
 const day = {
   date: '2026-10-02',
@@ -14,14 +15,14 @@ const day = {
       id: 'est-1',
       method: 'estadistico',
       created: '2026-10-02T10:00:00Z',
-      picks: [pick(1, '1X2|home|', 'alta', 'won', 1.4), pick(2, 'OU|over|2.5', 'moderada', 'lost', 1.9)],
-      combos: [combo('lost', 5.2, [[1, '1X2|home|'], [2, 'OU|over|2.5']])],
+      picks: [pick(1, 'BTTS|yes|', 'alta', 'won', 1.4), pick(2, 'OU|over|2.5', 'moderada', 'lost', 1.9)],
+      combos: [combo('lost', 5.2, [[1, 'BTTS|yes|'], [2, 'OU|over|2.5']])],
     },
     {
       id: 'rn-1',
       method: 'red_neuronal',
       created: '2026-10-02T10:00:00Z',
-      picks: [pick(1, '1X2|home|', 'alta', 'won', 1.4), pick(3, 'DC|1X|', 'moderada_alta', 'pending', 1.3)],
+      picks: [pick(1, 'BTTS|yes|', 'alta', 'won', 1.4), pick(3, 'OU.corners|over|9.5', 'moderada_alta', 'pending', 1.3)],
       combos: [],
     },
     // El mismo partido analizado otra vez más tarde: cuenta una sola vez (el último).
@@ -30,7 +31,7 @@ const day = {
       method: 'estadistico',
       created: '2026-10-02T15:00:00Z',
       picks: [pick(2, 'OU|over|2.5', 'moderada_alta', 'lost', 1.9)],
-      combos: [combo('lost', 5.2, [[2, 'OU|over|2.5'], [1, '1X2|home|']])],
+      combos: [combo('lost', 5.2, [[2, 'OU|over|2.5'], [1, 'BTTS|yes|']])],
     },
   ],
 };
@@ -65,7 +66,7 @@ test('totales de varios días por método', () => {
 test('medias apuestas, combinadas con medias y apuestas sin datos', async () => {
   const { comboOdds, comboStatus, legStatus, needsRecord } = await import('../docs/js/history.js');
   const s = daySummary({
-    analyses: [{ id: 'est-9', method: 'estadistico', created: 'x', picks: [pick(1, 'OU|over|2.25', 'alta', 'half_won', 2), pick(2, 'HCP|home|-0.25', 'alta', 'half_lost', 1.9)], combos: [] }],
+    analyses: [{ id: 'est-9', method: 'estadistico', created: 'x', picks: [pick(1, 'OU|over|2.25', 'alta', 'half_won', 2), pick(2, 'HCP|home|-0.25', 'alta', 'half_lost', 1.9, 'basketball')], combos: [] }],
   });
   const est = s.methods.estadistico;
   assert.equal(est.won, 1);

@@ -99,9 +99,11 @@ async function directFeed(name) {
       failures = 0;
       return text;
     } catch (e) {
-      if (e.status) {
+      // 404: la dirección responde y ese feed no existe. Otro código (401/403 si cambió
+      // la firma o hay bloqueo, 429, 5xx) es un error, no "sin datos".
+      if (e.status === 404 || e.status === 410) {
         failures = 0;
-        return null; // la dirección responde: ese feed no existe
+        return null;
       }
       last = e;
     }

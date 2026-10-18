@@ -32,7 +32,7 @@ function sourceChip(id, s) {
   if (!s) return null;
   if (!s.ok) return h('span', { class: 'chip err', title: s.error || '' }, `${SOURCE_NAMES[id]}: error`);
   const extra = s.matched != null ? ` · ${s.matched} ${UNITS[id] || 'partidos'}` : s.mode ? ` · ${MODE[s.mode] || s.mode}` : '';
-  let title = TITLES[id] || (s.published ? 'Cuotas publicadas por GitHub Actions (cada 2 horas)' : s.generated ? `Datos publicados el ${fmtDateTime(Date.parse(s.generated))}` : '');
+  let title = TITLES[id] || (s.published ? 'Cuotas publicadas por GitHub Actions (cada hora)' : s.generated ? `Datos publicados el ${fmtDateTime(Date.parse(s.generated))}` : '');
   // Casas: cuántos mercados se leyeron y cuántos no se analizan (de jugador, de torneo...).
   const m = s.markets;
   if (m) {

@@ -120,8 +120,8 @@ function chip(cls, text, title) {
 }
 
 // Versión de la extensión con todos los mercados de Betano y Flashscore.
-const EXT_LATEST = '0.5.3';
-// Compara mayor, menor y parche (0.5.2 < 0.5.3: la 0.5.3 pide los disparos y los jugadores de básquet de Apuesta Total y el registro de jugadores de ESPN).
+const EXT_LATEST = '0.5.4';
+// Compara mayor, menor y parche (0.5.3 < 0.5.4: la 0.5.4 guarda en GitHub sin pisar lo que otro dispositivo guardó en el medio y solo dentro de docs/data).
 const extOutdated = (v) => Boolean(v) && !/prueba/.test(v) && versionBefore(v, EXT_LATEST);
 
 function renderHeader() {
@@ -228,7 +228,7 @@ app.togglePin = (key) => {
   LS.set('bdp:fijadas', [...pinned]);
 };
 
-// Partidos automáticos (publicados cada 2 horas): hoy y mañana.
+// Partidos automáticos (publicados cada hora): hoy y mañana.
 async function loadAuto(sport, force) {
   const day = await provider.loadDay(app.state.date, sport, { force });
   if (!day) {
@@ -330,6 +330,12 @@ async function runAnalysis(methods) {
     idle();
   }
 }
+
+// Historial: resultados de la versión actual del análisis o de todo el historial.
+app.setHistAll = (all) => {
+  app.state.histAll = all;
+  render();
+};
 
 app.setHistMethod = (method) => {
   app.state.histMethod = method;

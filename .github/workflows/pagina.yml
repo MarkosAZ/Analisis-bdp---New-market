@@ -2,8 +2,9 @@ name: Página
 
 # Publica la página (docs/ → GitHub Pages) con los datos automáticos al día:
 # partidos y resultados de Flashscore, cuotas de Apuesta Total y xG de
-# Understat (scripts/collect-data.mjs → data/fuente/). Corre cada 2 horas para
-# que la página funcione en el celular y en la PC sin la extensión.
+# Understat (scripts/collect-data.mjs → data/fuente/). Corre cada hora (GitHub suele
+# atrasar o saltarse corridas programadas: así quedan cada 1 a 3 horas) para que la
+# página funcione en el celular y en la PC sin la extensión.
 # Solo despliega si GitHub Pages está activado con «Source: GitHub Actions».
 on:
   push:
@@ -16,7 +17,7 @@ on:
       - extension/sources/**
       - .github/workflows/pagina.yml
   schedule:
-    - cron: "7 */2 * * *" # cada 2 horas (UTC)
+    - cron: "7 * * * *" # cada hora (UTC)
   workflow_dispatch:
 
 permissions:

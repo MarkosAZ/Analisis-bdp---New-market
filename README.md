@@ -205,7 +205,9 @@ historial de resultados. Funciona en el **celular y en la PC**:
   tanto, su mercado queda con la probabilidad estadística. Aprenden de la
   apuesta de cada mercado de cada partido (el lado más probable, también si no
   tiene valor o su probabilidad es muy alta); en las de jugador, hasta 8
-  jugadores por partido en cada red. Se reentrenan **cada día en GitHub
+  jugadores por partido en cada red. Como aprenden con el lado más probable,
+  corrigen ese lado y el otro es lo que falta para 100 % (los dos lados de una
+  línea nunca quedan por debajo de 50 % a la vez). Se reentrenan **cada día en GitHub
   Actions** con los resultados guardados y los partidos históricos (ver
   *Datos históricos*); la página solo lee `docs/data/modelo/redes.json`. El
   Historial muestra el estado de cada una, agrupadas por deporte.
@@ -227,13 +229,22 @@ historial de resultados. Funciona en el **celular y en la PC**:
   separado**: el botón *Actualizar resultados* los marca como ganados o
   perdidos (o medio ganados/perdidos en líneas asiáticas) y calcula aciertos,
   ganancia y ROI por nivel y de las combinadas para el análisis estadístico y
-  para el de red neuronal. El nivel Baja tiene su propia fila y no se suma al
-  total. Se liquidan con el registro completo del partido (marcador por
+  para el de red neuronal: los tres niveles principales con su total ("Total sin
+  Baja"), Baja aparte, el **total con Baja** (hoy Baja son casi todos los picks) y
+  las combinadas. Por defecto cuenta desde la **versión actual del análisis**
+  (calibrada con las líneas reales, desde el 17 de octubre): las anteriores usaban
+  otras líneas u otro modelo y no se mezclan; *Todo el historial* las suma, y cada
+  día anterior dice "versión anterior". Las apuestas de mercados que ya no se
+  analizan (resultado, hándicap con empate... de la primera versión) se ven en su
+  día pero no cuentan en ningún total. Se liquidan con el registro completo del partido (marcador por
   periodo, goles con minuto, tarjetas y estadísticas de Flashscore y Sofascore;
   las de jugador, con su estadística en el partido: ESPN o Sofascore; si no
   jugó, la apuesta queda nula). Si un mismo pick sale en dos análisis del mismo día
   y método, cuenta una sola vez; una apuesta cuyo dato no publica ninguna
-  fuente queda nula a los 4 días.
+  fuente queda nula a los 4 días. **Guardar desde varios dispositivos**: cada
+  archivo se guarda solo si nadie lo cambió desde que se leyó; si otro
+  dispositivo (o pestaña) guardó en el medio, se vuelve a leer y el cambio se
+  aplica encima, así no se pierde nada.
   El **detalle de cada día** se ve de cinco maneras: *Ambos*, *Estadístico*,
   *Red neuronal*, **Por tipo de mercado** (las apuestas del día de los dos
   métodos y los errores de cuota, una vez cada una, agrupadas por mercado —goles,
@@ -418,7 +429,7 @@ node scripts/historico/entrenar.mjs                      # entrena las 36 redes 
 3. Marca partidos o ligas y pulsa **Análisis estadístico**, **Análisis red
    neuronal** o **Ambos análisis**. Cada análisis se guarda solo en el historial.
 4. Al día siguiente, en **Historial**, pulsa **Actualizar resultados**. Los
-   partidos automáticos se liquidan con los resultados publicados (cada 2 horas);
+   partidos automáticos se liquidan con los resultados publicados (cada hora);
    los de Sofascore necesitan la extensión.
 
 ### Guardar en GitHub
@@ -451,9 +462,13 @@ la página suma Sofascore (cualquier día) y Betano. Instrucciones en
 
 En el repositorio: **Settings → Pages → Build and deployment → Source: GitHub
 Actions**. El workflow **Página** (`.github/workflows/pagina.yml`) publica
-`docs/` junto con los datos automáticos cada 2 horas y cada vez que cambia la
-página en `main`. Para publicar en el momento: **Actions → Página → Run
-workflow**.
+`docs/` junto con los datos automáticos cada hora (GitHub a veces atrasa o se
+salta corridas programadas: en la práctica, cada 1 a 3 horas) y cada vez que cambia
+la página en `main`. Para publicar en el momento: **Actions → Página → Run
+workflow**. Si Flashscore devuelve muchos menos partidos que la corrida anterior
+(bloqueo, firma o formato nuevos), no se publica: queda la página anterior y la
+corrida sale en rojo (GitHub avisa por correo). Si faltan cuotas de Apuesta Total,
+se publica con un aviso. La página avisa cuando los datos tienen 3 horas o más.
 
 ## Estructura
 

@@ -39,6 +39,7 @@ import { teamStatsFrom } from '../docs/js/analysis/teamstats.js';
 
 const OUT = path.resolve(process.argv[2] || 'site', 'data/fuente');
 const CACHE = path.resolve('.cache/h2h-v6'); // subir la versión si cambia getH2H (v4: sin la Summer League; v5: carreras de cada enfrentamiento; v6: lista de enfrentamientos con su id)
+const LAST_RUN = path.resolve('.cache/ultima-corrida.json'); // partidos y cuotas de la última corrida publicada
 const DETAIL_CACHE = path.resolve('.cache/detalle-v1'); // feeds de partidos terminados (no cambian)
 const PLAYERS_CACHE = path.resolve('.cache/jugadores-v2'); // jugadores de partidos terminados de ESPN (no cambian; v2: con los intentos)
 const PLAYER_LOGS_CACHE = path.resolve('.cache/jugadores-ultimos-v1'); // últimos partidos de los jugadores ofrecidos (partidos por jugar)
@@ -779,8 +780,24 @@ async function main() {
     .slice(0, 1500);
   await writeJson(newsFile, news);
 
-  // 5) Archivos.
-  const index = { generated: new Date().toISOString(), today, days: {} };
+  // 5) Antes de publicar: si Flashscore devolvió muchos menos partidos que la última
+  //    corrida buena (bloqueo, firma o formato nuevos), no se publica: queda la página
+  //    anterior y la corrida falla (GitHub lo avisa). Si faltan cuotas, se publica con
+  //    un aviso para la página.
+  const counted = (date) => Object.values(upcoming[date] || {}).reduce((s, list) => s + list.length, 0);
+  const run = { events: counted(today) + counted(addDays(today, 1)), withOdds: Object.keys(offers).length };
+  const lastRun = await fs
+    .readFile(LAST_RUN, 'utf8')
+    .then(JSON.parse)
+    .catch(() => null);
+  if (!run.events) throw new Error('Flashscore no devolvió partidos: no se publica (queda la página anterior)');
+  if (lastRun?.events >= 300 && run.events < lastRun.events * 0.3) throw new Error(`Flashscore devolvió ${run.events} partidos de hoy y mañana (la corrida anterior, ${lastRun.events}): no se publica (queda la página anterior)`);
+  const warnings = [];
+  if (lastRun?.withOdds >= 50 && run.withOdds < lastRun.withOdds * 0.2) warnings.push(`Apuesta Total devolvió cuotas de ${run.withOdds} partidos (la actualización anterior, de ${lastRun.withOdds}): pueden faltar cuotas.`);
+  for (const w of warnings) log(`Aviso: ${w}`);
+
+  // 6) Archivos.
+  const index = { generated: new Date().toISOString(), today, days: {}, ...(warnings.length ? { warnings } : {}) };
   for (const [date, bySport] of Object.entries(upcoming)) {
     index.days[date] = {};
     for (const [sport, events] of Object.entries(bySport)) {
@@ -798,6 +815,8 @@ async function main() {
   for (const d of Object.values(matchData)) await writeJson(path.join(OUT, 'datos', `${String(d.id).replace(/^fs:/, '')}.json`), compactMatchData({ ...d, generated: index.generated }));
   await writeJson(path.join(OUT, 'noticias.json'), { generated: index.generated, items: news });
   await writeJson(path.join(OUT, 'indice.json'), index);
+  // Lo de esta corrida, para comparar la próxima (si faltaron cuotas, se recuerda lo de antes).
+  await writeJson(LAST_RUN, { at: index.generated, events: run.events, withOdds: warnings.length ? lastRun.withOdds : run.withOdds });
 
   const total = (d) => Object.values(index.days[d] || {}).reduce((s, x) => s + x.events, 0);
   const odds = (d) => Object.values(index.days[d] || {}).reduce((s, x) => s + x.withOdds, 0);
